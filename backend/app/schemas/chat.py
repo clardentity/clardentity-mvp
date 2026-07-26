@@ -25,6 +25,8 @@ class MessageCreate(BaseModel):
     # validates this explicitly so a missing/invalid mode returns exactly 400,
     # not FastAPI's default 422 for a missing field.
     mode: str | None = None
+    # §7.5: optional, Thinking mode only, entirely user-driven - never inferred.
+    reasoning_lens: str | None = None
 
 
 class CitationOut(BaseModel):
@@ -40,6 +42,7 @@ class MessageOut(BaseModel):
     role: str
     content: str | None
     mode_used: str
+    reasoning_lens: str | None
     confidence_score: float | None
     confidence_band: str | None
     avatar_expression: str | None

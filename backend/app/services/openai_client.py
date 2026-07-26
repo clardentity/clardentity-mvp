@@ -55,6 +55,20 @@ async def stream_generation(
             raise RuntimeError(str(message))
 
 
+async def generate_text(*, instructions: str, input_text: str, model: str | None = None) -> str:
+    """Single non-streaming Responses API call, for short auxiliary generations
+    (query rewriting, memory summarization) that need one final string, not a
+    token-by-token stream to a client.
+    """
+    response = await _client.responses.create(
+        model=model or settings.openai_model,
+        instructions=instructions,
+        input=input_text,
+        stream=False,
+    )
+    return response.output_text
+
+
 _EMBEDDING_BATCH_SIZE = 100
 
 

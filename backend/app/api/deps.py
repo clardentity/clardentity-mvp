@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import InvalidTokenError, TokenType, decode_token
 from app.db.session import get_db
-from app.models import User, WorkspaceMember
+from app.models import Conversation, User, WorkspaceMember
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -54,3 +54,13 @@ async def require_workspace_member(
     if membership is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return membership
+
+
+async def get_conversation_for_user(
+    db: AsyncSession, conversation_id: uuid.UUID, user_id: uuid.UUID
+) -> Conversation:
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    await require_workspace_member(db, conversation.workspace_id, user_id)
+    return conversation

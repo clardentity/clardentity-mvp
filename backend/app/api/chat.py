@@ -4,13 +4,13 @@ import uuid
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import get_current_user, require_workspace_member
+from app.api.deps import get_conversation_for_user, get_current_user, require_workspace_member
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import COGNITIVE_MODES, Citation, Conversation, Document, DocumentChunk, Message, User
+from app.models import Citation, Conversation, Document, DocumentChunk, Message, User
 from app.schemas.chat import (
     CitationOut,
     ConversationCreate,
@@ -18,28 +18,23 @@ from app.schemas.chat import (
     MessageCreate,
     MessageOut,
 )
+from app.services.memory_service import (
+    HISTORY_WINDOW,
+    get_memory_summary,
+    should_rebuild_memory,
+)
 from app.services.openai_client import stream_generation
 from app.services.prompt_builder import (
     build_context_block,
     build_conversation_input,
     build_system_instructions,
 )
+from app.services.query_optimizer import optimize_query
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
+from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
+from app.workers.rebuild_memory import rebuild_memory_task
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-# Default 20 (SRS §13); Phase 5 formalizes short-term window + long-term summary.
-HISTORY_WINDOW = 20
-
-
-async def _get_conversation_for_user(
-    db: AsyncSession, conversation_id: uuid.UUID, user_id: uuid.UUID
-) -> Conversation:
-    conversation = await db.get(Conversation, conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    await require_workspace_member(db, conversation.workspace_id, user_id)
-    return conversation
 
 
 def _serialize_message(message: Message, citations: list[CitationOut]) -> MessageOut:
@@ -48,6 +43,7 @@ def _serialize_message(message: Message, citations: list[CitationOut]) -> Messag
         role=message.role,
         content=message.content,
         mode_used=message.mode_used,
+        reasoning_lens=message.reasoning_lens,
         confidence_score=message.confidence_score,
         confidence_band=message.confidence_band,
         avatar_expression=message.avatar_expression,
@@ -122,7 +118,7 @@ async def get_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationOut:
-    conversation = await _get_conversation_for_user(db, conversation_id, current_user.id)
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
     return ConversationOut.model_validate(conversation)
 
 
@@ -132,7 +128,7 @@ async def delete_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    conversation = await _get_conversation_for_user(db, conversation_id, current_user.id)
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
     await db.delete(conversation)
     await db.commit()
 
@@ -143,7 +139,7 @@ async def list_messages(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[MessageOut]:
-    await _get_conversation_for_user(db, conversation_id, current_user.id)
+    await get_conversation_for_user(db, conversation_id, current_user.id)
 
     rows = await db.execute(
         select(Message)
@@ -164,13 +160,13 @@ async def send_message(
 ) -> EventSourceResponse:
     # FR7: mode is mandatory and there is no auto-detection fallback — reject
     # with exactly 400, not Pydantic's default 422 for a missing field.
-    if payload.mode not in COGNITIVE_MODES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="mode is required and must be one of: " + ", ".join(COGNITIVE_MODES),
-        )
+    try:
+        mode = validate_mode(payload.mode)
+        reasoning_lens = validate_reasoning_lens(payload.reasoning_lens)
+    except (InvalidModeError, InvalidReasoningLensError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    conversation = await _get_conversation_for_user(db, conversation_id, current_user.id)
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
 
     history_rows = await db.execute(
         select(Message)
@@ -179,27 +175,29 @@ async def send_message(
         .limit(HISTORY_WINDOW)
     )
     history = list(reversed(history_rows.scalars().all()))
+    memory_summary = await get_memory_summary(db, conversation_id)
 
     db.add(
         Message(
             conversation_id=conversation_id,
             role="user",
             content=payload.content,
-            mode_used=payload.mode,
+            mode_used=mode,
+            reasoning_lens=reasoning_lens if mode == "thinking" else None,
         )
     )
     # Convenience pre-fill only (§7.2) — never read back as an automatic mode choice.
-    conversation.default_mode = payload.mode
+    conversation.default_mode = mode
     await db.commit()
 
-    chunks: list[RetrievedChunk] = await retrieve_chunks(
-        db, conversation.workspace_id, payload.content, payload.mode
-    )
+    # §5.2 step 3: ambiguity detection/query rewrite for retrieval only —
+    # `mode` and the persisted/displayed message are untouched by this.
+    retrieval_query = await optimize_query(history, payload.content)
+    chunks: list[RetrievedChunk] = await retrieve_chunks(db, conversation.workspace_id, retrieval_query, mode)
 
-    instructions = build_system_instructions(payload.mode)
+    instructions = build_system_instructions(mode, reasoning_lens)
     context_block = build_context_block(chunks)
-    input_text = build_conversation_input(context_block, history, payload.content)
-    mode = payload.mode
+    input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
 
     async def event_stream() -> AsyncIterator[dict]:
         full_text = ""
@@ -225,6 +223,7 @@ async def send_message(
                 role="assistant",
                 content=full_text,
                 mode_used=mode,
+                reasoning_lens=reasoning_lens if mode == "thinking" else None,
             )
             gen_db.add(assistant_message)
             await gen_db.flush()
@@ -243,6 +242,15 @@ async def send_message(
 
             await gen_db.commit()
             await gen_db.refresh(assistant_message)
+
+            total_messages = await gen_db.scalar(
+                select(func.count())
+                .select_from(Message)
+                .where(Message.conversation_id == conversation_id)
+            )
+
+        if should_rebuild_memory(total_messages or 0):
+            rebuild_memory_task.delay(str(conversation_id))
 
         citations = [
             CitationOut(

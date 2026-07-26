@@ -6,7 +6,7 @@ celery_app = Celery(
     "clardentity",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.workers.ingest_document"],
+    include=["app.workers.ingest_document", "app.workers.rebuild_memory"],
 )
 
 celery_app.conf.update(

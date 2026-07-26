@@ -14,6 +14,7 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string | null;
   mode_used: string;
+  reasoning_lens: string | null;
   confidence_score: number | null;
   confidence_band: string | null;
   avatar_expression: string | null;
@@ -35,9 +36,15 @@ export type ChatStreamHandlers = {
   onError: (detail: string) => void;
 };
 
+export type SendMessageBody = {
+  content: string;
+  mode: string;
+  reasoning_lens?: string | null;
+};
+
 async function openStream(
   conversationId: string,
-  body: { content: string; mode: string },
+  body: SendMessageBody,
 ): Promise<Response> {
   const accessToken = getAccessToken();
   return fetch(`${API_BASE_URL}/chat/${conversationId}/messages`, {
@@ -52,7 +59,7 @@ async function openStream(
 
 export async function streamChatMessage(
   conversationId: string,
-  body: { content: string; mode: string },
+  body: SendMessageBody,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
   let res: Response;

@@ -32,6 +32,7 @@ export function MessageList({
           role={m.role}
           content={m.content ?? ""}
           modeUsed={m.mode_used}
+          reasoningLens={m.reasoning_lens}
           citations={m.citations}
         />
       ))}
@@ -40,6 +41,7 @@ export function MessageList({
           role="assistant"
           content={streaming.content}
           modeUsed={streaming.mode_used}
+          reasoningLens={null}
           citations={[]}
           isStreaming
         />
@@ -52,12 +54,14 @@ function MessageBubble({
   role,
   content,
   modeUsed,
+  reasoningLens,
   citations,
   isStreaming,
 }: {
   role: string;
   content: string;
   modeUsed: string;
+  reasoningLens: string | null;
   citations: Citation[];
   isStreaming?: boolean;
 }) {
@@ -74,6 +78,7 @@ function MessageBubble({
         {!isUser && (
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             {modeUsed}
+            {reasoningLens && ` · ${reasoningLens.replace("_", "-")}`}
           </div>
         )}
         <p className="whitespace-pre-wrap">

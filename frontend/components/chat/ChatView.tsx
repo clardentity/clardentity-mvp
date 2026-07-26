@@ -5,6 +5,10 @@ import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { streamChatMessage, type ChatMessage } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
+import {
+  ReasoningLensSelector,
+  type ReasoningLens,
+} from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { MessageInput } from "@/components/chat/MessageInput";
 
@@ -18,6 +22,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
+  const [reasoningLens, setReasoningLens] = useState<ReasoningLens | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +55,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setError(null);
     setSending(true);
 
+    const lensForSend = mode === "thinking" ? reasoningLens : null;
+
     const userMessage: ChatMessage = {
       id: `local-${Date.now()}`,
       role: "user",
       content,
       mode_used: mode,
+      reasoning_lens: lensForSend,
       confidence_score: null,
       confidence_band: null,
       avatar_expression: null,
@@ -67,7 +75,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
     await streamChatMessage(
       conversationId,
-      { content, mode },
+      { content, mode, reasoning_lens: lensForSend },
       {
         onDelta: (text) => {
           setStreaming((prev) =>
@@ -101,7 +109,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       )}
 
       <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
-        <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+          {mode === "thinking" && (
+            <ReasoningLensSelector
+              value={reasoningLens}
+              onChange={setReasoningLens}
+              disabled={sending}
+            />
+          )}
+        </div>
         <MessageInput
           disabled={!mode || sending}
           disabledReason={

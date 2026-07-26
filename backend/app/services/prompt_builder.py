@@ -25,16 +25,42 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     ),
 }
 
+# Appendix A.2 / Section 7.5 - entirely user-driven, Thinking mode only. The
+# system never infers one of these automatically.
+REASONING_LENS_INSTRUCTIONS: dict[str, str] = {
+    "analytical": "Break the problem into smaller parts and address each systematically before concluding.",
+    "critical": "Evaluate the claim rationally and skeptically; identify assumptions and weak points before accepting any conclusion.",
+    "creative": "Generate unique, original angles on the problem rather than the most obvious answer.",
+    "divergent": "Generate a wide variety of distinct possibilities before narrowing down.",
+    "convergent": "Apply logic to converge on a single, well-justified answer.",
+    "abstract": "Reason about the underlying concept independent of a specific example.",
+    "concrete": "Ground the answer in specific, tangible, observable details.",
+    "associative": "Draw connections between this problem and seemingly unrelated ideas that might illuminate it.",
+    "linear": "Proceed step-by-step in strict sequential order.",
+    "non_linear": "Explore connections out of sequence, following whichever thread seems most productive.",
+    "meta_cognitive": "Explicitly narrate the reasoning process itself, not just the conclusion.",
+}
 
-def build_system_instructions(mode: str) -> str:
-    return (
-        f"You are Clardentity operating in {mode} mode (selected explicitly by the user).\n\n"
-        f"{MODE_INSTRUCTIONS[mode]}\n\n"
+
+def build_system_instructions(mode: str, reasoning_lens: str | None = None) -> str:
+    parts = [
+        f"You are Clardentity operating in {mode} mode (selected explicitly by the user).",
+        MODE_INSTRUCTIONS[mode],
+    ]
+
+    if mode == "thinking" and reasoning_lens:
+        lens_instruction = REASONING_LENS_INSTRUCTIONS.get(reasoning_lens)
+        if lens_instruction:
+            parts.append(f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): {lens_instruction}")
+
+    parts.append(
         "You must ground factual claims in the provided CONTEXT block when it is relevant. "
         "Cite supporting context inline with [n], where n is the numbered CONTEXT item you're "
         "drawing from. If no supporting context exists for a claim, say so explicitly rather "
         "than inventing a source."
     )
+
+    return "\n\n".join(parts)
 
 
 def build_context_block(chunks: list[RetrievedChunk]) -> str:
@@ -47,12 +73,18 @@ def build_context_block(chunks: list[RetrievedChunk]) -> str:
 
 
 def build_conversation_input(
-    context_block: str, history: list[Message], current_message: str
+    context_block: str,
+    memory_summary: str | None,
+    history: list[Message],
+    current_message: str,
 ) -> str:
-    """`history` is prior turns oldest-first. Phase 3 includes them verbatim;
-    Phase 5 replaces older turns with a rolling summary once the window grows.
+    """`history` is the verbatim short-term window (oldest-first); anything
+    older than that is folded into `memory_summary` by memory_service's
+    rolling-summary Celery task (§13).
     """
     lines = [f"CONTEXT:\n{context_block}", "", "CONVERSATION_HISTORY:"]
+    if memory_summary:
+        lines.append(f"(summary of earlier turns) {memory_summary}")
     lines += [f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}" for m in history]
     lines.append("")
     lines.append(f"USER:\n{current_message}")
