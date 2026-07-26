@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import { DocumentUploader } from "@/components/upload/DocumentUploader";
 
 type Workspace = {
   id: string;
@@ -84,8 +85,13 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
       <div>
         <h1 className="text-2xl font-semibold">{workspace.name}</h1>
         <p className="text-sm text-slate-500">
-          Documents arrive in Phase 4 of the build.
+          Upload documents to ground answers in this workspace&apos;s content.
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-sm font-medium text-slate-500">Documents</h2>
+        <DocumentUploader workspaceId={workspaceId} />
       </div>
 
       <button

@@ -1,6 +1,14 @@
 import { API_BASE_URL } from "@/lib/apiClient";
 import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/auth";
 
+export type Citation = {
+  marker: number;
+  document_id: string;
+  document_filename: string;
+  excerpt: string;
+  relevance_score: number | null;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -11,6 +19,7 @@ export type ChatMessage = {
   avatar_expression: string | null;
   avatar_gesture: string | null;
   created_at: string;
+  citations: Citation[];
 };
 
 export type ChatFinalEvent = {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatMessage } from "@/lib/sse";
+import type { Citation, ChatMessage } from "@/lib/sse";
 
 export type StreamingMessage = {
   mode_used: string;
@@ -32,6 +32,7 @@ export function MessageList({
           role={m.role}
           content={m.content ?? ""}
           modeUsed={m.mode_used}
+          citations={m.citations}
         />
       ))}
       {streaming && (
@@ -39,6 +40,7 @@ export function MessageList({
           role="assistant"
           content={streaming.content}
           modeUsed={streaming.mode_used}
+          citations={[]}
           isStreaming
         />
       )}
@@ -50,11 +52,13 @@ function MessageBubble({
   role,
   content,
   modeUsed,
+  citations,
   isStreaming,
 }: {
   role: string;
   content: string;
   modeUsed: string;
+  citations: Citation[];
   isStreaming?: boolean;
 }) {
   const isUser = role === "user";
@@ -78,6 +82,22 @@ function MessageBubble({
             <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
           )}
         </p>
+
+        {citations.length > 0 && (
+          <div className="mt-2 space-y-1 border-t border-slate-200 pt-2 dark:border-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Sources
+            </p>
+            {citations.map((c) => (
+              <div key={c.marker} className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  [{c.marker}] {c.document_filename}
+                </span>
+                <p className="line-clamp-2 text-slate-400">{c.excerpt}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -27,6 +27,14 @@ class MessageCreate(BaseModel):
     mode: str | None = None
 
 
+class CitationOut(BaseModel):
+    marker: int
+    document_id: uuid.UUID
+    document_filename: str
+    excerpt: str
+    relevance_score: float | None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: str
@@ -37,5 +45,6 @@ class MessageOut(BaseModel):
     avatar_expression: str | None
     avatar_gesture: str | None
     created_at: datetime
+    citations: list[CitationOut] = []
 
     model_config = {"from_attributes": True}

@@ -2,11 +2,12 @@ import uuid
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import InvalidTokenError, TokenType, decode_token
 from app.db.session import get_db
-from app.models import User
+from app.models import User, WorkspaceMember
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -39,3 +40,17 @@ async def get_current_user(
         raise unauthorized
 
     return user
+
+
+async def require_workspace_member(
+    db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> WorkspaceMember:
+    membership = await db.scalar(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    return membership

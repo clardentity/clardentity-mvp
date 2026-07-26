@@ -53,3 +53,22 @@ async def stream_generation(
                 event, "message", "OpenAI generation failed"
             )
             raise RuntimeError(str(message))
+
+
+_EMBEDDING_BATCH_SIZE = 100
+
+
+async def embed_text(text: str, model: str | None = None) -> list[float]:
+    result = await _client.embeddings.create(model=model or settings.openai_embedding_model, input=text)
+    return result.data[0].embedding
+
+
+async def embed_texts(texts: list[str], model: str | None = None) -> list[list[float]]:
+    embeddings: list[list[float]] = []
+    for i in range(0, len(texts), _EMBEDDING_BATCH_SIZE):
+        batch = texts[i : i + _EMBEDDING_BATCH_SIZE]
+        result = await _client.embeddings.create(
+            model=model or settings.openai_embedding_model, input=batch
+        )
+        embeddings.extend(item.embedding for item in result.data)
+    return embeddings
