@@ -1,5 +1,5 @@
+import asyncio
 import json
-import re
 import uuid
 from collections.abc import AsyncIterator
 
@@ -10,13 +10,22 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_conversation_for_user, get_current_user, require_workspace_member
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import Citation, Conversation, Document, DocumentChunk, Message, User
+from app.models import Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
 from app.schemas.chat import (
-    CitationOut,
+    ClaimOut,
     ConversationCreate,
     ConversationOut,
+    EvidenceOut,
     MessageCreate,
     MessageOut,
+)
+from app.services.claim_loader import load_claims_for_messages
+from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
+from app.services.confidence_scoring import (
+    ScoredClaim,
+    build_scored_evidence,
+    compute_claim_score,
+    compute_message_score,
 )
 from app.services.memory_service import (
     HISTORY_WINDOW,
@@ -30,14 +39,16 @@ from app.services.prompt_builder import (
     build_system_instructions,
 )
 from app.services.query_optimizer import optimize_query
+from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
+from app.services.verification_agent import verify_claim
 from app.workers.rebuild_memory import rebuild_memory_task
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-def _serialize_message(message: Message, citations: list[CitationOut]) -> MessageOut:
+def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
     return MessageOut(
         id=message.id,
         role=message.role,
@@ -49,36 +60,8 @@ def _serialize_message(message: Message, citations: list[CitationOut]) -> Messag
         avatar_expression=message.avatar_expression,
         avatar_gesture=message.avatar_gesture,
         created_at=message.created_at,
-        citations=citations,
+        claims=claims,
     )
-
-
-async def _load_citations(
-    db: AsyncSession, message_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, list[CitationOut]]:
-    if not message_ids:
-        return {}
-
-    rows = await db.execute(
-        select(Citation, Document.filename, DocumentChunk.content)
-        .join(Document, Document.id == Citation.document_id)
-        .outerjoin(DocumentChunk, DocumentChunk.id == Citation.chunk_id)
-        .where(Citation.message_id.in_(message_ids))
-        .order_by(Citation.marker)
-    )
-
-    result: dict[uuid.UUID, list[CitationOut]] = {}
-    for citation, filename, chunk_content in rows.all():
-        result.setdefault(citation.message_id, []).append(
-            CitationOut(
-                marker=citation.marker,
-                document_id=citation.document_id,
-                document_filename=filename,
-                excerpt=(chunk_content or "")[:300],
-                relevance_score=citation.relevance_score,
-            )
-        )
-    return result
 
 
 @router.post("/conversations", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
@@ -147,8 +130,8 @@ async def list_messages(
         .order_by(Message.created_at)
     )
     messages = list(rows.scalars().all())
-    citations_by_message = await _load_citations(db, [m.id for m in messages])
-    return [_serialize_message(m, citations_by_message.get(m.id, [])) for m in messages]
+    claims_by_message = await load_claims_for_messages(db, [m.id for m in messages])
+    return [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
 
 
 @router.post("/{conversation_id}/messages")
@@ -201,44 +184,121 @@ async def send_message(
 
     async def event_stream() -> AsyncIterator[dict]:
         full_text = ""
+        stripper = ClaimTagStripper()
         try:
             async for event in stream_generation(instructions=instructions, input_text=input_text):
                 if event["type"] == "delta":
                     full_text += event["text"]
-                    yield {"event": "delta", "data": json.dumps({"text": event["text"]})}
+                    visible = stripper.feed(event["text"])
+                    if visible:
+                        yield {"event": "delta", "data": json.dumps({"text": visible})}
                 elif event["type"] == "done":
                     full_text = event["full_text"]
         except Exception as exc:  # noqa: BLE001 - surfaced to the client as an SSE error event
             yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
             return
 
-        cited_markers = sorted({int(m) for m in re.findall(r"\[(\d+)\]", full_text)})
-        cited_chunks = [
-            (marker, chunks[marker - 1]) for marker in cited_markers if 0 < marker <= len(chunks)
+        # §9.1 step 2: Reflection Agent may revise the draft before it's
+        # scored/persisted. The (rare) visible effect is that the streamed
+        # draft and the final displayed message differ slightly — the
+        # existing streaming→final swap in the client already handles this.
+        final_text, _was_revised = await reflect_and_revise(mode, full_text)
+
+        parsed_claims = extract_claims(final_text)
+
+        # §9.1 step 3: per-claim, per-evidence verification + distortion
+        # screening, run concurrently across claims.
+        claim_marker_lists = [
+            [m for m in sorted(set(c.citation_markers)) if 0 < m <= len(chunks)]
+            for c in parsed_claims
         ]
+        verifications = await asyncio.gather(
+            *(
+                verify_claim(claim.claim_text, [chunks[m - 1].chunk.content for m in markers])
+                for claim, markers in zip(parsed_claims, claim_marker_lists)
+            )
+        )
+
+        scored_claims: list[ScoredClaim] = []
+        for claim, markers, verification in zip(parsed_claims, claim_marker_lists, verifications):
+            evidence = build_scored_evidence(markers, chunks, verification.evidence)
+            claim_score, entailment_label = compute_claim_score(evidence)
+            scored_claims.append(
+                ScoredClaim(
+                    claim_index=claim.claim_index,
+                    claim_text=claim.claim_text,
+                    claim_score=claim_score,
+                    entailment_label=entailment_label,
+                    distortion_flag=verification.distortion_flag,
+                    distortion_explanation=verification.distortion_explanation,
+                    evidence=evidence,
+                )
+            )
+
+        message_score = compute_message_score(scored_claims)
+        # strip_claim_tags preserves the model's own formatting/whitespace
+        # between claims exactly, matching what streaming already showed —
+        # rejoining claim_text pieces with an artificial separator would
+        # flatten lists/paragraphs and visibly reflow the message on finalize.
+        display_text = strip_claim_tags(final_text)
 
         async with AsyncSessionLocal() as gen_db:
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
-                content=full_text,
+                content=display_text,
                 mode_used=mode,
                 reasoning_lens=reasoning_lens if mode == "thinking" else None,
+                confidence_score=message_score.score,
+                confidence_band=message_score.band,
+                distortion_penalty_applied=message_score.distortion_penalty_applied,
             )
             gen_db.add(assistant_message)
             await gen_db.flush()
 
-            for marker, rc in cited_chunks:
-                gen_db.add(
-                    Citation(
-                        message_id=assistant_message.id,
-                        document_id=rc.document.id,
-                        chunk_id=rc.chunk.id,
-                        source_type="document",
-                        marker=marker,
-                        relevance_score=rc.score,
-                    )
+            # One `citations` row per unique marker actually cited anywhere
+            # in the message (Phase 4 table, still the FK target for
+            # claim_evidence below).
+            all_markers = sorted({e.citation_marker for c in scored_claims for e in c.evidence})
+            marker_to_citation_id: dict[int, uuid.UUID] = {}
+            for marker in all_markers:
+                rc = chunks[marker - 1]
+                citation = Citation(
+                    message_id=assistant_message.id,
+                    document_id=rc.document.id,
+                    chunk_id=rc.chunk.id,
+                    source_type="document",
+                    marker=marker,
+                    relevance_score=rc.score,
                 )
+                gen_db.add(citation)
+                await gen_db.flush()
+                marker_to_citation_id[marker] = citation.id
+
+            for c in scored_claims:
+                claim_row = MessageClaim(
+                    message_id=assistant_message.id,
+                    claim_index=c.claim_index,
+                    claim_text=c.claim_text,
+                    claim_score=c.claim_score,
+                    entailment_label=c.entailment_label,
+                    distortion_flag=c.distortion_flag,
+                    distortion_explanation=c.distortion_explanation,
+                )
+                gen_db.add(claim_row)
+                await gen_db.flush()
+
+                for e in c.evidence:
+                    gen_db.add(
+                        ClaimEvidence(
+                            claim_id=claim_row.id,
+                            citation_id=marker_to_citation_id.get(e.citation_marker),
+                            support_score=e.support_score,
+                            relevance_score=e.relevance_score,
+                            entailment_label=e.entailment_label,
+                            source_excerpt=e.excerpt,
+                        )
+                    )
 
             await gen_db.commit()
             await gen_db.refresh(assistant_message)
@@ -252,21 +312,34 @@ async def send_message(
         if should_rebuild_memory(total_messages or 0):
             rebuild_memory_task.delay(str(conversation_id))
 
-        citations = [
-            CitationOut(
-                marker=marker,
-                document_id=rc.document.id,
-                document_filename=rc.document.filename,
-                excerpt=rc.chunk.content[:300],
-                relevance_score=rc.score,
+        claims_out = [
+            ClaimOut(
+                claim_index=c.claim_index,
+                claim_text=c.claim_text,
+                claim_score=c.claim_score,
+                entailment_label=c.entailment_label,
+                distortion_flag=c.distortion_flag,
+                distortion_explanation=c.distortion_explanation,
+                evidence=[
+                    EvidenceOut(
+                        citation_marker=e.citation_marker,
+                        document_id=e.document_id,
+                        document_filename=e.document_filename,
+                        excerpt=e.excerpt,
+                        support_score=e.support_score,
+                        relevance_score=e.relevance_score,
+                        entailment_label=e.entailment_label,
+                    )
+                    for e in c.evidence
+                ],
             )
-            for marker, rc in cited_chunks
+            for c in scored_claims
         ]
 
         final_payload = {
-            "message": _serialize_message(assistant_message, citations).model_dump(mode="json"),
-            "claims": [],
-            "confidence": None,
+            "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
+            "claims": [c.model_dump(mode="json") for c in claims_out],
+            "confidence": {"score": message_score.score, "band": message_score.band},
             "avatar_cue": None,
         }
         yield {"event": "final", "data": json.dumps(final_payload)}

@@ -68,7 +68,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       avatar_expression: null,
       avatar_gesture: null,
       created_at: new Date().toISOString(),
-      citations: [],
+      claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: mode, content: "" });

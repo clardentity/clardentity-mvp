@@ -1,6 +1,10 @@
 "use client";
 
-import type { Citation, ChatMessage } from "@/lib/sse";
+import type { ReactNode } from "react";
+import type { Claim, ChatMessage } from "@/lib/sse";
+import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
+import { CitationPopover } from "@/components/chat/CitationPopover";
+import { EvidencePanel } from "@/components/chat/EvidencePanel";
 
 export type StreamingMessage = {
   mode_used: string;
@@ -29,20 +33,26 @@ export function MessageList({
       {messages.map((m) => (
         <MessageBubble
           key={m.id}
+          id={m.id}
           role={m.role}
           content={m.content ?? ""}
           modeUsed={m.mode_used}
           reasoningLens={m.reasoning_lens}
-          citations={m.citations}
+          confidenceScore={m.confidence_score}
+          confidenceBand={m.confidence_band}
+          claims={m.claims}
         />
       ))}
       {streaming && (
         <MessageBubble
+          id="streaming"
           role="assistant"
           content={streaming.content}
           modeUsed={streaming.mode_used}
           reasoningLens={null}
-          citations={[]}
+          confidenceScore={null}
+          confidenceBand={null}
+          claims={[]}
           isStreaming
         />
       )}
@@ -50,22 +60,50 @@ export function MessageList({
   );
 }
 
+function findEvidenceForMarker(claims: Claim[], marker: number) {
+  for (const claim of claims) {
+    const found = claim.evidence.find((e) => e.citation_marker === marker);
+    if (found) return found;
+  }
+  return null;
+}
+
+function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
+  const parts = text.split(/(\[\d+\])/g);
+  return parts.map((part, i) => {
+    const match = part.match(/^\[(\d+)\]$/);
+    if (!match) return <span key={i}>{part}</span>;
+    const marker = parseInt(match[1], 10);
+    return (
+      <CitationPopover key={i} marker={marker} evidence={findEvidenceForMarker(claims, marker)} />
+    );
+  });
+}
+
 function MessageBubble({
+  id,
   role,
   content,
   modeUsed,
   reasoningLens,
-  citations,
+  confidenceScore,
+  confidenceBand,
+  claims,
   isStreaming,
 }: {
+  id: string;
   role: string;
   content: string;
   modeUsed: string;
   reasoningLens: string | null;
-  citations: Citation[];
+  confidenceScore: number | null;
+  confidenceBand: string | null;
+  claims: Claim[];
   isStreaming?: boolean;
 }) {
   const isUser = role === "user";
+  const panelId = `evidence-${id}`;
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -76,33 +114,28 @@ function MessageBubble({
         }`}
       >
         {!isUser && (
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            {modeUsed}
-            {reasoningLens && ` · ${reasoningLens.replace("_", "-")}`}
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              {modeUsed}
+              {reasoningLens && ` · ${reasoningLens.replace("_", "-")}`}
+            </div>
+            {confidenceBand && (
+              <ConfidenceBadge
+                band={confidenceBand}
+                score={confidenceScore}
+                onClick={() => document.getElementById(panelId)?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+              />
+            )}
           </div>
         )}
         <p className="whitespace-pre-wrap">
-          {content}
+          {isUser ? content : renderTextWithCitations(content, claims)}
           {isStreaming && (
             <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
           )}
         </p>
 
-        {citations.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-slate-200 pt-2 dark:border-slate-700">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              Sources
-            </p>
-            {citations.map((c) => (
-              <div key={c.marker} className="text-xs text-slate-500 dark:text-slate-400">
-                <span className="font-medium text-slate-600 dark:text-slate-300">
-                  [{c.marker}] {c.document_filename}
-                </span>
-                <p className="line-clamp-2 text-slate-400">{c.excerpt}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        {!isUser && <EvidencePanel claims={claims} band={confidenceBand} panelId={panelId} />}
       </div>
     </div>
   );

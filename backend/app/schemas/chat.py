@@ -29,12 +29,24 @@ class MessageCreate(BaseModel):
     reasoning_lens: str | None = None
 
 
-class CitationOut(BaseModel):
-    marker: int
+class EvidenceOut(BaseModel):
+    citation_marker: int
     document_id: uuid.UUID
     document_filename: str
     excerpt: str
+    support_score: float | None
     relevance_score: float | None
+    entailment_label: str | None
+
+
+class ClaimOut(BaseModel):
+    claim_index: int
+    claim_text: str
+    claim_score: float | None
+    entailment_label: str | None
+    distortion_flag: str | None
+    distortion_explanation: str | None
+    evidence: list[EvidenceOut] = []
 
 
 class MessageOut(BaseModel):
@@ -48,6 +60,6 @@ class MessageOut(BaseModel):
     avatar_expression: str | None
     avatar_gesture: str | None
     created_at: datetime
-    citations: list[CitationOut] = []
+    claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

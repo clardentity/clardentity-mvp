@@ -1,9 +1,7 @@
 from app.models import Message
 from app.services.retrieval import RetrievedChunk
 
-# Section 7.1 "System Prompt Emphasis" per mode. Full <claim> tagging is added
-# on top of this in Phase 6; this is a simpler precursor that just asks for
-# plain [n] citations.
+# Section 7.1 "System Prompt Emphasis" per mode.
 MODE_INSTRUCTIONS: dict[str, str] = {
     "knowing": (
         "Purpose: retrieve and state facts precisely and briefly, citing sources when "
@@ -54,10 +52,16 @@ def build_system_instructions(mode: str, reasoning_lens: str | None = None) -> s
             parts.append(f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): {lens_instruction}")
 
     parts.append(
-        "You must ground factual claims in the provided CONTEXT block when it is relevant. "
-        "Cite supporting context inline with [n], where n is the numbered CONTEXT item you're "
-        "drawing from. If no supporting context exists for a claim, say so explicitly rather "
-        "than inventing a source."
+        "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"
+        "Break your answer into discrete, independently-checkable claims. Tag every claim "
+        'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
+        "context with [n] referring to the numbered CONTEXT item. A single claim may cite "
+        "more than one source - use multiple [n] markers in that case.\n"
+        "If no supporting context exists for a claim, say so explicitly rather than "
+        "inventing a source, and leave that claim uncited so it is correctly marked "
+        "Unsupported rather than guessing at a citation.\n"
+        "Number claims sequentially starting at 1. Every sentence of your response must be "
+        "inside some <claim> tag - do not leave prose outside of one."
     )
 
     return "\n\n".join(parts)

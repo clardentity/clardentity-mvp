@@ -1,12 +1,24 @@
 import { API_BASE_URL } from "@/lib/apiClient";
 import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/auth";
 
-export type Citation = {
-  marker: number;
+export type Evidence = {
+  citation_marker: number;
   document_id: string;
   document_filename: string;
   excerpt: string;
+  support_score: number | null;
   relevance_score: number | null;
+  entailment_label: string | null;
+};
+
+export type Claim = {
+  claim_index: number;
+  claim_text: string;
+  claim_score: number | null;
+  entailment_label: string | null;
+  distortion_flag: string | null;
+  distortion_explanation: string | null;
+  evidence: Evidence[];
 };
 
 export type ChatMessage = {
@@ -20,12 +32,12 @@ export type ChatMessage = {
   avatar_expression: string | null;
   avatar_gesture: string | null;
   created_at: string;
-  citations: Citation[];
+  claims: Claim[];
 };
 
 export type ChatFinalEvent = {
   message: ChatMessage;
-  claims: unknown[];
+  claims: Claim[];
   confidence: { score: number; band: string } | null;
   avatar_cue: { expression: string; gesture: string } | null;
 };
