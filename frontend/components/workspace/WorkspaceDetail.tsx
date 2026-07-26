@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
@@ -11,23 +13,55 @@ type Workspace = {
   created_at: string;
 };
 
+type Conversation = {
+  id: string;
+  title: string | null;
+  default_mode: string | null;
+  created_at: string;
+};
+
 export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
+  const router = useRouter();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<Workspace>(`/workspaces/${workspaceId}`)
-      .then((data) => {
-        if (!cancelled) setWorkspace(data);
+
+    Promise.all([
+      apiFetch<Workspace>(`/workspaces/${workspaceId}`),
+      apiFetch<Conversation[]>(`/chat/conversations?workspace_id=${workspaceId}`),
+    ])
+      .then(([ws, convs]) => {
+        if (cancelled) return;
+        setWorkspace(ws);
+        setConversations(convs);
       })
       .catch((err) => {
         if (!cancelled) setError(authErrorMessage(err));
       });
+
     return () => {
       cancelled = true;
     };
   }, [workspaceId]);
+
+  async function handleNewConversation() {
+    setCreating(true);
+    setError(null);
+    try {
+      const conv = await apiFetch<Conversation>("/chat/conversations", {
+        method: "POST",
+        body: { workspace_id: workspaceId },
+      });
+      router.push(`/chat/${conv.id}`);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setCreating(false);
+    }
+  }
 
   if (error) {
     return (
@@ -37,7 +71,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     );
   }
 
-  if (!workspace) {
+  if (!workspace || conversations === null) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 py-24">
         <p className="text-sm text-slate-500">Loading…</p>
@@ -46,11 +80,48 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-2 px-6 py-16">
-      <h1 className="text-2xl font-semibold">{workspace.name}</h1>
-      <p className="text-sm text-slate-500">
-        Documents and conversations arrive in Phase 3–4 of the build.
-      </p>
+    <div className="mx-auto w-full max-w-lg space-y-6 px-6 py-16">
+      <div>
+        <h1 className="text-2xl font-semibold">{workspace.name}</h1>
+        <p className="text-sm text-slate-500">
+          Documents arrive in Phase 4 of the build.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleNewConversation}
+        disabled={creating}
+        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+      >
+        {creating ? "Creating…" : "New conversation"}
+      </button>
+
+      {conversations.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          No conversations yet — start one above.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {conversations.map((conv) => (
+            <li key={conv.id}>
+              <Link
+                href={`/chat/${conv.id}`}
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm hover:border-brand dark:border-slate-800 dark:bg-slate-900"
+              >
+                <span className="font-medium">
+                  {conv.title || "Untitled conversation"}
+                </span>
+                {conv.default_mode && (
+                  <span className="text-xs uppercase tracking-wide text-slate-400">
+                    {conv.default_mode}
+                  </span>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
