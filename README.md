@@ -5,8 +5,9 @@ modes (Knowing / Thinking / Decision / Learning), RAG + conversation memory,
 per-claim/per-evidence validation, and a generic avatar companion. See the
 SRS PDF in this directory for the full spec.
 
-Build status: **Phase 1 of 8 complete** (scaffold + local infra). See
-`.claude` plan history or ask the assistant for the current phase.
+Build status: **Phase 4 of 8 complete** (scaffold, auth, chat core, document
+ingestion + RAG). See `.claude` plan history or ask the assistant for the
+current phase.
 
 ## Local development
 
@@ -55,6 +56,20 @@ uvicorn app.main:app --reload --port 8000
 
 Health check: `curl http://localhost:8000/health` should report `database`,
 `redis`, and `storage` all `ok`.
+
+### Celery worker (document ingestion)
+
+Required for document uploads to actually get parsed/chunked/embedded — run
+in a separate terminal, same venv:
+
+```bash
+cd backend
+source .venv/bin/activate
+celery -A app.core.celery_app worker --loglevel=info -P solo
+```
+
+`-P solo` avoids macOS fork-safety issues with the prefork pool; fine for
+local dev at this scale.
 
 ### Frontend (Next.js)
 
