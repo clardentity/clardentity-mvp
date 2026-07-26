@@ -1,6 +1,12 @@
+"use client";
+
+import Link from "next/link";
 import { HealthStatus } from "@/components/system/HealthStatus";
+import { useAuth } from "@/lib/auth";
 
 export default function Home() {
+  const { user, loading } = useAuth();
+
   return (
     <div className="flex flex-1 items-center justify-center px-6 py-24">
       <main className="w-full max-w-lg space-y-8 text-center">
@@ -13,11 +19,20 @@ export default function Home() {
           </p>
         </div>
 
+        {!loading && (
+          <Link
+            href={user ? "/workspace" : "/register"}
+            className="inline-block rounded-md bg-brand px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-dark"
+          >
+            {user ? "Go to your workspaces" : "Get started"}
+          </Link>
+        )}
+
         <HealthStatus />
 
         <p className="text-sm text-slate-500 dark:text-slate-500">
-          Phase 1 scaffold — auth, chat, and the avatar companion arrive in
-          later phases.
+          Phase 2 complete — chat and the avatar companion arrive in later
+          phases.
         </p>
       </main>
     </div>
