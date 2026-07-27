@@ -1,4 +1,7 @@
 services:
+  # Render's free plan only allows "web service" type (no separate paid-tier
+  # background-worker service), so the Celery consumer runs inside this same
+  # container via backend/start.sh instead of as its own Render service.
   - type: web
     name: clardentity-backend
     runtime: docker
@@ -7,16 +10,6 @@ services:
     plan: free
     healthCheckPath: /health
     preDeployCommand: alembic upgrade head
-    envVars:
-      - fromGroup: clardentity-shared
-
-  - type: worker
-    name: clardentity-celery-worker
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    dockerCommand: celery -A app.core.celery_app worker --loglevel=info
-    plan: free
     envVars:
       - fromGroup: clardentity-shared
 
@@ -48,7 +41,7 @@ envVarGroups:
       - key: S3_BUCKET
         value: clardentity-prod
       - key: S3_REGION
-        value: us-east-1
+        value: ap-northeast-2
       - key: JWT_SECRET
         sync: false
       - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES

@@ -1,89 +1,65 @@
 # Deploying Clardentity
 
-Stack: **Vercel** (frontend) + **Render** (backend + Celery worker) + **Supabase**
-(Postgres/pgvector + Storage) + **Upstash** (Redis, Celery broker).
+Stack: **Vercel** (frontend) + **Render** (backend, with the Celery worker
+running in-process — see note below) + **Supabase** (Postgres/pgvector +
+Storage) + **Upstash** (Redis, Celery broker).
 
 ## Status
 
 - [x] Supabase Postgres schema migrated (`alembic upgrade head`), pgvector 0.8.2 enabled.
-- [ ] Supabase Storage bucket for document uploads.
-- [ ] Upstash Redis connected (have REST token, need the native protocol password for `REDIS_URL`).
-- [ ] GitHub push access to `clardentity/clardentity-mvp`.
-- [ ] Render web service + Celery worker (blueprint ready at `render.yaml`, not yet deployed).
+- [x] Supabase Storage bucket `clardentity-prod` created.
+- [x] Upstash Redis connected and verified (`PONG`).
+- [x] GitHub push access to `clardentity/clardentity-mvp` (pushed to `main`).
+- [x] Render web service `clardentity-backend` created via API, deploying.
 - [ ] Vercel frontend deploy.
+- [ ] Update `BACKEND_CORS_ORIGINS` on Render with the real Vercel URL once known.
 
-## 1. Supabase
+## Render: single service, not two
 
-Already provisioned: project `imbpnzpwpgzuwdnuzlhf`, Postgres 17, pgvector 0.8.2,
-all 14 tables migrated.
+Render's free plan only supports the `web_service` type — background workers
+are a paid-tier feature (`POST /v1/services` with `type: background_worker`
+returns `"only web services allowed for plan"`). Rather than pay for a second
+service, the Celery worker runs as a second process inside the same
+container: `backend/start.sh` backgrounds `celery -A app.core.celery_app
+worker` and then `exec`s uvicorn in the foreground, so the container's
+lifecycle is tied to the web server. If Celery crashes, HTTP traffic is
+unaffected; only background tasks (document ingestion, memory rebuild) stop
+processing until the next deploy/restart.
 
-Still needed — Storage bucket for document uploads (S3-compatible API):
-1. Dashboard → Storage → create a bucket named `clardentity-prod`.
-2. Dashboard → Project Settings → Storage → "S3 Connection" → copy the S3-compatible
-   endpoint, access key ID, and secret access key. These become `S3_ENDPOINT`,
-   `S3_ACCESS_KEY`, `S3_SECRET_KEY` in Render's env vars.
+Trade-off worth knowing: on Render's free tier the service spins down after
+inactivity. While asleep, the in-process worker is asleep too, so anything
+queued sits in Redis until the next request wakes the container.
 
-## 2. Upstash Redis
+`render.yaml` (repo root) reflects this — one `web` service, no `worker`
+entry. It's descriptive/for-reference; the actual deploy was done via
+Render's API directly (`POST /v1/services`) rather than the Blueprint UI,
+since a Render API key was available.
 
-Have: endpoint `notable-ray-135722.upstash.io`, port 6379, TLS enabled, REST
-token. Still need the **native Redis password** (the one shown as dots in the
-dashboard's "Password" field — click reveal) to build:
+## Remaining: wire up the real Vercel origin
 
-```
-REDIS_URL=rediss://default:<password>@notable-ray-135722.upstash.io:6379
-```
+1. Deploy the frontend (see below) and note its `*.vercel.app` URL.
+2. Update the `BACKEND_CORS_ORIGINS` env var on the `clardentity-backend`
+   Render service to that URL (currently set to `http://localhost:3000` as a
+   placeholder).
+3. Manual redeploy on Render (or it'll pick it up on the next push).
 
-(`rediss://`, not `redis://` — TLS is enabled on this instance.)
-
-## 3. GitHub
-
-Repo `clardentity/clardentity-mvp` exists but is empty. Add `aloshdenny` as a
-collaborator with write access (Settings → Collaborators) so the code can be
-pushed from here.
-
-## 4. Render (backend + Celery worker)
-
-A blueprint is ready at `render.yaml` (repo root) — two services (`clardentity-backend`
-web service, `clardentity-celery-worker`), both built from `backend/Dockerfile`,
-sharing one env var group.
-
-To deploy: sign in at render.com (GitHub login recommended so it can access the
-repo), New → Blueprint → select `clardentity/clardentity-mvp` → Render reads
-`render.yaml` and provisions both services. You'll be prompted for the env vars
-marked `sync: false` — supply:
-
-- `OPENAI_API_KEY`
-- `DATABASE_URL` — `postgresql+asyncpg://postgres:<url-encoded password>@db.imbpnzpwpgzuwdnuzlhf.supabase.co:5432/postgres`
-- `REDIS_URL` — from step 2
-- `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` — from step 1
-- `JWT_SECRET` — generate one with `openssl rand -hex 32` and paste it directly into
-  Render's env var field; don't commit it anywhere (this repo is public)
-- `BACKEND_CORS_ORIGINS` — the Vercel URL from step 5 (circular — deploy backend
-  first with a placeholder, update once the Vercel URL is known, redeploy)
-
-`preDeployCommand: alembic upgrade head` runs migrations automatically on every
-deploy, so schema changes ship themselves.
-
-## 5. Vercel (frontend)
+## Vercel (frontend)
 
 ```bash
 cd frontend
-vercel login   # your own browser OAuth flow
 vercel link    # first time: set root directory to "frontend" if asked
 vercel env add NEXT_PUBLIC_BACKEND_URL production   # paste the Render backend's public URL
 vercel deploy --prod
 ```
-
-After the first deploy, take the resulting `*.vercel.app` URL and set it as
-`BACKEND_CORS_ORIGINS` in Render (step 4), then redeploy the backend so CORS
-allows the real frontend origin.
 
 ## Notes
 
 - `alembic/env.py` escapes literal `%` characters in `DATABASE_URL` before
   handing it to Alembic's configparser-backed config — without this, any DB
   password containing a URL-encoded character (like Supabase's here) breaks
-  `alembic upgrade head` with "invalid interpolation syntax". Already fixed
-  in the repo; don't need to think about it again.
+  `alembic upgrade head` with "invalid interpolation syntax".
 - Local dev is untouched — all of the above is prod-only config layered on
   top via env vars, not changes to defaults.
+- Secrets (DB password, Redis password, S3 keys, JWT secret, OpenAI key) live
+  only in Render's env vars and this local session's history — never
+  committed. This repo is public.
