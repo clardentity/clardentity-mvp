@@ -6,18 +6,26 @@ export function MessageInput({
   disabled,
   disabledReason,
   onSend,
+  onTypingChange,
 }: {
   disabled: boolean;
   disabledReason?: string;
   onSend: (content: string) => void;
+  onTypingChange?: (isTyping: boolean) => void;
 }) {
   const [value, setValue] = useState("");
+
+  function handleChange(newValue: string) {
+    setValue(newValue);
+    onTypingChange?.(newValue.trim().length > 0);
+  }
 
   function handleSend() {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setValue("");
+    onTypingChange?.(false);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -32,7 +40,7 @@ export function MessageInput({
       <div className="flex items-end gap-2">
         <textarea
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
           placeholder={

@@ -19,6 +19,7 @@ from app.schemas.chat import (
     MessageCreate,
     MessageOut,
 )
+from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
 from app.services.confidence_scoring import (
@@ -241,6 +242,9 @@ async def send_message(
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
         display_text = strip_claim_tags(final_text)
+        # §8.4: computed once confidence scoring completes; a distortion flag
+        # overrides the expression to "concerned" regardless of the band.
+        avatar_cue = compute_avatar_cue(mode, message_score.band, message_score.distortion_penalty_applied)
 
         async with AsyncSessionLocal() as gen_db:
             assistant_message = Message(
@@ -252,6 +256,8 @@ async def send_message(
                 confidence_score=message_score.score,
                 confidence_band=message_score.band,
                 distortion_penalty_applied=message_score.distortion_penalty_applied,
+                avatar_expression=avatar_cue.expression,
+                avatar_gesture=avatar_cue.gesture,
             )
             gen_db.add(assistant_message)
             await gen_db.flush()
@@ -340,7 +346,7 @@ async def send_message(
             "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
             "claims": [c.model_dump(mode="json") for c in claims_out],
             "confidence": {"score": message_score.score, "band": message_score.band},
-            "avatar_cue": None,
+            "avatar_cue": {"expression": avatar_cue.expression, "gesture": avatar_cue.gesture},
         }
         yield {"event": "final", "data": json.dumps(final_payload)}
 

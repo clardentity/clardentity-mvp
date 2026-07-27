@@ -11,11 +11,26 @@ import {
 } from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { MessageInput } from "@/components/chat/MessageInput";
+import {
+  AvatarPanel,
+  type AvatarExpression,
+  type AvatarGesture,
+  type AvatarState,
+} from "@/components/avatar/AvatarPanel";
 
 type Conversation = {
   id: string;
   title: string | null;
   default_mode: CognitiveMode | null;
+};
+
+type AvatarCue = { expression: AvatarExpression; gesture: AvatarGesture };
+
+const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
+  knowing: "presenting",
+  thinking: "chin_stroke",
+  decision: "weighing_scales",
+  learning: "open_hand_explaining",
 };
 
 export function ChatView({ conversationId }: { conversationId: string }) {
@@ -25,6 +40,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [reasoningLens, setReasoningLens] = useState<ReasoningLens | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [reacting, setReacting] = useState(false);
+  const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +57,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         setConversation(conv);
         setMessages(msgs);
         if (conv.default_mode) setMode(conv.default_mode);
+
+        const lastCued = [...msgs].reverse().find((m) => m.avatar_expression && m.avatar_gesture);
+        if (lastCued) {
+          setAvatarCue({
+            expression: lastCued.avatar_expression as AvatarExpression,
+            gesture: lastCued.avatar_gesture as AvatarGesture,
+          });
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(authErrorMessage(err));
@@ -54,6 +80,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
     setError(null);
     setSending(true);
+    setIsTyping(false);
 
     const lensForSend = mode === "thinking" ? reasoningLens : null;
 
@@ -86,6 +113,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setMessages((prev) => [...prev, finalEvent.message]);
           setStreaming(null);
           setSending(false);
+          if (finalEvent.avatar_cue) {
+            setAvatarCue({
+              expression: finalEvent.avatar_cue.expression as AvatarExpression,
+              gesture: finalEvent.avatar_cue.gesture as AvatarGesture,
+            });
+          }
+          setReacting(true);
+          setTimeout(() => setReacting(false), 700);
         },
         onError: (detail) => {
           setError(detail);
@@ -96,11 +131,32 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     );
   }
 
+  const avatarState: AvatarState = reacting
+    ? "reacting"
+    : sending
+      ? streaming && streaming.content.length > 0
+        ? "speaking"
+        : "thinking"
+      : isTyping
+        ? "listening"
+        : "idle";
+
+  const liveGesture: AvatarGesture = mode ? GESTURE_BY_MODE[mode] : "none";
+  const avatarGesture: AvatarGesture =
+    avatarState === "thinking" || avatarState === "speaking"
+      ? liveGesture
+      : (avatarCue?.gesture ?? "none");
+  const avatarExpression: AvatarExpression =
+    avatarState === "reacting" || avatarState === "idle"
+      ? (avatarCue?.expression ?? "neutral")
+      : "neutral";
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
-      <h1 className="mb-4 text-lg font-semibold">
-        {conversation?.title || "Conversation"}
-      </h1>
+      <div className="mb-2 flex items-center justify-between">
+        <h1 className="text-lg font-semibold">{conversation?.title || "Conversation"}</h1>
+        <AvatarPanel state={avatarState} gesture={avatarGesture} expression={avatarExpression} />
+      </div>
 
       <MessageList messages={messages} streaming={streaming} />
 
@@ -125,6 +181,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             !mode ? "Select a cognitive mode above to start typing" : undefined
           }
           onSend={handleSend}
+          onTypingChange={setIsTyping}
         />
       </div>
     </div>
