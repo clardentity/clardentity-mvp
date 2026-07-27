@@ -10,9 +10,10 @@ Storage) + **Upstash** (Redis, Celery broker).
 - [x] Supabase Storage bucket `clardentity-prod` created.
 - [x] Upstash Redis connected and verified (`PONG`).
 - [x] GitHub push access to `clardentity/clardentity-mvp` (pushed to `main`).
-- [x] Render web service `clardentity-backend` deployed at https://clardentity-backend.onrender.com.
+- [x] Render web service `clardentity-backend` deployed at https://clardentity-backend.onrender.com — `/health` reports all three dependencies `ok`.
 - [x] Vercel frontend deployed at https://frontend-eight-blush-49.vercel.app.
-- [ ] Update `BACKEND_CORS_ORIGINS` on Render with the real Vercel URL.
+- [x] `BACKEND_CORS_ORIGINS` on Render set to the real Vercel URL.
+- [ ] Auto-deploy on push isn't wired up yet — see below.
 
 ## Render: single service, not two
 
@@ -32,29 +33,32 @@ queued sits in Redis until the next request wakes the container.
 
 `render.yaml` (repo root) reflects this — one `web` service, no `worker`
 entry. It's descriptive/for-reference; the actual deploy was done via
-Render's API directly (`POST /v1/services`) rather than the Blueprint UI,
-since a Render API key was available.
+Render's API directly (`POST /v1/services`), since a Render API key was
+available and that's faster to drive than the Blueprint dashboard UI.
 
 ## Supabase DB connection: pooler, not direct
 
 `db.<project-ref>.supabase.co:5432` (the "direct connection" host Supabase
 shows first) resolves to an **IPv6-only** address. Render's containers are
-IPv4-only egress, so the direct host is unreachable from there — the backend
-came up with `redis: ok, storage: ok, database: error` on `/health` until this
-was caught. It connected fine from local dev only because this machine has
-IPv6 connectivity.
-
-Fix: use the Supavisor **transaction pooler** instead, which is IPv4-reachable:
+IPv4-only egress, so the direct host is unreachable from there. Use the
+Supavisor **transaction pooler** instead:
 
 ```
 postgresql+asyncpg://postgres.<project-ref>:<url-encoded password>@aws-<N>-<region>.pooler.supabase.com:6543/postgres
 ```
 
-Note the username is `postgres.<project-ref>`, not just `postgres`, and the
-`aws-<N>-` prefix number varies per project (not always `aws-0-`) — pull the
-exact string from Dashboard → Project Settings → Database → Connection
-pooling (Transaction mode) rather than guessing it. `alembic upgrade head`
-was verified to work fine through the pooler.
+Username is `postgres.<project-ref>`, not just `postgres`; the `aws-<N>-`
+prefix number varies per project — pull the exact string from Dashboard →
+Project Settings → Database → Connection pooling (Transaction mode) rather
+than guessing it.
+
+A second, related gotcha: in transaction-pooling mode the backend connection
+behind a session can change between statements, which breaks asyncpg's
+default server-side prepared-statement cache (surfaced as `/health`
+intermittently flapping between `database: ok` and `database: error`).
+`app/db/session.py` sets `connect_args={"statement_cache_size": 0}` on both
+engines to fix this — it's a no-op against local dev's direct connection, so
+nothing to configure differently there.
 
 ## Vercel (frontend)
 
@@ -65,11 +69,23 @@ vercel env add NEXT_PUBLIC_BACKEND_URL production   # paste the Render backend's
 vercel deploy --prod
 ```
 
-## Remaining: wire up the real Vercel origin
+## Auto-deploy on push isn't wired up
 
-`BACKEND_CORS_ORIGINS` on Render is still set to `http://localhost:3000` as a
-placeholder. Update it to `https://frontend-eight-blush-49.vercel.app` and
-redeploy so CORS allows the real frontend origin.
+The Render service was created via `POST /v1/services` with a plain repo
+URL, not through Render's dashboard "Connect GitHub" OAuth flow — so Render's
+GitHub App was never installed on the repo, and pushing to `main` doesn't
+trigger a deploy automatically (`autoDeploy: yes` is set on the service, but
+nothing calls the hook). Until that's connected, ship a change with:
+
+```bash
+curl -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" \
+  -X POST "https://api.render.com/v1/services/srv-d9jm8vb7uimc739rr0pg/deploys" \
+  -d '{"clearCache": "do_not_clear"}'
+```
+
+To fix properly: Render dashboard → the `clardentity-backend` service →
+Settings → connect/reconnect the GitHub repo through the UI (this installs
+Render's GitHub App and registers the webhook).
 
 ## Notes
 
