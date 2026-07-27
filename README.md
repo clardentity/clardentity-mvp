@@ -8,7 +8,16 @@ SRS PDF in this directory for the full spec.
 Build status: **Phase 8 of 8 complete** (scaffold, auth, chat core, document
 ingestion + RAG, memory + cognitive router, validation engine, avatar
 companion, multimodal input, history search, export, admin settings). All
-phases built and manually verified locally; cloud deployment not yet done.
+phases built and verified locally, and deployed to production:
+
+- Frontend: https://frontend-eight-blush-49.vercel.app (Vercel)
+- Backend: https://clardentity-backend.onrender.com (Render)
+- Postgres/pgvector + Storage: Supabase
+- Redis (Celery broker): Upstash
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the deployment architecture,
+known platform-specific gotchas (Supabase's IPv6-only direct connection,
+Render's free-tier worker limitation), and how to ship a change.
 
 ## Local development
 
