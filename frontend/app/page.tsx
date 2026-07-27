@@ -29,11 +29,6 @@ export default function Home() {
         )}
 
         <HealthStatus />
-
-        <p className="text-sm text-slate-500 dark:text-slate-500">
-          Phase 2 complete — chat and the avatar companion arrive in later
-          phases.
-        </p>
       </main>
     </div>
   );
