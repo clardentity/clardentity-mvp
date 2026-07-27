@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/apiClient";
-import { authErrorMessage } from "@/lib/auth";
+import { useEffect, useRef, useState } from "react";
+import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
+import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import { streamChatMessage, type ChatMessage } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import {
@@ -10,7 +10,7 @@ import {
   type ReasoningLens,
 } from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
-import { MessageInput } from "@/components/chat/MessageInput";
+import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -44,6 +44,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [reacting, setReacting] = useState(false);
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<"markdown" | "pdf" | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +78,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     };
   }, [conversationId]);
 
-  async function handleSend(content: string) {
+  async function handleSend(content: string, images: PendingImage[]) {
     if (!mode) return;
 
     setError(null);
@@ -102,7 +105,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
     await streamChatMessage(
       conversationId,
-      { content, mode, reasoning_lens: lensForSend },
+      {
+        content,
+        mode,
+        reasoning_lens: lensForSend,
+        attachments: images.map((img) => ({
+          type: "image",
+          data: img.data,
+          mime_type: img.mimeType,
+        })),
+      },
       {
         onDelta: (text) => {
           setStreaming((prev) =>
@@ -131,15 +143,88 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     );
   }
 
+  async function handlePlayAudio(messageId: string, text: string) {
+    if (playingMessageId === messageId) {
+      audioRef.current?.pause();
+      setPlayingMessageId(null);
+      return;
+    }
+
+    setError(null);
+    try {
+      const accessToken = getAccessToken();
+      const res = await fetch(`${API_BASE_URL}/audio/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? `TTS failed with status ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      audioRef.current?.pause();
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => setPlayingMessageId(null);
+      audio.onerror = () => setPlayingMessageId(null);
+      setPlayingMessageId(messageId);
+      await audio.play();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't play audio");
+      setPlayingMessageId(null);
+    }
+  }
+
+  async function handleExport(format: "markdown" | "pdf") {
+    setError(null);
+    setExporting(format);
+    try {
+      const accessToken = getAccessToken();
+      const res = await fetch(
+        `${API_BASE_URL}/chat/${conversationId}/export?format=${format}`,
+        {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? `Export failed with status ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const extension = format === "markdown" ? "md" : "pdf";
+      const safeTitle = (conversation?.title || "conversation").replace(/[^a-zA-Z0-9-_]/g, "_");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeTitle}.${extension}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't export conversation");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   const avatarState: AvatarState = reacting
     ? "reacting"
-    : sending
-      ? streaming && streaming.content.length > 0
-        ? "speaking"
-        : "thinking"
-      : isTyping
-        ? "listening"
-        : "idle";
+    : playingMessageId !== null
+      ? "speaking"
+      : sending
+        ? streaming && streaming.content.length > 0
+          ? "speaking"
+          : "thinking"
+        : isTyping
+          ? "listening"
+          : "idle";
 
   const liveGesture: AvatarGesture = mode ? GESTURE_BY_MODE[mode] : "none";
   const avatarGesture: AvatarGesture =
@@ -158,7 +243,33 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         <AvatarPanel state={avatarState} gesture={avatarGesture} expression={avatarExpression} />
       </div>
 
-      <MessageList messages={messages} streaming={streaming} />
+      {messages.length > 0 && (
+        <div className="mb-2 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => handleExport("markdown")}
+            disabled={exporting !== null}
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-700"
+          >
+            {exporting === "markdown" ? "Exporting…" : "Export .md"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("pdf")}
+            disabled={exporting !== null}
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-700"
+          >
+            {exporting === "pdf" ? "Exporting…" : "Export .pdf"}
+          </button>
+        </div>
+      )}
+
+      <MessageList
+        messages={messages}
+        streaming={streaming}
+        playingMessageId={playingMessageId}
+        onPlayAudio={handlePlayAudio}
+      />
 
       {error && (
         <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>

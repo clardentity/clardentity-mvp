@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     openai_api_key: str
     openai_model: str = "gpt-5"
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_stt_model: str = "whisper-1"
+    openai_tts_model: str = "tts-1"
+    openai_tts_voice: str = "alloy"
 
     # Database
     database_url: str

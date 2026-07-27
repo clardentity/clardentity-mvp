@@ -48,10 +48,18 @@ export type ChatStreamHandlers = {
   onError: (detail: string) => void;
 };
 
+export type SendMessageAttachment = {
+  type: "image";
+  data: string;
+  mime_type: string;
+};
+
 export type SendMessageBody = {
   content: string;
   mode: string;
   reasoning_lens?: string | null;
+  attachments?: SendMessageAttachment[];
+  audio_duration_seconds?: number | null;
 };
 
 async function openStream(

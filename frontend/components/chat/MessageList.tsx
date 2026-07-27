@@ -14,9 +14,13 @@ export type StreamingMessage = {
 export function MessageList({
   messages,
   streaming,
+  playingMessageId,
+  onPlayAudio,
 }: {
   messages: ChatMessage[];
   streaming: StreamingMessage | null;
+  playingMessageId?: string | null;
+  onPlayAudio?: (messageId: string, text: string) => void;
 }) {
   if (messages.length === 0 && !streaming) {
     return (
@@ -41,6 +45,8 @@ export function MessageList({
           confidenceScore={m.confidence_score}
           confidenceBand={m.confidence_band}
           claims={m.claims}
+          isPlaying={playingMessageId === m.id}
+          onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
         />
       ))}
       {streaming && (
@@ -90,6 +96,8 @@ function MessageBubble({
   confidenceBand,
   claims,
   isStreaming,
+  isPlaying,
+  onPlayAudio,
 }: {
   id: string;
   role: string;
@@ -100,6 +108,8 @@ function MessageBubble({
   confidenceBand: string | null;
   claims: Claim[];
   isStreaming?: boolean;
+  isPlaying?: boolean;
+  onPlayAudio?: () => void;
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
@@ -119,13 +129,25 @@ function MessageBubble({
               {modeUsed}
               {reasoningLens && ` · ${reasoningLens.replace("_", "-")}`}
             </div>
-            {confidenceBand && (
-              <ConfidenceBadge
-                band={confidenceBand}
-                score={confidenceScore}
-                onClick={() => document.getElementById(panelId)?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
-              />
-            )}
+            <div className="flex items-center gap-1.5">
+              {onPlayAudio && content && (
+                <button
+                  type="button"
+                  onClick={onPlayAudio}
+                  title={isPlaying ? "Stop" : "Listen"}
+                  className="text-xs text-slate-400 hover:text-brand"
+                >
+                  {isPlaying ? "⏸" : "🔊"}
+                </button>
+              )}
+              {confidenceBand && (
+                <ConfidenceBadge
+                  band={confidenceBand}
+                  score={confidenceScore}
+                  onClick={() => document.getElementById(panelId)?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+                />
+              )}
+            </div>
           </div>
         )}
         <p className="whitespace-pre-wrap">

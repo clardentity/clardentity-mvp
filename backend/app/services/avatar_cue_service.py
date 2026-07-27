@@ -24,13 +24,16 @@ class AvatarCue:
     gesture: str
 
 
-def compute_avatar_cue(mode: str, band: str, distortion_applied: bool) -> AvatarCue:
+def compute_avatar_cue(
+    mode: str, band: str, distortion_applied: bool, gesture_map: dict[str, str] | None = None
+) -> AvatarCue:
     """§8.4: two independent signals combine once confidence scoring
     completes. A distortion flag overrides the expression to "concerned"
     regardless of the numeric band - a response that reasons via wishful or
-    magical thinking should never look fully confident.
+    magical thinking should never look fully confident. `gesture_map` is the
+    §11.8/FR14 admin override; falls back to the spec default per mode.
     """
-    gesture = GESTURE_BY_MODE.get(mode, "presenting")
+    gesture = (gesture_map or GESTURE_BY_MODE).get(mode, GESTURE_BY_MODE.get(mode, "presenting"))
     expression = (
         DISTORTION_OVERRIDE_EXPRESSION
         if distortion_applied

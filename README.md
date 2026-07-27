@@ -5,9 +5,10 @@ modes (Knowing / Thinking / Decision / Learning), RAG + conversation memory,
 per-claim/per-evidence validation, and a generic avatar companion. See the
 SRS PDF in this directory for the full spec.
 
-Build status: **Phase 4 of 8 complete** (scaffold, auth, chat core, document
-ingestion + RAG). See `.claude` plan history or ask the assistant for the
-current phase.
+Build status: **Phase 8 of 8 complete** (scaffold, auth, chat core, document
+ingestion + RAG, memory + cognitive router, validation engine, avatar
+companion, multimodal input, history search, export, admin settings). All
+phases built and manually verified locally; cloud deployment not yet done.
 
 ## Local development
 

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.rate_limit import check_rate_limit
 from app.core.security import (
     InvalidTokenError,
     TokenType,
@@ -32,6 +33,10 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
 def _issue_tokens(user: User) -> TokenResponse:
     return TokenResponse(
         access_token=create_access_token(user.id),
@@ -40,7 +45,11 @@ def _issue_tokens(user: User) -> TokenResponse:
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def register(
+    payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
+    await check_rate_limit(f"auth:register:{_client_ip(request)}", max_requests=10, window_seconds=300)
+
     existing = await db.scalar(select(User).where(User.email == payload.email))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -59,7 +68,11 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def login(
+    payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
+    await check_rate_limit(f"auth:login:{_client_ip(request)}", max_requests=10, window_seconds=300)
+
     invalid_credentials = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
     )
@@ -75,7 +88,11 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def refresh(
+    payload: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
+    await check_rate_limit(f"auth:refresh:{_client_ip(request)}", max_requests=30, window_seconds=300)
+
     invalid_token = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token"
     )

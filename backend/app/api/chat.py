@@ -2,15 +2,17 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_conversation_for_user, get_current_user, require_workspace_member
+from app.core.rate_limit import check_rate_limit
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
+from app.models import AudioTranscript, Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
 from app.schemas.chat import (
     ClaimOut,
     ConversationCreate,
@@ -19,15 +21,18 @@ from app.schemas.chat import (
     MessageCreate,
     MessageOut,
 )
+from app.services.admin_settings_service import get_all_settings
 from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
 from app.services.confidence_scoring import (
     ScoredClaim,
+    ScoringWeights,
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
 )
+from app.services.export_service import build_markdown_export, build_pdf_export
 from app.services.memory_service import (
     HISTORY_WINDOW,
     get_memory_summary,
@@ -135,6 +140,46 @@ async def list_messages(
     return [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
 
 
+@router.get("/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: uuid.UUID,
+    format: Literal["markdown", "pdf"] = Query(default="markdown"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    # FR13: full turn history, per-claim citations, and confidence bands -
+    # same serialization the chat UI already renders from.
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+
+    rows = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at)
+    )
+    messages = list(rows.scalars().all())
+    claims_by_message = await load_claims_for_messages(db, [m.id for m in messages])
+    messages_out = [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
+
+    filename_base = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (conversation.title or "conversation")
+    ).strip("_") or "conversation"
+
+    if format == "markdown":
+        content = build_markdown_export(conversation.title, messages_out)
+        return Response(
+            content=content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.md"'},
+        )
+
+    pdf_bytes = build_pdf_export(conversation.title, messages_out)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'},
+    )
+
+
 @router.post("/{conversation_id}/messages")
 async def send_message(
     conversation_id: uuid.UUID,
@@ -142,6 +187,8 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
+    await check_rate_limit(f"chat:send:{current_user.id}", max_requests=20, window_seconds=60)
+
     # FR7: mode is mandatory and there is no auto-detection fallback — reject
     # with exactly 400, not Pydantic's default 422 for a missing field.
     try:
@@ -151,6 +198,7 @@ async def send_message(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    admin_settings = await get_all_settings(db)
 
     history_rows = await db.execute(
         select(Message)
@@ -161,15 +209,28 @@ async def send_message(
     history = list(reversed(history_rows.scalars().all()))
     memory_summary = await get_memory_summary(db, conversation_id)
 
-    db.add(
-        Message(
-            conversation_id=conversation_id,
-            role="user",
-            content=payload.content,
-            mode_used=mode,
-            reasoning_lens=reasoning_lens if mode == "thinking" else None,
-        )
+    user_message = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=payload.content,
+        mode_used=mode,
+        reasoning_lens=reasoning_lens if mode == "thinking" else None,
     )
+    db.add(user_message)
+    await db.flush()
+
+    if payload.audio_duration_seconds is not None:
+        # §12.1: links the transcribed turn back to its audio metadata.
+        # The raw clip itself isn't persisted in MVP - only what's needed to
+        # satisfy the audio_transcripts record (transcript + duration).
+        db.add(
+            AudioTranscript(
+                message_id=user_message.id,
+                transcript=payload.content,
+                duration_seconds=payload.audio_duration_seconds,
+            )
+        )
+
     # Convenience pre-fill only (§7.2) — never read back as an automatic mode choice.
     conversation.default_mode = mode
     await db.commit()
@@ -177,17 +238,38 @@ async def send_message(
     # §5.2 step 3: ambiguity detection/query rewrite for retrieval only —
     # `mode` and the persisted/displayed message are untouched by this.
     retrieval_query = await optimize_query(history, payload.content)
-    chunks: list[RetrievedChunk] = await retrieve_chunks(db, conversation.workspace_id, retrieval_query, mode)
+    chunks: list[RetrievedChunk] = await retrieve_chunks(
+        db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
+    )
 
     instructions = build_system_instructions(mode, reasoning_lens)
     context_block = build_context_block(chunks)
     input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
+    scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
+    gesture_map = admin_settings["avatar_gesture_map"]
+
+    input_images: list[str] = []
+    flags = admin_settings.get("feature_flags") or {}
+    if flags.get("image_input_enabled", True):
+        for attachment in payload.attachments:
+            data = attachment.data
+            if not data.startswith("data:"):
+                data = f"data:{attachment.mime_type};base64,{data}"
+            input_images.append(data)
+    gen_model = admin_settings.get("openai_model")
+    gen_temperature = admin_settings.get("openai_temperature")
 
     async def event_stream() -> AsyncIterator[dict]:
         full_text = ""
         stripper = ClaimTagStripper()
         try:
-            async for event in stream_generation(instructions=instructions, input_text=input_text):
+            async for event in stream_generation(
+                instructions=instructions,
+                input_text=input_text,
+                model=gen_model,
+                temperature=gen_temperature,
+                input_images=input_images,
+            ):
                 if event["type"] == "delta":
                     full_text += event["text"]
                     visible = stripper.feed(event["text"])
@@ -236,7 +318,7 @@ async def send_message(
                 )
             )
 
-        message_score = compute_message_score(scored_claims)
+        message_score = compute_message_score(scored_claims, scoring_weights)
         # strip_claim_tags preserves the model's own formatting/whitespace
         # between claims exactly, matching what streaming already showed —
         # rejoining claim_text pieces with an artificial separator would
@@ -244,7 +326,9 @@ async def send_message(
         display_text = strip_claim_tags(final_text)
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
-        avatar_cue = compute_avatar_cue(mode, message_score.band, message_score.distortion_penalty_applied)
+        avatar_cue = compute_avatar_cue(
+            mode, message_score.band, message_score.distortion_penalty_applied, gesture_map
+        )
 
         async with AsyncSessionLocal() as gen_db:
             assistant_message = Message(

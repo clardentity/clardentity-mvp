@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,15 @@ class ConversationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MessageAttachment(BaseModel):
+    # §12.2: images ride along in the same turn as direct vision context -
+    # not chunked/embedded for RAG in MVP. `data` is base64 (no data-URI
+    # prefix required; added server-side if missing).
+    type: Literal["image"] = "image"
+    data: str
+    mime_type: str = "image/jpeg"
+
+
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1)
     # Intentionally not required at the Pydantic level (see FR7): the router
@@ -27,6 +37,10 @@ class MessageCreate(BaseModel):
     mode: str | None = None
     # §7.5: optional, Thinking mode only, entirely user-driven - never inferred.
     reasoning_lens: str | None = None
+    attachments: list[MessageAttachment] = []
+    # §12.1: set when `content` came from /audio/transcribe, so the turn can
+    # still be linked to an audio_transcripts row.
+    audio_duration_seconds: float | None = None
 
 
 class EvidenceOut(BaseModel):

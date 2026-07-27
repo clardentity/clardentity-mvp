@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { DocumentUploader } from "@/components/upload/DocumentUploader";
+import { HistorySearch } from "@/components/workspace/HistorySearch";
 
 type Workspace = {
   id: string;
@@ -93,6 +94,8 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         <h2 className="text-sm font-medium text-slate-500">Documents</h2>
         <DocumentUploader workspaceId={workspaceId} />
       </div>
+
+      <HistorySearch workspaceId={workspaceId} />
 
       <button
         type="button"

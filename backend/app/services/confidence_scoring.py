@@ -4,15 +4,26 @@ from dataclasses import dataclass
 from app.services.retrieval import RetrievedChunk
 from app.services.verification_agent import EvidenceVerification
 
-# §9.3 weights and band cutoffs. Configurable via /admin in the full spec;
-# Phase 8 wires that up. These are the documented defaults.
-CLAIM_SCORE_WEIGHT = 0.6
-CITATION_COVERAGE_WEIGHT = 0.25
-RELEVANCE_WEIGHT = 0.15
-DISTORTION_PENALTY = 15
 
-LIKELY_FACT_CUTOFF = 90
-PLAUSIBLE_CUTOFF = 70
+@dataclass
+class ScoringWeights:
+    """§9.3 weights and band cutoffs, overridable via /admin (§11.8/FR14).
+    These field defaults match admin_settings_service.DEFAULTS exactly.
+    """
+
+    claim_score_weight: float = 0.6
+    citation_coverage_weight: float = 0.25
+    relevance_weight: float = 0.15
+    distortion_penalty: float = 15
+    likely_fact_cutoff: float = 90
+    plausible_cutoff: float = 70
+
+    @classmethod
+    def from_settings(cls, raw: dict | None) -> "ScoringWeights":
+        if not raw:
+            return cls()
+        defaults = cls()
+        return cls(**{**defaults.__dict__, **raw})
 
 
 @dataclass
@@ -73,6 +84,8 @@ def build_scored_evidence(
 def compute_claim_score(evidence: list[ScoredEvidence]) -> tuple[float, str]:
     """§9.2: claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
     evidence item best supports the claim. No evidence -> 0 / Unsupported.
+    (The 0.7/0.3 per-claim split isn't listed as admin-configurable in the
+    spec - only the message-level weights below are.)
     """
     if not evidence:
         return 0.0, "unsupported"
@@ -82,8 +95,13 @@ def compute_claim_score(evidence: list[ScoredEvidence]) -> tuple[float, str]:
     return score, best.entailment_label
 
 
-def compute_message_score(claims: list[ScoredClaim]) -> MessageScore:
+def compute_message_score(
+    claims: list[ScoredClaim], weights: ScoringWeights | None = None
+) -> MessageScore:
     """§9.3: message-level rollup + distortion penalty/band cap."""
+    if weights is None:
+        weights = ScoringWeights()
+
     if not claims:
         return MessageScore(score=0.0, band="Needs Verification", distortion_penalty_applied=False)
 
@@ -96,18 +114,18 @@ def compute_message_score(claims: list[ScoredClaim]) -> MessageScore:
     mean_relevance = sum(all_relevances) / len(all_relevances) if all_relevances else 0.0
 
     score = (
-        CLAIM_SCORE_WEIGHT * mean_claim_score
-        + CITATION_COVERAGE_WEIGHT * (100 * citation_coverage)
-        + RELEVANCE_WEIGHT * (100 * mean_relevance)
+        weights.claim_score_weight * mean_claim_score
+        + weights.citation_coverage_weight * (100 * citation_coverage)
+        + weights.relevance_weight * (100 * mean_relevance)
     )
 
     distortion_applied = any(c.distortion_flag for c in claims)
     if distortion_applied:
-        score = max(0.0, score - DISTORTION_PENALTY)
+        score = max(0.0, score - weights.distortion_penalty)
 
-    if score >= LIKELY_FACT_CUTOFF:
+    if score >= weights.likely_fact_cutoff:
         band = "Likely Fact"
-    elif score >= PLAUSIBLE_CUTOFF:
+    elif score >= weights.plausible_cutoff:
         band = "Plausible"
     else:
         band = "Needs Verification"

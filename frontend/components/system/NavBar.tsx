@@ -24,6 +24,12 @@ export function NavBar() {
               >
                 Workspaces
               </Link>
+              <Link
+                href="/admin"
+                className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-50"
+              >
+                Admin
+              </Link>
               <span className="text-slate-400 dark:text-slate-600">
                 {user.display_name || user.email}
               </span>
