@@ -19,7 +19,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# configparser applies %-interpolation to values set here, so a literal "%"
+# in the URL (e.g. a password with a URL-encoded character) must be escaped
+# as "%%" or set_main_option raises "invalid interpolation syntax".
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
