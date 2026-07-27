@@ -10,9 +10,9 @@ Storage) + **Upstash** (Redis, Celery broker).
 - [x] Supabase Storage bucket `clardentity-prod` created.
 - [x] Upstash Redis connected and verified (`PONG`).
 - [x] GitHub push access to `clardentity/clardentity-mvp` (pushed to `main`).
-- [x] Render web service `clardentity-backend` created via API, deploying.
-- [ ] Vercel frontend deploy.
-- [ ] Update `BACKEND_CORS_ORIGINS` on Render with the real Vercel URL once known.
+- [x] Render web service `clardentity-backend` deployed at https://clardentity-backend.onrender.com.
+- [x] Vercel frontend deployed at https://frontend-eight-blush-49.vercel.app.
+- [ ] Update `BACKEND_CORS_ORIGINS` on Render with the real Vercel URL.
 
 ## Render: single service, not two
 
@@ -35,13 +35,26 @@ entry. It's descriptive/for-reference; the actual deploy was done via
 Render's API directly (`POST /v1/services`) rather than the Blueprint UI,
 since a Render API key was available.
 
-## Remaining: wire up the real Vercel origin
+## Supabase DB connection: pooler, not direct
 
-1. Deploy the frontend (see below) and note its `*.vercel.app` URL.
-2. Update the `BACKEND_CORS_ORIGINS` env var on the `clardentity-backend`
-   Render service to that URL (currently set to `http://localhost:3000` as a
-   placeholder).
-3. Manual redeploy on Render (or it'll pick it up on the next push).
+`db.<project-ref>.supabase.co:5432` (the "direct connection" host Supabase
+shows first) resolves to an **IPv6-only** address. Render's containers are
+IPv4-only egress, so the direct host is unreachable from there — the backend
+came up with `redis: ok, storage: ok, database: error` on `/health` until this
+was caught. It connected fine from local dev only because this machine has
+IPv6 connectivity.
+
+Fix: use the Supavisor **transaction pooler** instead, which is IPv4-reachable:
+
+```
+postgresql+asyncpg://postgres.<project-ref>:<url-encoded password>@aws-<N>-<region>.pooler.supabase.com:6543/postgres
+```
+
+Note the username is `postgres.<project-ref>`, not just `postgres`, and the
+`aws-<N>-` prefix number varies per project (not always `aws-0-`) — pull the
+exact string from Dashboard → Project Settings → Database → Connection
+pooling (Transaction mode) rather than guessing it. `alembic upgrade head`
+was verified to work fine through the pooler.
 
 ## Vercel (frontend)
 
@@ -51,6 +64,12 @@ vercel link    # first time: set root directory to "frontend" if asked
 vercel env add NEXT_PUBLIC_BACKEND_URL production   # paste the Render backend's public URL
 vercel deploy --prod
 ```
+
+## Remaining: wire up the real Vercel origin
+
+`BACKEND_CORS_ORIGINS` on Render is still set to `http://localhost:3000` as a
+placeholder. Update it to `https://frontend-eight-blush-49.vercel.app` and
+redeploy so CORS allows the real frontend origin.
 
 ## Notes
 

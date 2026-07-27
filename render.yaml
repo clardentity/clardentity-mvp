@@ -28,6 +28,9 @@ envVarGroups:
         value: tts-1
       - key: OPENAI_TTS_VOICE
         value: alloy
+      # Use Supabase's Supavisor transaction pooler (aws-N-<region>.pooler.supabase.com:6543,
+      # user "postgres.<project-ref>"), not the direct db.<ref>.supabase.co:5432 host - the
+      # latter is IPv6-only and unreachable from Render's IPv4-only egress.
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
