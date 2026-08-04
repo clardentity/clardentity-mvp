@@ -84,8 +84,26 @@ Free projects auto-pause after ~7 days without activity. Symptoms: `/health`
 reports `database: error` **and** `storage: error` while `redis: ok`,
 `db.<ref>.supabase.co` stops resolving entirely, the Storage endpoint returns
 HTTP 540, and the pooler answers `tenant/user not found`. Nothing is wrong
-with the deploy - unpause the project from the Supabase dashboard and the
-service recovers on its own.
+with the deploy - unpause the project from the Supabase dashboard.
+
+**Restoring is slow and not atomic. Do not migrate while it is in progress.**
+Observed order: storage recovers first (540 -> 403), then DNS, then Postgres
+(~2 min), then the Supavisor pooler (~3 min - until then it still answers
+`tenant/user not found` even though the direct host already accepts
+connections).
+
+The trap: for a window in the middle, Postgres is reachable but the database
+is **empty**, before the backup is loaded. That looks exactly like data loss,
+and any `alembic upgrade head` run in that window is silently thrown away when
+the real data lands - leaving `alembic_version` back at the pre-restore
+revision while the app expects the new schema (symptom: `column
+"bias_category" ... does not exist` on every write).
+
+So after a restore: wait until `SELECT count(*) FROM users` returns the
+expected rows *through the pooler*, and only then run migrations.
+
+Also note `preDeployCommand: alembic upgrade head` is not a safety net here -
+it happily no-ops against the transient state and then gets reverted too.
 
 ## Vercel (frontend)
 
