@@ -46,6 +46,7 @@ class ScoredClaim:
     distortion_flag: str | None
     distortion_explanation: str | None
     evidence: list[ScoredEvidence]
+    bias_category: str | None = None
 
 
 @dataclass

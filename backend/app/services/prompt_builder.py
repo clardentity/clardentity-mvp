@@ -40,7 +40,11 @@ REASONING_LENS_INSTRUCTIONS: dict[str, str] = {
 }
 
 
-def build_system_instructions(mode: str, reasoning_lens: str | None = None) -> str:
+def build_system_instructions(
+    mode: str,
+    reasoning_lens: str | None = None,
+    bias_guidance: str | None = None,
+) -> str:
     parts = [
         f"You are Clardentity operating in {mode} mode (selected explicitly by the user).",
         MODE_INSTRUCTIONS[mode],
@@ -50,6 +54,10 @@ def build_system_instructions(mode: str, reasoning_lens: str | None = None) -> s
         lens_instruction = REASONING_LENS_INSTRUCTIONS.get(reasoning_lens)
         if lens_instruction:
             parts.append(f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): {lens_instruction}")
+
+    # Decision mode only: the domain-specific bias watch-list (§ bias taxonomy).
+    if bias_guidance:
+        parts.append(bias_guidance)
 
     parts.append(
         "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"

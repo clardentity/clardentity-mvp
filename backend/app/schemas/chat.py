@@ -58,8 +58,15 @@ class ClaimOut(BaseModel):
     claim_text: str
     claim_score: float | None
     entailment_label: str | None
+    # `distortion_flag` is the detected bias's taxonomy id. The name/definition
+    # travel with it so the client can render "Anchoring Bias" and explain what
+    # that means without shipping the whole 437-entry catalogue to the browser.
     distortion_flag: str | None
     distortion_explanation: str | None
+    bias_name: str | None = None
+    bias_definition: str | None = None
+    bias_category: str | None = None
+    bias_category_name: str | None = None
     evidence: list[EvidenceOut] = []
 
 

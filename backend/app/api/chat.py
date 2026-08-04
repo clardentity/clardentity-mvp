@@ -32,6 +32,12 @@ from app.services.confidence_scoring import (
     compute_claim_score,
     compute_message_score,
 )
+from app.services.decision_classifier import (
+    NO_DECISION,
+    DecisionClassification,
+    build_bias_guidance,
+    classify_decision,
+)
 from app.services.export_service import build_markdown_export, build_pdf_export
 from app.services.memory_service import (
     HISTORY_WINDOW,
@@ -48,6 +54,7 @@ from app.services.query_optimizer import optimize_query
 from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
+from app.services.taxonomy import describe_bias
 from app.services.verification_agent import verify_claim
 from app.workers.rebuild_memory import rebuild_memory_task
 
@@ -235,21 +242,35 @@ async def send_message(
     conversation.default_mode = mode
     await db.commit()
 
+    flags = admin_settings.get("feature_flags") or {}
+
     # §5.2 step 3: ambiguity detection/query rewrite for retrieval only —
     # `mode` and the persisted/displayed message are untouched by this.
-    retrieval_query = await optimize_query(history, payload.content)
+    # Decision classification runs alongside it: it picks a *bias domain* only,
+    # and never influences which cognitive mode is in play (§7.2).
+    async def _classify() -> DecisionClassification:
+        if not flags.get("bias_screening_enabled", True):
+            return NO_DECISION
+        return await classify_decision(payload.content)
+
+    retrieval_query, decision = await asyncio.gather(
+        optimize_query(history, payload.content), _classify()
+    )
     chunks: list[RetrievedChunk] = await retrieve_chunks(
         db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
     )
 
-    instructions = build_system_instructions(mode, reasoning_lens)
+    bias_category_id = decision.bias_category_id
+    # The proactive watch-list is Decision mode's job; other modes still get
+    # domain-scoped screening, they just aren't told to editorialise about it.
+    bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
+    instructions = build_system_instructions(mode, reasoning_lens, bias_guidance)
     context_block = build_context_block(chunks)
     input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
     scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
     gesture_map = admin_settings["avatar_gesture_map"]
 
     input_images: list[str] = []
-    flags = admin_settings.get("feature_flags") or {}
     if flags.get("image_input_enabled", True):
         for attachment in payload.attachments:
             data = attachment.data
@@ -289,15 +310,20 @@ async def send_message(
 
         parsed_claims = extract_claims(final_text)
 
-        # §9.1 step 3: per-claim, per-evidence verification + distortion
-        # screening, run concurrently across claims.
+        # §9.1 step 3: per-claim, per-evidence verification + cognitive-bias
+        # screening, run concurrently across claims. `bias_category_id` scopes
+        # the screening vocabulary to the domain this conversation is about.
         claim_marker_lists = [
             [m for m in sorted(set(c.citation_markers)) if 0 < m <= len(chunks)]
             for c in parsed_claims
         ]
         verifications = await asyncio.gather(
             *(
-                verify_claim(claim.claim_text, [chunks[m - 1].chunk.content for m in markers])
+                verify_claim(
+                    claim.claim_text,
+                    [chunks[m - 1].chunk.content for m in markers],
+                    bias_category_id=bias_category_id,
+                )
                 for claim, markers in zip(parsed_claims, claim_marker_lists)
             )
         )
@@ -314,6 +340,7 @@ async def send_message(
                     entailment_label=entailment_label,
                     distortion_flag=verification.distortion_flag,
                     distortion_explanation=verification.distortion_explanation,
+                    bias_category=verification.bias_category,
                     evidence=evidence,
                 )
             )
@@ -374,6 +401,7 @@ async def send_message(
                     entailment_label=c.entailment_label,
                     distortion_flag=c.distortion_flag,
                     distortion_explanation=c.distortion_explanation,
+                    bias_category=c.bias_category,
                 )
                 gen_db.add(claim_row)
                 await gen_db.flush()
@@ -410,6 +438,7 @@ async def send_message(
                 entailment_label=c.entailment_label,
                 distortion_flag=c.distortion_flag,
                 distortion_explanation=c.distortion_explanation,
+                **describe_bias(c.distortion_flag, c.bias_category),
                 evidence=[
                     EvidenceOut(
                         citation_marker=e.citation_marker,

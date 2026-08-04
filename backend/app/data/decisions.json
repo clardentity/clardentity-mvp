@@ -1,0 +1,325 @@
+{
+  "categories": [
+    {
+      "id": "financial_and_purchasing_decisions",
+      "name": "Financial and Purchasing Decisions",
+      "examples": [
+        {
+          "label": "Large Investments",
+          "detail": "Buying a house, purchasing a car, or investing in the stock market."
+        },
+        {
+          "label": "Daily Expenses",
+          "detail": "Budgeting groceries, choosing what to buy at a store, or paying utility bills."
+        },
+        {
+          "label": "Debt and Credit",
+          "detail": "Deciding whether to take a loan, use a credit card, or declare bankruptcy."
+        }
+      ]
+    },
+    {
+      "id": "career_and_professional_decisions",
+      "name": "Career and Professional Decisions",
+      "examples": [
+        {
+          "label": "Employment Changes",
+          "detail": "Accepting a new job offer, resigning, or switching career paths."
+        },
+        {
+          "label": "Workplace Actions",
+          "detail": "Choosing how to handle a conflict with a coworker or asking for a raise."
+        },
+        {
+          "label": "Business Strategy",
+          "detail": "Launching a startup, hiring employees, or pivoting a business model."
+        }
+      ]
+    },
+    {
+      "id": "relationship_and_social_decisions",
+      "name": "Relationship and Social Decisions",
+      "examples": [
+        {
+          "label": "Commitment",
+          "detail": "Deciding to get married, move in together, or end a romantic relationship."
+        },
+        {
+          "label": "Family Dynamics",
+          "detail": "Deciding when to have children, how to discipline them, or how to care for aging parents."
+        },
+        {
+          "label": "Friendships",
+          "detail": "Choosing who to trust, forgiving a betrayal, or drifting away from toxic peers."
+        }
+      ]
+    },
+    {
+      "id": "health_and_lifestyle_decisions",
+      "name": "Health and Lifestyle Decisions",
+      "examples": [
+        {
+          "label": "Medical Choices",
+          "detail": "Choosing a treatment plan, consenting to surgery, or changing doctors."
+        },
+        {
+          "label": "Daily Wellness",
+          "detail": "Deciding what to eat, whether to exercise, or how many hours to sleep."
+        },
+        {
+          "label": "Substance Use",
+          "detail": "Deciding to quit smoking, reduce alcohol consumption, or manage medication."
+        }
+      ]
+    },
+    {
+      "id": "educational_and_skill_development",
+      "name": "Educational and Skill Development",
+      "examples": [
+        {
+          "label": "Academic Pursuits",
+          "detail": "Choosing a college major, deciding to drop out, or pursuing an advanced degree."
+        },
+        {
+          "label": "Self-Improvement",
+          "detail": "Deciding to learn a new language, take up an instrument, or read more."
+        }
+      ]
+    },
+    {
+      "id": "moral_and_ethical_decisions",
+      "name": "Moral and Ethical Decisions",
+      "examples": [
+        {
+          "label": "Dilemmas",
+          "detail": "Deciding whether to tell the truth when it causes harm, or reporting a crime committed by a friend."
+        },
+        {
+          "label": "Altruism",
+          "detail": "Deciding whether to donate money, volunteer time, or help a stranger in distress."
+        }
+      ]
+    },
+    {
+      "id": "crisis_and_emergency_decisions",
+      "name": "Crisis and Emergency Decisions",
+      "examples": [
+        {
+          "label": "Immediate Danger",
+          "detail": "Deciding how to escape a fire, react in a car accident, or handle a medical emergency."
+        },
+        {
+          "label": "Resource Scarcity",
+          "detail": "Deciding how to ration food or supplies during a natural disaster."
+        }
+      ]
+    },
+    {
+      "id": "leisure_and_daily_routine_decisions",
+      "name": "Leisure and Daily Routine Decisions",
+      "examples": [
+        {
+          "label": "Time Management",
+          "detail": "Prioritizing tasks on a to-do list or procrastinating."
+        },
+        {
+          "label": "Entertainment",
+          "detail": "Choosing a movie to watch, a vacation destination, or a weekend hobby."
+        }
+      ]
+    }
+  ],
+  "types": [
+    "Accepting Invitations",
+    "Accepting a Friend Request",
+    "Accepting a Job Offer",
+    "Adopting a Family Pet",
+    "Applying For Scholarships",
+    "Applying For a Job",
+    "Applying to a College",
+    "Asking Coworkers to Go For Lunch",
+    "Asking For Advice",
+    "Asking For a Work Transfer",
+    "Asking Someone Out",
+    "Assigning Chores and Responsibilities",
+    "Attending Events",
+    "Attending a Lecture",
+    "Beginning a Relationship",
+    "Building Relationships",
+    "Buying a Family Car",
+    "Buying a Home",
+    "Buying a Product",
+    "Buying a Stock",
+    "Canceling a Service",
+    "Career Changes",
+    "Changing Schools",
+    "Choosing Elective Courses",
+    "Choosing a Major In College",
+    "Choosing a Restaurant",
+    "Choosing a School",
+    "Closing a Business",
+    "Committing to Work Assignments",
+    "Completing Some Work",
+    "Completing a Task",
+    "Complimenting Someone",
+    "Congratulating Someone For Something",
+    "Contacting People",
+    "Criticizing Someone",
+    "Criticizing a Colleague",
+    "Crossing the Street",
+    "Daydreaming In Class",
+    "Deciding Where to Sit in a Class",
+    "Deciding to Apologize",
+    "Deciding to Be Social and Approachable",
+    "Deciding to Forgive",
+    "Deciding to Try to Become Friends With Someone",
+    "Decisions",
+    "Divorce or Separation",
+    "Doing Chores",
+    "Ending a Relationship",
+    "Exercising",
+    "Family Outings",
+    "Family Rules",
+    "Getting In Shape",
+    "Getting Married",
+    "Giving Gifts",
+    "Going Into the Office",
+    "Going Out For Coffee",
+    "Going to College",
+    "Going to a Party",
+    "Government",
+    "Graduate Degrees",
+    "Home Renovation Decisions",
+    "Improving Study Habits",
+    "Initiating Conversations In the Office",
+    "Introducing Friends to Each Other",
+    "Investment Decisions",
+    "Joining Academic Competitions",
+    "Joining Clubs",
+    "Joining Community Events",
+    "Joining Extracurricular Activities",
+    "Joining Potentially Social Activities Such as Fitness Classes",
+    "Joining School Events",
+    "Joining Sports Teams",
+    "Joining Work Events",
+    "Learning a Language",
+    "Learning a New Skill",
+    "Lending Someone a Book",
+    "Lifestyle Choices",
+    "Listening to Music",
+    "Living Abroad",
+    "Major Family Purchases",
+    "Major Personal Purchases",
+    "Making Plans For the Future",
+    "Meal Choices",
+    "Meal Planning",
+    "Mealtime Rules Such as No Phones",
+    "Messaging Someone",
+    "Moving",
+    "Naming a Pet",
+    "Neglecting a Responsibility",
+    "Offering to Help a Neighbor",
+    "Opportunities",
+    "Organizing Meetings",
+    "Organizing Trips With Friends",
+    "Overcoming a Fear",
+    "Parenting Decisions",
+    "Participating in Industry Events",
+    "Participating in Team Building Events",
+    "Paying Attention In Class",
+    "Paying Attention While Driving",
+    "Paying Off a Debt",
+    "Picking a Project Topic",
+    "Pitching An Idea",
+    "Planning Outings",
+    "Planning a Birthday Party",
+    "Planning a Movie Night",
+    "Planning a Study Schedule",
+    "Playing a Game",
+    "Posting Something Online",
+    "Practicing a Skill",
+    "Prioritizing Adventure",
+    "Prioritizing Comfort, Convenience and Safety",
+    "Prioritizing Family",
+    "Prioritizing Freedom",
+    "Prioritizing Health",
+    "Prioritizing Responsibility",
+    "Prioritizing Social Status",
+    "Prioritizing Values and Ethics",
+    "Prioritizing Work",
+    "Protesting Something",
+    "Pursuing Additional Education While Working",
+    "Pursuing An Interest",
+    "Pursuing Lifelong Learning",
+    "Pursuing Profession Certification",
+    "Pursuing a Career",
+    "Pushing Into a Project",
+    "Quitting a Job",
+    "Quitting a School",
+    "Reading",
+    "Recognizing a Failure",
+    "Recommending Something to Someone",
+    "Rejecting Work Assignments",
+    "Researching a Topic at Depth",
+    "Responding to Messages",
+    "Running For Public Office",
+    "Running For Student",
+    "Salary Negotiation",
+    "Saving Money",
+    "Saying Something",
+    "Saying Yes/No to a Request",
+    "Screen Time Limits",
+    "Seeking Help From a Parent or",
+    "Seeking Networking",
+    "Self-Studying",
+    "Setting a Goal",
+    "Sharing Content Online",
+    "Sharing Personal Posts Online",
+    "Sharing a Personal Story",
+    "Skipping Class",
+    "Small Acts of Kindness",
+    "Solving a Big Problem",
+    "Speaking Up In Meetings",
+    "Spending Time With Someone",
+    "Sponsoring a Project",
+    "Starting a Business",
+    "Starting a Conversation",
+    "Starting a Hobby",
+    "Starting a Hobby Group",
+    "Starting a Music Band",
+    "Starting a Side Hustle",
+    "Studying For a Test",
+    "Taking Initiative",
+    "Taking Time to Think",
+    "Taking Training",
+    "Taking a Bath",
+    "Taking a Break",
+    "Taking a Part-time Job",
+    "Taking a Risk",
+    "Taking a Sabbatical",
+    "Taking on New Responsibilities",
+    "Taking on Public Speaking Opportunities",
+    "Taking on an Action Item",
+    "Teacher",
+    "Telling a Joke",
+    "Thanking Someone",
+    "Thinking About Something",
+    "Throwing a Party",
+    "Traveling",
+    "Trying to Overcome An Obstacle",
+    "Vacation Plans",
+    "Volunteering",
+    "Volunteering For Committees",
+    "Voting Decisions",
+    "Waking Time",
+    "Wasting Time",
+    "Way of Life",
+    "Way of Thinking",
+    "Working From Home",
+    "Working Hard",
+    "Working Hard For a Bonus or Commission",
+    "Working Hard For a Promotion",
+    "Working Late",
+    "Working on Weekends"
+  ]
+}

@@ -21,6 +21,9 @@ from app.models.conversation import COGNITIVE_MODES
 CONFIDENCE_BANDS = ("Likely Fact", "Plausible", "Needs Verification")
 ENTAILMENT_LABELS = ("full", "partial", "none", "unsupported")
 EVIDENCE_ENTAILMENT_LABELS = ("full", "partial", "none")
+# The two SRS §9.4 reasoning distortions. These are no longer the whole
+# vocabulary for `message_claims.distortion_flag` - see app/services/taxonomy.py,
+# which folds them in alongside the cognitive-bias catalogue.
 DISTORTION_FLAGS = ("wishful_thinking", "magical_thinking")
 
 
@@ -60,14 +63,15 @@ class Message(Base):
 
 class MessageClaim(Base):
     __tablename__ = "message_claims"
+    # `distortion_flag` holds a cognitive-bias id from app/services/taxonomy.py
+    # (~437 entries, including the two SRS reasoning distortions). Intentionally
+    # no CHECK constraint: the vocabulary is application data that grows without
+    # a migration, and taxonomy.resolve_bias() drops anything outside it before
+    # it reaches the database.
     __table_args__ = (
         CheckConstraint(
             f"entailment_label IS NULL OR entailment_label IN {ENTAILMENT_LABELS}",
             name="ck_message_claims_entailment_label",
-        ),
-        CheckConstraint(
-            f"distortion_flag IS NULL OR distortion_flag IN {DISTORTION_FLAGS}",
-            name="ck_message_claims_distortion_flag",
         ),
     )
 
@@ -79,8 +83,11 @@ class MessageClaim(Base):
     claim_text: Mapped[str] = mapped_column(Text, nullable=False)
     claim_score: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     entailment_label: Mapped[str | None] = mapped_column(String, nullable=True)
-    distortion_flag: Mapped[str | None] = mapped_column(String, nullable=True)
+    distortion_flag: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     distortion_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # One of the 10 everyday-scenario domains the detected bias belongs to;
+    # null for the two SRS reasoning distortions, which are not categorised.
+    bias_category: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     message: Mapped["Message"] = relationship(back_populates="claims")

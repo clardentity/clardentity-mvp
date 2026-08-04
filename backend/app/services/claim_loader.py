@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Citation, ClaimEvidence, Document, MessageClaim
 from app.schemas.chat import ClaimOut, EvidenceOut
+from app.services.taxonomy import describe_bias
 
 
 async def load_claims_for_messages(
@@ -54,6 +55,7 @@ async def load_claims_for_messages(
                 entailment_label=c.entailment_label,
                 distortion_flag=c.distortion_flag,
                 distortion_explanation=c.distortion_explanation,
+                **describe_bias(c.distortion_flag, c.bias_category),
                 evidence=evidence_by_claim.get(c.id, []),
             )
         )

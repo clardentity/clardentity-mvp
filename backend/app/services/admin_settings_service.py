@@ -29,6 +29,9 @@ DEFAULTS: dict[str, Any] = {
     "feature_flags": {
         "tts_enabled": True,
         "image_input_enabled": True,
+        # Turns off decision-domain classification and scopes bias screening
+        # back to the full vocabulary. Screening itself always runs.
+        "bias_screening_enabled": True,
     },
 }
 
