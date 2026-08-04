@@ -60,6 +60,33 @@ intermittently flapping between `database: ok` and `database: error`).
 engines to fix this — it's a no-op against local dev's direct connection, so
 nothing to configure differently there.
 
+## Celery + TLS Redis (`rediss://`)
+
+kombu refuses a `rediss://` broker URL that doesn't spell out `ssl_cert_reqs`
+and raises at worker startup:
+
+```
+ValueError: A rediss:// URL must have parameter ssl_cert_reqs ...
+```
+
+Upstash issues exactly such a URL. Because `backend/start.sh` backgrounds the
+worker and `exec`s uvicorn, this failure is **silent**: HTTP keeps serving and
+only background tasks (document ingestion, memory rebuild) stop running.
+`app/core/celery_app.py` appends the parameter for Celery only, leaving
+`REDIS_URL` alone for redis-py (the rate limiter), which doesn't need it.
+
+If background tasks ever look stuck, check the service logs for
+`Unrecoverable error` near worker startup before assuming the queue is idle.
+
+## Supabase free tier pauses when idle
+
+Free projects auto-pause after ~7 days without activity. Symptoms: `/health`
+reports `database: error` **and** `storage: error` while `redis: ok`,
+`db.<ref>.supabase.co` stops resolving entirely, the Storage endpoint returns
+HTTP 540, and the pooler answers `tenant/user not found`. Nothing is wrong
+with the deploy - unpause the project from the Supabase dashboard and the
+service recovers on its own.
+
 ## Vercel (frontend)
 
 ```bash
