@@ -81,15 +81,32 @@ export function AudioRecorder({
         disabled={disabled || state === "transcribing"}
         onClick={state === "recording" ? stopRecording : startRecording}
         title={state === "recording" ? "Stop recording" : "Record a voice message"}
-        className={`flex h-9 w-9 items-center justify-center rounded-md border text-sm disabled:opacity-50 ${
+        aria-label={state === "recording" ? "Stop recording" : "Record a voice message"}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           state === "recording"
-            ? "animate-pulse border-red-400 bg-red-50 text-red-600 dark:border-red-500 dark:bg-red-950"
-            : "border-slate-300 text-slate-500 hover:border-brand hover:text-brand dark:border-slate-700"
+            ? "animate-pulse bg-band-low-bg text-band-low"
+            : "text-ink-muted hover:bg-surface-hover hover:text-brand"
         }`}
       >
-        {state === "transcribing" ? "…" : "🎤"}
+        {state === "transcribing" ? (
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="h-4 w-4"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
+          </svg>
+        )}
       </button>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-band-low">{error}</p>}
     </div>
   );
 }

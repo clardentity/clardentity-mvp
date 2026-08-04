@@ -16,8 +16,14 @@ export type Claim = {
   claim_text: string;
   claim_score: number | null;
   entailment_label: string | null;
+  /** Taxonomy id of the detected cognitive bias, if any. The display name and
+   *  definition travel alongside it so the client never needs the catalogue. */
   distortion_flag: string | null;
   distortion_explanation: string | null;
+  bias_name: string | null;
+  bias_definition: string | null;
+  bias_category: string | null;
+  bias_category_name: string | null;
   evidence: Evidence[];
 };
 

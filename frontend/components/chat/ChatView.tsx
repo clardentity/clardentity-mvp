@@ -11,6 +11,7 @@ import {
 } from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
+import { Button } from "@/components/ui/primitives";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -237,63 +238,78 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       : "neutral";
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-8">
-      <div className="mb-2 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">{conversation?.title || "Conversation"}</h1>
-        <AvatarPanel state={avatarState} gesture={avatarGesture} expression={avatarExpression} />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between gap-4 border-b border-hairline bg-surface px-6 py-3">
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold text-ink">
+            {conversation?.title || "Conversation"}
+          </h1>
+          <p className="text-xs text-ink-muted">
+            Claims are checked against your documents and screened for cognitive bias.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {messages.length > 0 && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => handleExport("markdown")}
+                disabled={exporting !== null}
+              >
+                {exporting === "markdown" ? "Exporting…" : "Export .md"}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleExport("pdf")}
+                disabled={exporting !== null}
+              >
+                {exporting === "pdf" ? "Exporting…" : "Export .pdf"}
+              </Button>
+            </>
+          )}
+          <AvatarPanel
+            state={avatarState}
+            gesture={avatarGesture}
+            expression={avatarExpression}
+          />
+        </div>
       </div>
 
-      {messages.length > 0 && (
-        <div className="mb-2 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => handleExport("markdown")}
-            disabled={exporting !== null}
-            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-700"
-          >
-            {exporting === "markdown" ? "Exporting…" : "Export .md"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport("pdf")}
-            disabled={exporting !== null}
-            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-700"
-          >
-            {exporting === "pdf" ? "Exporting…" : "Export .pdf"}
-          </button>
-        </div>
-      )}
-
-      <MessageList
-        messages={messages}
-        streaming={streaming}
-        playingMessageId={playingMessageId}
-        onPlayAudio={handlePlayAudio}
-      />
-
-      {error && (
-        <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>
-      )}
-
-      <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <ModeSelector value={mode} onChange={setMode} disabled={sending} />
-          {mode === "thinking" && (
-            <ReasoningLensSelector
-              value={reasoningLens}
-              onChange={setReasoningLens}
-              disabled={sending}
-            />
-          )}
-        </div>
-        <MessageInput
-          disabled={!mode || sending}
-          disabledReason={
-            !mode ? "Select a cognitive mode above to start typing" : undefined
-          }
-          onSend={handleSend}
-          onTypingChange={setIsTyping}
+      <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col px-6">
+        <MessageList
+          messages={messages}
+          streaming={streaming}
+          playingMessageId={playingMessageId}
+          onPlayAudio={handlePlayAudio}
         />
+
+        {error && (
+          <div className="mb-3 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-3 border-t border-hairline py-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+            {mode === "thinking" && (
+              <ReasoningLensSelector
+                value={reasoningLens}
+                onChange={setReasoningLens}
+                disabled={sending}
+              />
+            )}
+          </div>
+          <MessageInput
+            disabled={!mode || sending}
+            disabledReason={
+              !mode ? "Select a cognitive mode above to start typing" : undefined
+            }
+            onSend={handleSend}
+            onTypingChange={setIsTyping}
+          />
+        </div>
       </div>
     </div>
   );

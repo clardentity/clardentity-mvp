@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import { Button, CardHeader, Input } from "@/components/ui/primitives";
 
 type SearchResult = {
   message_id: string;
@@ -42,52 +43,59 @@ export function HistorySearch({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="space-y-2">
-      <h2 className="text-sm font-medium text-slate-500">Search history</h2>
+    <div className="space-y-3">
+      <CardHeader
+        title="Search history"
+        description="Full-text search across every conversation in this workspace."
+      />
+
       <form onSubmit={handleSearch} className="flex gap-2">
-        <input
+        <Input
+          type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search across all conversations…"
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none dark:border-slate-700 dark:bg-slate-950"
+          aria-label="Search conversation history"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={loading || !query.trim()}
-          className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:border-brand disabled:opacity-50 dark:border-slate-700"
-        >
+        <Button type="submit" disabled={loading || !query.trim()}>
           {loading ? "Searching…" : "Search"}
-        </button>
+        </Button>
       </form>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+          {error}
+        </div>
+      )}
 
-      {results !== null && (
-        <ul className="space-y-2">
-          {results.length === 0 ? (
-            <p className="text-sm text-slate-500">No matches found.</p>
-          ) : (
-            results.map((r) => (
+      {results !== null &&
+        (results.length === 0 ? (
+          <p className="text-sm text-ink-muted">No matches found.</p>
+        ) : (
+          <ul className="space-y-2">
+            {results.map((r) => (
               <li key={r.message_id}>
                 <Link
                   href={`/chat/${r.conversation_id}`}
-                  className="block rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm hover:border-brand dark:border-slate-800 dark:bg-slate-900"
+                  className="block rounded-lg border border-hairline bg-surface-muted px-3 py-2.5 transition-colors hover:border-brand-border hover:bg-surface-hover"
                 >
-                  <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    <span>{r.conversation_title || "Untitled conversation"}</span>
-                    <span>
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-ink-muted">
+                    <span className="truncate">
+                      {r.conversation_title || "Untitled conversation"}
+                    </span>
+                    <span className="shrink-0 uppercase tracking-wide">
                       {r.role} · {r.mode_used}
                     </span>
                   </div>
-                  <p className="line-clamp-2 text-sm text-slate-700 dark:text-slate-200">
+                  <p className="line-clamp-2 text-sm leading-relaxed text-ink-secondary">
                     {r.content}
                   </p>
                 </Link>
               </li>
-            ))
-          )}
-        </ul>
-      )}
+            ))}
+          </ul>
+        ))}
     </div>
   );
 }

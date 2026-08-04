@@ -36,17 +36,17 @@ export function HealthStatus() {
   }, []);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <h2 className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
+    <div className="rounded-xl border border-hairline bg-surface p-4 text-left">
+      <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
         Backend connectivity
       </h2>
 
       {state.kind === "loading" && (
-        <p className="text-sm text-slate-500">Checking…</p>
+        <p className="text-sm text-ink-muted">Checking…</p>
       )}
 
       {state.kind === "error" && (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-band-low">
           Could not reach the backend at {BACKEND_ROOT_URL} ({state.message})
         </p>
       )}
@@ -55,17 +55,17 @@ export function HealthStatus() {
         <ul className="space-y-1.5">
           {Object.entries(state.data.dependencies).map(([name, status]) => (
             <li key={name} className="flex items-center justify-between text-sm">
-              <span className="capitalize text-slate-700 dark:text-slate-300">
-                {name}
-              </span>
-              <span
-                className={
-                  status === "ok"
-                    ? "font-medium text-emerald-600 dark:text-emerald-400"
-                    : "font-medium text-red-600 dark:text-red-400"
-                }
-              >
-                {status === "ok" ? "healthy" : "error"}
+              <span className="capitalize text-ink-secondary">{name}</span>
+              <span className="flex items-center gap-1.5 font-medium">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    status === "ok" ? "bg-band-high" : "bg-band-low"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className={status === "ok" ? "text-band-high" : "text-band-low"}>
+                  {status === "ok" ? "healthy" : "error"}
+                </span>
               </span>
             </li>
           ))}

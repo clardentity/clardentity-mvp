@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@/components/ui/primitives";
 
 type Workspace = {
   id: string;
@@ -47,8 +55,7 @@ export function WorkspaceList() {
         body: { name: name.trim() },
       });
       setName("");
-      const data = await fetchWorkspaces();
-      setWorkspaces(data);
+      setWorkspaces(await fetchWorkspaces());
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {
@@ -57,52 +64,63 @@ export function WorkspaceList() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-8 px-6 py-16">
-      <div>
-        <h1 className="text-2xl font-semibold">Your workspaces</h1>
-        <p className="text-sm text-slate-500">
-          Each workspace has its own documents and conversations.
-        </p>
-      </div>
+    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      <PageHeader
+        title="Workspaces"
+        description="Each workspace keeps its own documents, conversations, and search history."
+      />
 
-      <form
-        onSubmit={handleCreate}
-        className="flex gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-      >
-        <input
-          type="text"
-          placeholder="New workspace name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none dark:border-slate-700 dark:bg-slate-950"
-        />
-        <button
-          type="submit"
-          disabled={creating || !name.trim()}
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-        >
-          {creating ? "Creating…" : "Create"}
-        </button>
-      </form>
+      <Card className="mb-6">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2">
+          <Input
+            type="text"
+            placeholder="New workspace name"
+            aria-label="New workspace name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="min-w-48 flex-1"
+          />
+          <Button type="submit" variant="primary" disabled={creating || !name.trim()}>
+            {creating ? "Creating…" : "Create workspace"}
+          </Button>
+        </form>
+      </Card>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <div className="mb-4 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+          {error}
+        </div>
+      )}
 
       {workspaces === null ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <div className="flex justify-center py-10">
+          <Spinner className="text-ink-muted" />
+        </div>
       ) : workspaces.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          No workspaces yet — create your first one above.
-        </p>
+        <EmptyState
+          title="No workspaces yet"
+          description="Create your first workspace above to start uploading documents and asking questions."
+        />
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid gap-3 sm:grid-cols-2">
           {workspaces.map((ws) => (
             <li key={ws.id}>
               <Link
                 href={`/workspace/${ws.id}`}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm hover:border-brand dark:border-slate-800 dark:bg-slate-900"
+                className="flex h-full items-start justify-between gap-3 rounded-xl border border-hairline bg-surface p-4 transition-colors hover:border-brand-border hover:bg-surface-hover"
               >
-                <span className="font-medium">{ws.name}</span>
-                <span className="text-xs uppercase tracking-wide text-slate-400">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-sm font-semibold text-brand">
+                    {ws.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-ink">{ws.name}</span>
+                    <span className="block text-xs text-ink-muted">
+                      Created {new Date(ws.created_at).toLocaleDateString()}
+                    </span>
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] uppercase tracking-wide text-ink-muted">
                   {ws.role}
                 </span>
               </Link>

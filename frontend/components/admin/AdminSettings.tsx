@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import {
+  Button,
+  Card,
+  CardHeader,
+  Field,
+  Input,
+  PageHeader,
+  Spinner,
+} from "@/components/ui/primitives";
 
 type ScoringWeights = {
   claim_score_weight: number;
@@ -23,6 +32,22 @@ type AvatarGestureMap = {
 type FeatureFlags = {
   tts_enabled: boolean;
   image_input_enabled: boolean;
+  bias_screening_enabled: boolean;
+};
+
+const FLAG_LABELS: Record<keyof FeatureFlags, { label: string; hint: string }> = {
+  tts_enabled: {
+    label: "Text to speech",
+    hint: "Adds a Listen control to assistant messages.",
+  },
+  image_input_enabled: {
+    label: "Image input",
+    hint: "Allows images to be attached to a message as vision context.",
+  },
+  bias_screening_enabled: {
+    label: "Decision-domain bias screening",
+    hint: "Classifies the decision to scope bias screening and surface a bias watch-list. Screening still runs when off, just unscoped.",
+  },
 };
 
 type Settings = {
@@ -98,140 +123,160 @@ export function AdminSettings() {
 
   if (error && !settings) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-24">
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+      <div className="mx-auto w-full max-w-3xl px-6 py-8">
+        <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+          {error}
+        </div>
       </div>
     );
   }
 
   if (!settings) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-24">
-        <p className="text-sm text-slate-500">Loading…</p>
+      <div className="flex flex-1 items-center justify-center py-24">
+        <Spinner className="text-ink-muted" />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-8 px-6 py-16">
-      <div>
-        <h1 className="text-2xl font-semibold">Admin settings</h1>
-        <p className="text-sm text-slate-500">
-          Model parameters, scoring weights, avatar gestures, and feature flags — effective on the next request.
-        </p>
+    <div className="mx-auto w-full max-w-3xl px-6 py-8">
+      <PageHeader
+        title="Admin settings"
+        description="Model parameters, scoring weights, avatar gestures, and feature flags. Changes take effect on the next request."
+        actions={
+          <div className="flex items-center gap-3">
+            {savedAt && <span className="text-sm text-band-high">Saved</span>}
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="space-y-5">
+        <Card>
+          <CardHeader
+            title="Model"
+            description="Overrides applied to every generation request."
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="OpenAI model" hint="Blank uses the server default.">
+              <Input
+                value={settings.openai_model ?? ""}
+                onChange={(e) => update("openai_model", e.target.value || null)}
+                placeholder="e.g. gpt-5"
+              />
+            </Field>
+            <Field label="Temperature" hint="Blank omits the parameter entirely.">
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={settings.openai_temperature ?? ""}
+                onChange={(e) =>
+                  update(
+                    "openai_temperature",
+                    e.target.value === "" ? null : Number(e.target.value),
+                  )
+                }
+              />
+            </Field>
+            <Field label="Retrieval top-k" hint="Chunks retrieved per query.">
+              <Input
+                type="number"
+                min="1"
+                max="50"
+                value={settings.retrieval_top_k}
+                onChange={(e) => update("retrieval_top_k", Number(e.target.value))}
+              />
+            </Field>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Scoring weights"
+            description="How per-claim scores roll up into a message confidence band (SRS §9.3)."
+          />
+          <div className="grid gap-4 sm:grid-cols-3">
+            {(Object.keys(settings.scoring_weights) as (keyof ScoringWeights)[]).map(
+              (key) => (
+                <Field key={key} label={key.replace(/_/g, " ")}>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={settings.scoring_weights[key]}
+                    onChange={(e) => updateScoringWeight(key, Number(e.target.value))}
+                  />
+                </Field>
+              ),
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Avatar gestures"
+            description="Which gesture the companion performs for each cognitive mode."
+          />
+          <div className="divide-y divide-hairline">
+            {MODES.map((mode) => (
+              <label
+                key={mode}
+                className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
+              >
+                <span className="text-sm capitalize text-ink">{mode}</span>
+                <select
+                  value={settings.avatar_gesture_map[mode]}
+                  onChange={(e) => updateGesture(mode, e.target.value)}
+                  className="h-9 rounded-lg border border-hairline-strong bg-surface px-2 text-sm text-ink transition-colors hover:border-brand-border focus:border-brand"
+                >
+                  {GESTURE_OPTIONS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Feature flags" />
+          <div className="divide-y divide-hairline">
+            {(Object.keys(FLAG_LABELS) as (keyof FeatureFlags)[]).map((key) => (
+              <label
+                key={key}
+                className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-ink">
+                    {FLAG_LABELS[key].label}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-ink-muted">
+                    {FLAG_LABELS[key].hint}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.feature_flags?.[key] ?? true}
+                  onChange={(e) => updateFlag(key, e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--brand)]"
+                />
+              </label>
+            ))}
+          </div>
+        </Card>
+
+        {error && (
+          <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+            {error}
+          </div>
+        )}
       </div>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-slate-500">Model</h2>
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-600 dark:text-slate-400">
-            OpenAI model override (blank = use server default)
-          </span>
-          <input
-            value={settings.openai_model ?? ""}
-            onChange={(e) => update("openai_model", e.target.value || null)}
-            placeholder="e.g. gpt-5"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-600 dark:text-slate-400">
-            Temperature override (blank = don&apos;t send)
-          </span>
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            max="2"
-            value={settings.openai_temperature ?? ""}
-            onChange={(e) =>
-              update("openai_temperature", e.target.value === "" ? null : Number(e.target.value))
-            }
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-600 dark:text-slate-400">Retrieval top-k</span>
-          <input
-            type="number"
-            min="1"
-            max="50"
-            value={settings.retrieval_top_k}
-            onChange={(e) => update("retrieval_top_k", Number(e.target.value))}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-slate-500">Scoring weights</h2>
-        {(Object.keys(settings.scoring_weights) as (keyof ScoringWeights)[]).map((key) => (
-          <label key={key} className="block text-sm">
-            <span className="mb-1 block text-slate-600 dark:text-slate-400">{key.replace(/_/g, " ")}</span>
-            <input
-              type="number"
-              step="0.01"
-              value={settings.scoring_weights[key]}
-              onChange={(e) => updateScoringWeight(key, Number(e.target.value))}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-            />
-          </label>
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-slate-500">Avatar gesture mapping</h2>
-        {MODES.map((mode) => (
-          <label key={mode} className="flex items-center justify-between text-sm">
-            <span className="text-slate-600 dark:text-slate-400 capitalize">{mode}</span>
-            <select
-              value={settings.avatar_gesture_map[mode]}
-              onChange={(e) => updateGesture(mode, e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-            >
-              {GESTURE_OPTIONS.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-slate-500">Feature flags</h2>
-        <label className="flex items-center justify-between text-sm">
-          <span className="text-slate-600 dark:text-slate-400">TTS enabled</span>
-          <input
-            type="checkbox"
-            checked={settings.feature_flags.tts_enabled}
-            onChange={(e) => updateFlag("tts_enabled", e.target.checked)}
-            className="h-4 w-4"
-          />
-        </label>
-        <label className="flex items-center justify-between text-sm">
-          <span className="text-slate-600 dark:text-slate-400">Image input enabled</span>
-          <input
-            type="checkbox"
-            checked={settings.feature_flags.image_input_enabled}
-            onChange={(e) => updateFlag("image_input_enabled", e.target.checked)}
-            className="h-4 w-4"
-          />
-        </label>
-      </section>
-
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {savedAt && <p className="text-sm text-green-600 dark:text-green-400">Saved.</p>}
-
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving}
-        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-      >
-        {saving ? "Saving…" : "Save changes"}
-      </button>
     </div>
   );
 }

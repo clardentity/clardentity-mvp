@@ -19,21 +19,29 @@ export function ModeSelector({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    // A segmented control rather than loose pills: the four modes are one
+    // mutually-exclusive choice, and §7.2 requires the user make it explicitly.
+    <div
+      role="radiogroup"
+      aria-label="Cognitive mode"
+      className="inline-flex rounded-lg border border-hairline-strong bg-surface-muted p-0.5"
+    >
       {COGNITIVE_MODES.map((mode) => {
         const selected = value === mode.value;
         return (
           <button
             key={mode.value}
             type="button"
+            role="radio"
+            aria-checked={selected}
             disabled={disabled}
             onClick={() => onChange(mode.value)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-              selected
-                ? "border-brand bg-brand text-white"
-                : "border-slate-300 bg-white text-slate-700 hover:border-brand dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-            }`}
             title={mode.hint}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              selected
+                ? "bg-brand text-white"
+                : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            }`}
           >
             {mode.label}
           </button>

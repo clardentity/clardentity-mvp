@@ -24,16 +24,23 @@ export function MessageList({
 }) {
   if (messages.length === 0 && !streaming) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-slate-500">
-          Pick a mode below and send your first message.
-        </p>
+      <div className="flex flex-1 items-center justify-center px-6 py-16">
+        <div className="max-w-sm text-center">
+          <p className="text-sm font-medium text-ink">Start a conversation</p>
+          <p className="mt-1 text-sm text-ink-muted">
+            Pick a cognitive mode below, then ask your question. Every answer is
+            broken into claims, checked against your documents, and screened for
+            cognitive bias.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 space-y-4 overflow-y-auto px-1 py-4">
+    // min-h-0 is required for overflow-y-auto to engage: a flex item defaults
+    // to min-height:auto, which sizes it to its content and defeats scrolling.
+    <div className="scroll-slim min-h-0 flex-1 space-y-5 overflow-y-auto px-1 py-5">
       {messages.map((m) => (
         <MessageBubble
           key={m.id}
@@ -117,47 +124,80 @@ function MessageBubble({
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+        className={
           isUser
-            ? "bg-brand text-white"
-            : "border border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-50"
-        }`}
+            ? "max-w-[78%] rounded-2xl rounded-br-md bg-brand px-4 py-2.5 text-sm leading-relaxed text-white"
+            : "w-full max-w-[88%] rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3 text-sm text-ink"
+        }
       >
         {!isUser && (
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              {modeUsed}
-              {reasoningLens && ` · ${reasoningLens.replace("_", "-")}`}
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <span>{modeUsed}</span>
+              {reasoningLens && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{reasoningLens.replace("_", "-")}</span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               {onPlayAudio && content && (
                 <button
                   type="button"
                   onClick={onPlayAudio}
-                  title={isPlaying ? "Stop" : "Listen"}
-                  className="text-xs text-slate-400 hover:text-brand"
+                  title={isPlaying ? "Stop playback" : "Listen to this answer"}
+                  aria-label={isPlaying ? "Stop playback" : "Listen to this answer"}
+                  className="rounded-md p-1 text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand"
                 >
-                  {isPlaying ? "⏸" : "🔊"}
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5"
+                  >
+                    {isPlaying ? (
+                      <>
+                        <rect x="6" y="5" width="4" height="14" rx="1" />
+                        <rect x="14" y="5" width="4" height="14" rx="1" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M11 5 6 9H2v6h4l5 4z" />
+                        <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                      </>
+                    )}
+                  </svg>
                 </button>
               )}
               {confidenceBand && (
                 <ConfidenceBadge
                   band={confidenceBand}
                   score={confidenceScore}
-                  onClick={() => document.getElementById(panelId)?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+                  onClick={() =>
+                    document
+                      .getElementById(panelId)
+                      ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+                  }
                 />
               )}
             </div>
           </div>
         )}
-        <p className="whitespace-pre-wrap">
+        <p className="whitespace-pre-wrap leading-relaxed">
           {isUser ? content : renderTextWithCitations(content, claims)}
           {isStreaming && (
             <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
           )}
         </p>
 
-        {!isUser && <EvidencePanel claims={claims} band={confidenceBand} panelId={panelId} />}
+        {!isUser && (
+          <EvidencePanel claims={claims} band={confidenceBand} panelId={panelId} />
+        )}
       </div>
     </div>
   );

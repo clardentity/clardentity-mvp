@@ -49,9 +49,13 @@ def build_markdown_export(conversation_title: str | None, messages: list[Message
                 label_part = f" ({c.entailment_label})" if c.entailment_label else ""
                 lines.append(f"{c.claim_index}. {c.claim_text}{score_part}{label_part}")
                 if c.distortion_flag:
-                    lines.append(
-                        f"   - ⚠️ Distortion flagged: {c.distortion_flag} — {c.distortion_explanation or ''}"
-                    )
+                    bias = c.bias_name or c.distortion_flag.replace("_", " ")
+                    domain = f" [{c.bias_category_name}]" if c.bias_category_name else ""
+                    lines.append(f"   - ⚠️ Possible bias: **{bias}**{domain}")
+                    if c.bias_definition:
+                        lines.append(f"     - {c.bias_definition}")
+                    if c.distortion_explanation:
+                        lines.append(f"     - In this claim: {c.distortion_explanation}")
                 for e in c.evidence:
                     support = f"support {e.support_score:.2f}" if e.support_score is not None else "support n/a"
                     relevance = (
@@ -133,11 +137,13 @@ def build_pdf_export(conversation_title: str | None, messages: list[MessageOut])
                 label_part = f" ({c.entailment_label})" if c.entailment_label else ""
                 _line(pdf, 5, f"{c.claim_index}. {c.claim_text}{score_part}{label_part}")
                 if c.distortion_flag:
-                    _line(
-                        pdf,
-                        5,
-                        f"   Distortion flagged: {c.distortion_flag} - {c.distortion_explanation or ''}",
-                    )
+                    bias = c.bias_name or c.distortion_flag.replace("_", " ")
+                    domain = f" [{c.bias_category_name}]" if c.bias_category_name else ""
+                    _line(pdf, 5, f"   Possible bias: {bias}{domain}")
+                    if c.bias_definition:
+                        _line(pdf, 5, f"      {c.bias_definition}")
+                    if c.distortion_explanation:
+                        _line(pdf, 5, f"      In this claim: {c.distortion_explanation}")
                 for e in c.evidence:
                     support = f"support {e.support_score:.2f}" if e.support_score is not None else "support n/a"
                     relevance = (

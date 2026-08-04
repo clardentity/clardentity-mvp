@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
-import { NavBar } from "@/components/system/NavBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,11 +28,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-50">
-        <AuthProvider>
-          <NavBar />
-          <div className="flex flex-1 flex-col">{children}</div>
-        </AuthProvider>
+      {/* The app shell (sidebar + topbar) is applied per-route by RequireAuth,
+          so signed-out pages - landing, login, register - stay full-bleed. */}
+      <body className="min-h-full bg-canvas text-ink">
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

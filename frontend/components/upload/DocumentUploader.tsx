@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
+import { Badge, Spinner } from "@/components/ui/primitives";
 
 type DocumentItem = {
   id: string;
@@ -98,37 +99,48 @@ export function DocumentUploader({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <input
           ref={fileInputRef}
           type="file"
           accept=".pdf,.docx,.txt"
           onChange={handleFileSelected}
           disabled={uploading}
-          className="text-xs text-slate-500 file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-brand-dark disabled:opacity-60"
+          aria-label="Upload a document"
+          className="w-full text-xs text-ink-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-brand-dark disabled:opacity-60"
         />
-        {uploading && <span className="text-xs text-slate-400">Uploading…</span>}
+        {uploading && <Spinner className="shrink-0 text-ink-muted" />}
       </div>
 
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-band-low">{error}</p>}
 
       {documents && documents.length > 0 && (
         <ul className="space-y-1.5">
           {documents.map((doc) => (
             <li
               key={doc.id}
-              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900"
+              className="flex items-center justify-between gap-2 rounded-lg border border-hairline bg-surface-muted px-3 py-2"
             >
-              <span className="truncate">{doc.filename}</span>
-              <div className="flex items-center gap-2">
+              <span className="truncate text-xs text-ink">{doc.filename}</span>
+              <div className="flex shrink-0 items-center gap-1.5">
                 <StatusBadge status={doc.status} />
                 <button
                   type="button"
                   onClick={() => handleDelete(doc.id)}
-                  className="text-slate-400 hover:text-red-500"
+                  className="rounded p-0.5 text-ink-muted transition-colors hover:text-band-low"
                   aria-label={`Delete ${doc.filename}`}
                 >
-                  ✕
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                    className="h-3 w-3"
+                  >
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             </li>
@@ -140,11 +152,11 @@ export function DocumentUploader({ workspaceId }: { workspaceId: string }) {
 }
 
 function StatusBadge({ status }: { status: DocumentItem["status"] }) {
-  const styles: Record<DocumentItem["status"], string> = {
-    uploading: "text-slate-400",
-    processing: "text-amber-500",
-    processed: "text-emerald-500",
-    failed: "text-red-500",
+  const tones: Record<DocumentItem["status"], "neutral" | "mid" | "high" | "low"> = {
+    uploading: "neutral",
+    processing: "mid",
+    processed: "high",
+    failed: "low",
   };
-  return <span className={`font-medium ${styles[status]}`}>{status}</span>;
+  return <Badge tone={tones[status]}>{status}</Badge>;
 }

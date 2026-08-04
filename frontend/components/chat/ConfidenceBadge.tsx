@@ -1,10 +1,19 @@
 "use client";
 
+import { cx } from "@/components/ui/primitives";
+
+/** SRS §9.3 bands. Colour is deliberately the strongest signal on a message,
+ *  so these are the only saturated hues in the chat surface. */
 const BAND_STYLES: Record<string, string> = {
-  "Likely Fact":
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  Plausible: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  "Needs Verification": "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  "Likely Fact": "bg-band-high-bg text-band-high border-band-high-border",
+  Plausible: "bg-band-mid-bg text-band-mid border-band-mid-border",
+  "Needs Verification": "bg-band-low-bg text-band-low border-band-low-border",
+};
+
+const BAND_DOTS: Record<string, string> = {
+  "Likely Fact": "bg-band-high",
+  Plausible: "bg-band-mid",
+  "Needs Verification": "bg-band-low",
 };
 
 export function ConfidenceBadge({
@@ -17,18 +26,25 @@ export function ConfidenceBadge({
   onClick?: () => void;
 }) {
   const style =
-    BAND_STYLES[band] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+    BAND_STYLES[band] ?? "bg-surface-sunken text-ink-secondary border-hairline";
+  const dot = BAND_DOTS[band] ?? "bg-ink-muted";
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style} ${
-        onClick ? "cursor-pointer hover:opacity-80" : "cursor-default"
-      }`}
+      title={onClick ? "Show the evidence behind this score" : undefined}
+      className={cx(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-opacity",
+        style,
+        onClick ? "cursor-pointer hover:opacity-80" : "cursor-default",
+      )}
     >
+      <span className={cx("h-1.5 w-1.5 rounded-full", dot)} aria-hidden="true" />
       {band}
-      {score !== null ? ` · ${Math.round(score)}` : ""}
+      {score !== null && (
+        <span className="tabular-nums opacity-70">{Math.round(score)}</span>
+      )}
     </button>
   );
 }

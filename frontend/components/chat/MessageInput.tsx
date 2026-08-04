@@ -88,7 +88,7 @@ export function MessageInput({
               <button
                 type="button"
                 onClick={() => removeImage(i)}
-                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[9px] text-white hover:bg-slate-900"
+                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink text-[9px] text-surface transition-opacity hover:opacity-80"
                 aria-label="Remove image"
               >
                 ✕
@@ -98,9 +98,9 @@ export function MessageInput({
         </div>
       )}
 
-      {imageError && <p className="text-xs text-red-600 dark:text-red-400">{imageError}</p>}
+      {imageError && <p className="text-xs text-band-low">{imageError}</p>}
 
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 rounded-xl border border-hairline-strong bg-surface p-2 transition-colors focus-within:border-brand">
         <AudioRecorder
           disabled={disabled}
           onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
@@ -111,9 +111,21 @@ export function MessageInput({
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           title="Attach an image"
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-sm text-slate-500 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-700"
+          aria-label="Attach an image"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
         >
-          📎
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="h-4 w-4"
+          >
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
         </button>
         <input
           ref={fileInputRef}
@@ -128,24 +140,25 @@ export function MessageInput({
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
+          disabled={disabled}
           placeholder={
             disabled
               ? disabledReason ?? "Select a mode to start typing"
-              : "Type your message…"
+              : "Ask a question…  (Enter to send, Shift+Enter for a new line)"
           }
-          className="flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:disabled:bg-slate-900"
+          className="flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={disabled || !value.trim()}
-          className="rounded-md bg-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
           Send
         </button>
       </div>
       {disabled && disabledReason && (
-        <p className="text-xs text-slate-400">{disabledReason}</p>
+        <p className="text-xs text-ink-muted">{disabledReason}</p>
       )}
     </div>
   );

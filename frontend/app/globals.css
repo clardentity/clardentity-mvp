@@ -1,35 +1,164 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --brand: #6d5bd0;
-  --brand-dark: #574aa8;
-}
+/* ---------------------------------------------------------------------------
+   Design tokens
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-brand: var(--brand);
-  --color-brand-dark: var(--brand-dark);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+   Enterprise-console palette: a near-white canvas with white surfaces raised
+   onto it, hairline borders instead of shadows for structure, and colour used
+   sparingly so the confidence bands stay the loudest thing on screen.
+   Light is the primary theme; every token has a dark counterpart below.
+--------------------------------------------------------------------------- */
+:root {
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f9fafb;
+  --surface-hover: #f2f4f7;
+  --surface-sunken: #eef1f4;
+
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
+
+  --text: #101828;
+  --text-secondary: #475467;
+  --text-muted: #667085;
+  --text-inverse: #ffffff;
+
+  /* Brand violet, carried over from the original palette and given a ramp. */
+  --brand: #5b4bc4;
+  --brand-dark: #4a3da8;
+  --brand-soft: #eeecfb;
+  --brand-border: #cfc9f2;
+
+  /* Confidence bands (SRS §9.3) - the one place saturated colour is welcome. */
+  --band-high: #067647;
+  --band-high-bg: #ecfdf3;
+  --band-high-border: #abefc6;
+  --band-mid: #b54708;
+  --band-mid-bg: #fffaeb;
+  --band-mid-border: #fedf89;
+  --band-low: #b42318;
+  --band-low-bg: #fef3f2;
+  --band-low-border: #fecdca;
+
+  /* Cognitive-bias callouts. */
+  --caution: #9a3412;
+  --caution-bg: #fff6ed;
+  --caution-border: #fdd6ab;
+
+  --focus-ring: #9b8afb;
+
+  --sidebar-width: 264px;
+  --topbar-height: 56px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --canvas: #0b0d12;
+    --surface: #14171f;
+    --surface-muted: #171b24;
+    --surface-hover: #1d222c;
+    --surface-sunken: #10131a;
+
+    --border: #252a35;
+    --border-strong: #333947;
+
+    --text: #f0f2f6;
+    --text-secondary: #a7b0c0;
+    --text-muted: #8b95a7;
+    --text-inverse: #0b0d12;
+
+    --brand: #8b7bec;
+    --brand-dark: #a394f5;
+    --brand-soft: #1e1b3a;
+    --brand-border: #38316b;
+
+    --band-high: #6ce9a6;
+    --band-high-bg: #0b2a1c;
+    --band-high-border: #1c4a33;
+    --band-mid: #fec84b;
+    --band-mid-bg: #2b1f08;
+    --band-mid-border: #55400f;
+    --band-low: #fda29b;
+    --band-low-bg: #2d1211;
+    --band-low-border: #5a2422;
+
+    --caution: #fdba74;
+    --caution-bg: #2a1a0d;
+    --caution-border: #52341a;
+
+    --focus-ring: #7c6ce0;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-hairline: var(--border);
+  --color-hairline-strong: var(--border-strong);
+
+  --color-ink: var(--text);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-inverse: var(--text-inverse);
+
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+
+  --color-band-high: var(--band-high);
+  --color-band-high-bg: var(--band-high-bg);
+  --color-band-high-border: var(--band-high-border);
+  --color-band-mid: var(--band-mid);
+  --color-band-mid-bg: var(--band-mid-bg);
+  --color-band-mid-border: var(--band-mid-border);
+  --color-band-low: var(--band-low);
+  --color-band-low-bg: var(--band-low-bg);
+  --color-band-low-border: var(--band-low-border);
+
+  --color-caution: var(--caution);
+  --color-caution-bg: var(--caution-bg);
+  --color-caution-border: var(--caution-border);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
-/* Avatar companion animations (Section 8.3 state machine) */
+body {
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* One consistent focus treatment across every interactive element. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Restrained scrollbars - the sidebar and evidence panels use these a lot. */
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Avatar companion animations (SRS §8.3 state machine)
+--------------------------------------------------------------------------- */
 @keyframes avatar-breathe {
   0%,
   100% {
@@ -109,4 +238,15 @@ body {
 .avatar-react {
   animation: avatar-react-pulse 0.7s ease-out;
   transform-origin: 100px 150px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-breathe,
+  .avatar-blink,
+  .avatar-talk,
+  .avatar-wobble-left,
+  .avatar-wobble-right,
+  .avatar-react {
+    animation: none;
+  }
 }

@@ -27,7 +27,7 @@ export function ReasoningLensSelector({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="reasoning-lens" className="text-xs text-slate-400">
+      <label htmlFor="reasoning-lens" className="text-xs text-ink-muted">
         Reasoning lens
       </label>
       <select
@@ -35,7 +35,7 @@ export function ReasoningLensSelector({
         value={value ?? ""}
         disabled={disabled}
         onChange={(e) => onChange((e.target.value || null) as ReasoningLens | null)}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-brand focus:outline-none disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+        className="h-8 rounded-lg border border-hairline-strong bg-surface px-2 text-xs text-ink transition-colors hover:border-brand-border focus:border-brand disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">None (balanced)</option>
         {REASONING_LENSES.map((lens) => (

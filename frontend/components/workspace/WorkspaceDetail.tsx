@@ -7,6 +7,14 @@ import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { DocumentUploader } from "@/components/upload/DocumentUploader";
 import { HistorySearch } from "@/components/workspace/HistorySearch";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  PageHeader,
+  Spinner,
+} from "@/components/ui/primitives";
 
 type Workspace = {
   id: string;
@@ -67,70 +75,97 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
 
   if (error) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-24">
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+      <div className="mx-auto w-full max-w-4xl px-6 py-8">
+        <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+          {error}
+        </div>
       </div>
     );
   }
 
   if (!workspace || conversations === null) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-24">
-        <p className="text-sm text-slate-500">Loading…</p>
+      <div className="flex flex-1 items-center justify-center py-24">
+        <Spinner className="text-ink-muted" />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-6 px-6 py-16">
-      <div>
-        <h1 className="text-2xl font-semibold">{workspace.name}</h1>
-        <p className="text-sm text-slate-500">
-          Upload documents to ground answers in this workspace&apos;s content.
-        </p>
+    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      <PageHeader
+        title={workspace.name}
+        description="Documents uploaded here ground every answer in this workspace."
+        actions={
+          <Button variant="primary" onClick={handleNewConversation} disabled={creating}>
+            {creating ? "Creating…" : "New conversation"}
+          </Button>
+        }
+      />
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-5">
+          <Card padded={false}>
+            <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-3">
+              <h2 className="text-sm font-semibold text-ink">Conversations</h2>
+              <span className="text-xs text-ink-muted">
+                {conversations.length}{" "}
+                {conversations.length === 1 ? "conversation" : "conversations"}
+              </span>
+            </div>
+
+            {conversations.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm font-medium text-ink">No conversations yet</p>
+                <p className="mt-1 text-sm text-ink-muted">
+                  Start one to ask questions against this workspace.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-hairline">
+                {conversations.map((conv) => (
+                  <li key={conv.id}>
+                    <Link
+                      href={`/chat/${conv.id}`}
+                      className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-surface-hover"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-ink">
+                          {conv.title || "Untitled conversation"}
+                        </span>
+                        <span className="block text-xs text-ink-muted">
+                          {new Date(conv.created_at).toLocaleString()}
+                        </span>
+                      </span>
+                      {conv.default_mode && (
+                        <Badge tone="neutral" className="shrink-0 uppercase">
+                          {conv.default_mode}
+                        </Badge>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <div id="search" className="scroll-mt-20">
+            <Card>
+              <HistorySearch workspaceId={workspaceId} />
+            </Card>
+          </div>
+        </div>
+
+        <div id="documents" className="scroll-mt-20">
+          <Card>
+            <CardHeader
+              title="Documents"
+              description="PDF, DOCX, or TXT. Answers cite these directly."
+            />
+            <DocumentUploader workspaceId={workspaceId} />
+          </Card>
+        </div>
       </div>
-
-      <div className="space-y-2">
-        <h2 className="text-sm font-medium text-slate-500">Documents</h2>
-        <DocumentUploader workspaceId={workspaceId} />
-      </div>
-
-      <HistorySearch workspaceId={workspaceId} />
-
-      <button
-        type="button"
-        onClick={handleNewConversation}
-        disabled={creating}
-        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-      >
-        {creating ? "Creating…" : "New conversation"}
-      </button>
-
-      {conversations.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          No conversations yet — start one above.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {conversations.map((conv) => (
-            <li key={conv.id}>
-              <Link
-                href={`/chat/${conv.id}`}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm hover:border-brand dark:border-slate-800 dark:bg-slate-900"
-              >
-                <span className="font-medium">
-                  {conv.title || "Untitled conversation"}
-                </span>
-                {conv.default_mode && (
-                  <span className="text-xs uppercase tracking-wide text-slate-400">
-                    {conv.default_mode}
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

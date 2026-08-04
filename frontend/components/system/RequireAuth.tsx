@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
+import { AppShell } from "@/components/system/AppShell";
+import { Spinner } from "@/components/ui/primitives";
 
+/** Gates a route on an authenticated session and wraps it in the app shell,
+ *  so every signed-in page gets the sidebar/topbar while signed-out pages
+ *  (landing, login, register) stay full-bleed. */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -16,11 +21,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   if (loading || !user) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-24">
-        <p className="text-sm text-slate-500">Loading…</p>
+      <div className="flex min-h-screen items-center justify-center">
+        <Spinner className="text-ink-muted" />
       </div>
     );
   }
 
-  return <>{children}</>;
+  return <AppShell>{children}</AppShell>;
 }
