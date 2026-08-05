@@ -1,4 +1,16 @@
 #!/bin/sh
+set -e
+
+# Migrations run here, not via Render's preDeployCommand. That field is a paid
+# feature: on the free plan it is accepted, stored, and silently never
+# executed - so every migration since the first has had to be applied by hand,
+# and the one time that was missed the app went live against an older schema
+# and 500'd on every write to the new column. Failing the boot is the right
+# outcome if this cannot complete; serving traffic against a schema the code
+# does not match is worse than not serving.
+echo "==> Applying database migrations"
+alembic upgrade head
+
 # Render's free plan only allows a single "web service" (no separate
 # background-worker plan tier), so the Celery consumer runs alongside uvicorn
 # in the same container instead of as its own Render service. If it crashes,

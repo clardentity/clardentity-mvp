@@ -102,8 +102,23 @@ revision while the app expects the new schema (symptom: `column
 So after a restore: wait until `SELECT count(*) FROM users` returns the
 expected rows *through the pooler*, and only then run migrations.
 
-Also note `preDeployCommand: alembic upgrade head` is not a safety net here -
-it happily no-ops against the transient state and then gets reverted too.
+## Migrations run in start.sh, NOT via preDeployCommand
+
+`preDeployCommand` is a **paid Render feature**. On the free plan the API
+accepts it, stores it, and returns it when you read the service back - and
+never runs it. Nothing in the logs says so. Every migration on this project
+has therefore had to be applied by hand, and the one time that was forgotten
+the app went live against an older schema and returned 500 on every write to
+the new column.
+
+So `backend/start.sh` runs `alembic upgrade head` under `set -e` before
+starting uvicorn. If it fails the container fails to boot, which is the
+correct outcome: serving traffic against a schema the code doesn't match is
+worse than not serving.
+
+Note this also means a deploy attempted while the database is unreachable
+(see the pause/restore section above) will now fail rather than silently
+come up broken.
 
 ## Vercel (frontend)
 
