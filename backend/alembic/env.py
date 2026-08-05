@@ -69,10 +69,17 @@ async def run_async_migrations() -> None:
 
     """
 
+    # Alembic builds its own engine, so it does not inherit the
+    # statement_cache_size=0 that app/db/session.py sets. Without it a
+    # migration run against Supabase's transaction-mode pooler can fail with
+    # DuplicatePreparedStatementError when two connections land on the same
+    # backend - intermittently, which is worse than always: it passed by luck
+    # when run by hand and then failed inside the container.
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"statement_cache_size": 0},
     )
 
     async with connectable.connect() as connection:
