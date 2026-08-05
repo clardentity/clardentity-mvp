@@ -197,11 +197,39 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [pathname]);
 
-  // /workspace/<id> and /chat/<id> both imply a workspace; only the former
-  // carries it in the URL, so chat pages fall back to no active workspace
-  // rather than guessing.
+  // /workspace/<id> carries the workspace in the URL; /chat/<id> doesn't, so
+  // it's resolved from the conversation. Without this the sidebar reads
+  // "Select workspace" while you are inside one of its conversations, and the
+  // Documents/Search links point at the workspace *list* - which makes it easy
+  // to upload a document into one workspace and then ask questions in another,
+  // and conclude that grounding is broken.
   const workspaceMatch = pathname.match(/^\/workspace\/([^/]+)/);
-  const activeWorkspaceId = workspaceMatch ? workspaceMatch[1] : null;
+  const conversationId = pathname.match(/^\/chat\/([^/]+)/)?.[1] ?? null;
+  // Keyed by conversation so a stale result is ignored by derivation rather
+  // than cleared with a setState in the effect body (which cascades renders).
+  const [resolved, setResolved] = useState<{ id: string; workspaceId: string } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+    apiFetch<{ workspace_id: string }>(`/chat/conversations/${conversationId}`)
+      .then((conv) => {
+        if (!cancelled) setResolved({ id: conversationId, workspaceId: conv.workspace_id });
+      })
+      .catch(() => {
+        // Sidebar just falls back to no active workspace; the page below
+        // surfaces the real error.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  const chatWorkspaceId =
+    conversationId && resolved?.id === conversationId ? resolved.workspaceId : null;
+  const activeWorkspaceId = workspaceMatch ? workspaceMatch[1] : chatWorkspaceId;
   const close = () => setMobileOpen(false);
 
   const nav = (
@@ -350,7 +378,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon path={icons.menu} />
           </button>
-          <Breadcrumbs pathname={pathname} workspaces={workspaces} />
+          <Breadcrumbs
+            pathname={pathname}
+            workspaces={workspaces}
+            activeWorkspaceId={activeWorkspaceId}
+          />
         </header>
 
         <main className="scroll-slim flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -364,9 +396,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 function Breadcrumbs({
   pathname,
   workspaces,
+  activeWorkspaceId,
 }: {
   pathname: string;
   workspaces: Workspace[];
+  activeWorkspaceId: string | null;
 }) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) {
@@ -382,6 +416,17 @@ function Breadcrumbs({
 
   const crumbs: Array<{ label: string; href?: string }> = [];
   const root = segments[0];
+
+  // A conversation belongs to a workspace, so show that lineage rather than a
+  // bare "Conversation" with no way back to the documents it is grounded in.
+  if (root === "chat") {
+    const ws = workspaces.find((w) => w.id === activeWorkspaceId);
+    crumbs.push({ label: "Workspaces", href: "/workspace" });
+    if (ws) crumbs.push({ label: ws.name, href: `/workspace/${ws.id}` });
+    crumbs.push({ label: "Conversation" });
+    return <Crumbs crumbs={crumbs} />;
+  }
+
   crumbs.push({ label: LABELS[root] ?? root, href: `/${root}` });
 
   if (segments.length > 1) {
@@ -393,6 +438,11 @@ function Breadcrumbs({
       crumbs.push({ label: "Detail" });
     }
   }
+
+  return <Crumbs crumbs={crumbs} />;
+}
+
+function Crumbs({ crumbs }: { crumbs: Array<{ label: string; href?: string }> }) {
 
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">

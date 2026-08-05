@@ -61,6 +61,23 @@ from app.workers.rebuild_memory import rebuild_memory_task
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+_TITLE_MAX_CHARS = 70
+
+
+def _derive_title(first_message: str) -> str:
+    """A readable conversation title from its opening message.
+
+    Deliberately not an LLM call: this runs on the first turn of every
+    conversation, and a round-trip to name something the user just typed isn't
+    worth the latency. Truncates on a word boundary.
+    """
+    text = " ".join(first_message.split())
+    if len(text) <= _TITLE_MAX_CHARS:
+        return text
+    clipped = text[:_TITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(",;:.-")
+    return f"{clipped or text[:_TITLE_MAX_CHARS]}…"
+
+
 def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
     return MessageOut(
         id=message.id,
@@ -240,6 +257,13 @@ async def send_message(
 
     # Convenience pre-fill only (§7.2) — never read back as an automatic mode choice.
     conversation.default_mode = mode
+
+    # Title the conversation from its opening question. Without this every row
+    # in the workspace list reads "Untitled conversation", which is
+    # indistinguishable from the conversation not having been saved at all.
+    if conversation.title is None and not history:
+        conversation.title = _derive_title(payload.content)
+
     await db.commit()
 
     flags = admin_settings.get("feature_flags") or {}
