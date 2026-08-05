@@ -23,7 +23,11 @@ celery_app = Celery(
     "clardentity",
     broker=_broker_url,
     backend=_broker_url,
-    include=["app.workers.ingest_document", "app.workers.rebuild_memory"],
+    include=[
+        "app.workers.ingest_document",
+        "app.workers.rebuild_memory",
+        "app.workers.rebuild_profile",
+    ],
 )
 
 celery_app.conf.update(

@@ -1,0 +1,370 @@
+{
+  "_source": "Clardentity 25-role user psyche classification (client diagrams, 2026-08-05). Each role is a standing relationship or position a person occupies. Qualifiers marked exclusive:true admit exactly one value; the rest may take several.",
+  "roles": [
+    {
+      "id": "family_member",
+      "index": 1,
+      "label": "Member of a family",
+      "description": "As a member of a family.",
+      "group": "family",
+      "qualifiers": []
+    },
+    {
+      "id": "child_of_parent",
+      "index": 2,
+      "label": "Child of a parent",
+      "description": "As an adolescent or adult child of a biological, step, adopted, foster, or in-law parent.",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "parent_tie",
+          "label": "Parent relationship",
+          "exclusive": false,
+          "options": ["biological", "step", "adopted", "foster", "in-law"]
+        }
+      ]
+    },
+    {
+      "id": "sibling",
+      "index": 3,
+      "label": "Sibling",
+      "description": "As a sibling (younger, elder, half, step, or adoptive brother or sister).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "gender",
+          "label": "Brother or sister",
+          "exclusive": true,
+          "options": ["brother", "sister"]
+        },
+        {
+          "id": "seniority",
+          "label": "Younger or elder",
+          "exclusive": true,
+          "options": ["younger", "elder"]
+        },
+        {
+          "id": "tie",
+          "label": "Kind of sibling",
+          "exclusive": false,
+          "options": ["full", "half", "step", "adoptive"]
+        }
+      ]
+    },
+    {
+      "id": "cousin",
+      "index": 4,
+      "label": "Cousin",
+      "description": "As a cousin (maternal, paternal, or adoptive younger or elder brother/sister).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "gender",
+          "label": "Brother or sister",
+          "exclusive": true,
+          "options": ["brother", "sister"]
+        },
+        {
+          "id": "seniority",
+          "label": "Younger or elder",
+          "exclusive": true,
+          "options": ["younger", "elder"]
+        },
+        {
+          "id": "lineage",
+          "label": "Lineage",
+          "exclusive": false,
+          "options": ["maternal", "paternal", "adoptive"]
+        }
+      ]
+    },
+    {
+      "id": "nibling",
+      "index": 5,
+      "label": "Nibling (niece or nephew)",
+      "description": "As a nibling (maternal, paternal, or adoptive younger or elder niece/nephew).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "gender",
+          "label": "Niece or nephew",
+          "exclusive": true,
+          "options": ["niece", "nephew"]
+        },
+        {
+          "id": "seniority",
+          "label": "Younger or elder",
+          "exclusive": true,
+          "options": ["younger", "elder"]
+        },
+        {
+          "id": "lineage",
+          "label": "Lineage",
+          "exclusive": false,
+          "options": ["maternal", "paternal", "adoptive"]
+        }
+      ]
+    },
+    {
+      "id": "pibling",
+      "index": 6,
+      "label": "Pibling (aunt or uncle)",
+      "description": "As a pibling (maternal, paternal, or adoptive aunt/uncle).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "gender",
+          "label": "Aunt or uncle",
+          "exclusive": true,
+          "options": ["aunt", "uncle"]
+        },
+        {
+          "id": "lineage",
+          "label": "Lineage",
+          "exclusive": false,
+          "options": ["maternal", "paternal", "adoptive"]
+        }
+      ]
+    },
+    {
+      "id": "friend",
+      "index": 7,
+      "label": "Friend",
+      "description": "As a friend.",
+      "group": "social",
+      "qualifiers": []
+    },
+    {
+      "id": "world_citizen",
+      "index": 8,
+      "label": "Citizen of this world",
+      "description": "As a citizen of this world.",
+      "group": "civic",
+      "qualifiers": []
+    },
+    {
+      "id": "country_citizen",
+      "index": 9,
+      "label": "Citizen of a country",
+      "description": "As a citizen of a country.",
+      "group": "civic",
+      "qualifiers": []
+    },
+    {
+      "id": "community_member",
+      "index": 10,
+      "label": "Member of a community",
+      "description": "As a member of the community, neighbourhood, or locality.",
+      "group": "civic",
+      "qualifiers": []
+    },
+    {
+      "id": "student",
+      "index": 11,
+      "label": "Student",
+      "description": "As a student.",
+      "group": "education",
+      "qualifiers": []
+    },
+    {
+      "id": "dependent",
+      "index": 12,
+      "label": "Dependent adolescent or adult",
+      "description": "As a dependent adolescent or adult.",
+      "group": "work",
+      "qualifiers": []
+    },
+    {
+      "id": "independent",
+      "index": 13,
+      "label": "Independent adolescent or adult",
+      "description": "As an independent adolescent or adult.",
+      "group": "work",
+      "qualifiers": []
+    },
+    {
+      "id": "unemployed",
+      "index": 14,
+      "label": "Unemployed adolescent or adult",
+      "description": "As an unemployed adolescent or adult.",
+      "group": "work",
+      "qualifiers": []
+    },
+    {
+      "id": "employed",
+      "index": 15,
+      "label": "Employed adolescent or adult",
+      "description": "As an employed adolescent or adult: self-employed worker, business or enterprise owner, social worker, salaried political party worker or independent politician, or an employee of a government, private, corporate, NGO, or semi-government sector establishment, performing the responsibilities of an independent contributor or team leader.",
+      "group": "work",
+      "qualifiers": [
+        {
+          "id": "arrangement",
+          "label": "Working arrangement",
+          "exclusive": false,
+          "options": [
+            "self-employed",
+            "business or enterprise owner",
+            "social worker",
+            "salaried political party worker",
+            "independent politician",
+            "employee"
+          ]
+        },
+        {
+          "id": "sector",
+          "label": "Sector",
+          "exclusive": false,
+          "options": ["government", "private", "corporate", "NGO", "semi-government"]
+        },
+        {
+          "id": "responsibility",
+          "label": "Responsibility",
+          "exclusive": true,
+          "options": ["independent contributor", "team leader"]
+        }
+      ]
+    },
+    {
+      "id": "partner",
+      "index": 16,
+      "label": "Partner",
+      "description": "As a partner: romantic partner, live-in partner, spouse, divorced individual, colleague, coworker, school/classmate, teammate, or business partner.",
+      "group": "social",
+      "qualifiers": [
+        {
+          "id": "kind",
+          "label": "Kind of partnership",
+          "exclusive": false,
+          "options": [
+            "romantic partner",
+            "live-in partner",
+            "spouse",
+            "divorced individual",
+            "colleague",
+            "coworker",
+            "school/classmate",
+            "teammate",
+            "business partner"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex_partner",
+      "index": 17,
+      "label": "Ex-partner",
+      "description": "As an ex-partner: ex-romantic partner, ex-live-in partner, ex-spouse, ex-colleague, ex-coworker, ex-school/classmate, ex-teammate, or ex-business partner.",
+      "group": "former",
+      "qualifiers": [
+        {
+          "id": "kind",
+          "label": "Kind of former partnership",
+          "exclusive": false,
+          "options": [
+            "ex-romantic partner",
+            "ex-live-in partner",
+            "ex-spouse",
+            "ex-colleague",
+            "ex-coworker",
+            "ex-school/classmate",
+            "ex-teammate",
+            "ex-business partner"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "in_law",
+      "index": 18,
+      "label": "In-law",
+      "description": "As an in-law (parent, child, sibling, cousin, nibling, or pibling).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "relation",
+          "label": "In-law relation",
+          "exclusive": false,
+          "options": ["parent", "child", "sibling", "cousin", "nibling", "pibling"]
+        }
+      ]
+    },
+    {
+      "id": "ex_in_law",
+      "index": 19,
+      "label": "Ex-in-law",
+      "description": "As an ex-in-law (parent, child, sibling, cousin, nibling, or pibling).",
+      "group": "former",
+      "qualifiers": [
+        {
+          "id": "relation",
+          "label": "Former in-law relation",
+          "exclusive": false,
+          "options": ["parent", "child", "sibling", "cousin", "nibling", "pibling"]
+        }
+      ]
+    },
+    {
+      "id": "parent_or_guardian",
+      "index": 20,
+      "label": "Parent or guardian",
+      "description": "As a parent or guardian (biological, adoptive, foster, step, grandparent, in-law, or caregiver).",
+      "group": "family",
+      "qualifiers": [
+        {
+          "id": "kind",
+          "label": "Kind of parent or guardian",
+          "exclusive": false,
+          "options": [
+            "biological",
+            "adoptive",
+            "foster",
+            "step",
+            "grandparent",
+            "in-law",
+            "caregiver"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex_friend",
+      "index": 21,
+      "label": "Ex-friend",
+      "description": "As an ex-friend.",
+      "group": "former",
+      "qualifiers": []
+    },
+    {
+      "id": "ex_country_citizen",
+      "index": 22,
+      "label": "Ex-citizen of a country",
+      "description": "As an ex-citizen of a country.",
+      "group": "former",
+      "qualifiers": []
+    },
+    {
+      "id": "ex_community_member",
+      "index": 23,
+      "label": "Ex-member of a community",
+      "description": "As an ex-member of the community, neighbourhood, or locality.",
+      "group": "former",
+      "qualifiers": []
+    },
+    {
+      "id": "ex_employee",
+      "index": 24,
+      "label": "Ex-employee or worker",
+      "description": "As an ex-employee or worker.",
+      "group": "former",
+      "qualifiers": []
+    },
+    {
+      "id": "ex_family_member",
+      "index": 25,
+      "label": "Ex-member of a family",
+      "description": "As an ex-member of a family.",
+      "group": "former",
+      "qualifiers": []
+    }
+  ]
+}

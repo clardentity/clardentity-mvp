@@ -86,6 +86,29 @@ class DecisionCategory:
     examples: tuple[dict[str, str], ...]
 
 
+@dataclass(frozen=True)
+class RoleQualifier:
+    """A facet of a role. `exclusive` qualifiers admit exactly one value
+    (a sibling is a brother or a sister, not both); the rest may take several
+    (an employee can work across more than one sector over time).
+    """
+
+    id: str
+    label: str
+    exclusive: bool
+    options: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Role:
+    id: str
+    index: int
+    label: str
+    description: str
+    group: str
+    qualifiers: tuple[RoleQualifier, ...]
+
+
 def _load(name: str) -> dict:
     with open(_DATA_DIR / name, encoding="utf-8") as f:
         return json.load(f)
@@ -140,6 +163,78 @@ def _decision_data() -> tuple[tuple[DecisionCategory, ...], tuple[str, ...]]:
         for c in raw["categories"]
     )
     return cats, tuple(raw["types"])
+
+
+@lru_cache(maxsize=1)
+def _role_data() -> tuple[Role, ...]:
+    raw = _load("roles.json")
+    return tuple(
+        Role(
+            id=r["id"],
+            index=r["index"],
+            label=r["label"],
+            description=r["description"],
+            group=r["group"],
+            qualifiers=tuple(
+                RoleQualifier(
+                    id=q["id"],
+                    label=q["label"],
+                    exclusive=bool(q["exclusive"]),
+                    options=tuple(q["options"]),
+                )
+                for q in r.get("qualifiers", [])
+            ),
+        )
+        for r in sorted(raw["roles"], key=lambda r: r["index"])
+    )
+
+
+# ------------------------------------------------------------------- roles --
+def all_roles() -> list[Role]:
+    return list(_role_data())
+
+
+def get_role(role_id: str | None) -> Role | None:
+    if not role_id:
+        return None
+    return next((r for r in _role_data() if r.id == role_id), None)
+
+
+def role_vocabulary() -> str:
+    """The role list as prompt text, for inferring which roles a user occupies."""
+    lines = []
+    for r in _role_data():
+        line = f"- {r.id}: {r.description}"
+        for q in r.qualifiers:
+            kind = "pick exactly one" if q.exclusive else "pick any that apply"
+            line += f"\n    · {q.id} ({kind}): {', '.join(q.options)}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def validate_role_selection(role_id: str, qualifiers: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Drop anything outside the taxonomy and enforce exclusivity.
+
+    Inference is an LLM call, so its output is treated as untrusted: unknown
+    roles and invented qualifier values never reach the stored profile, and an
+    exclusive qualifier is trimmed to its first valid value rather than
+    silently storing a contradiction like "brother and sister".
+    """
+    role = get_role(role_id)
+    if role is None:
+        return {}
+
+    cleaned: dict[str, list[str]] = {}
+    by_id = {q.id: q for q in role.qualifiers}
+    for qid, values in (qualifiers or {}).items():
+        q = by_id.get(qid)
+        if q is None or not isinstance(values, list):
+            continue
+        valid = [v for v in values if v in q.options]
+        if not valid:
+            continue
+        cleaned[qid] = valid[:1] if q.exclusive else valid
+    return cleaned
 
 
 # ------------------------------------------------------------------ biases --

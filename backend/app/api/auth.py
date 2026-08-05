@@ -19,7 +19,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
-from app.models import User
+from app.models import User, Workspace, WorkspaceMember
 from app.schemas.auth import (
     AuthResponse,
     GoogleOAuthRequest,
@@ -60,6 +60,17 @@ async def register(
         display_name=payload.display_name,
     )
     db.add(user)
+    await db.flush()
+
+    # Give every new account a workspace up front. Otherwise the first thing a
+    # new user meets is an empty screen demanding they name a "workspace"
+    # before they can ask a single question - the friction this product is
+    # meant to avoid. They can rename it or add more later.
+    workspace = Workspace(owner_id=user.id, name="My workspace")
+    db.add(workspace)
+    await db.flush()
+    db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
+
     await db.commit()
     await db.refresh(user)
 

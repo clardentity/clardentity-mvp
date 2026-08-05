@@ -1,0 +1,40 @@
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class RoleQualifierOut(BaseModel):
+    id: str
+    label: str
+    exclusive: bool
+    options: list[str]
+
+
+class RoleOut(BaseModel):
+    id: str
+    index: int
+    label: str
+    description: str
+    group: str
+    qualifiers: list[RoleQualifierOut]
+
+
+class ProfileRoleOut(BaseModel):
+    role_id: str
+    label: str
+    qualifiers: dict[str, list[str]] = {}
+    evidence: str = ""
+
+
+class ProfileOut(BaseModel):
+    personality_md: str | None
+    roles: list[ProfileRoleOut] = []
+    # True once the user has edited it: inference stops overwriting from then on.
+    user_edited: bool = False
+    updated_at: datetime | None = None
+
+
+class ProfileUpdate(BaseModel):
+    personality_md: str | None = Field(default=None, max_length=20000)
+    # Omit to leave roles untouched; send [] to clear them.
+    roles: list[ProfileRoleOut] | None = None

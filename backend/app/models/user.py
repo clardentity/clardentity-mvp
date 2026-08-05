@@ -26,3 +26,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")
+    profile: Mapped["UserProfile | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False
+    )

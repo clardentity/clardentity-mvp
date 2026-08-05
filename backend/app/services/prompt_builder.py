@@ -44,11 +44,17 @@ def build_system_instructions(
     mode: str,
     reasoning_lens: str | None = None,
     bias_guidance: str | None = None,
+    profile_block: str | None = None,
 ) -> str:
     parts = [
-        f"You are Clardentity operating in {mode} mode (selected explicitly by the user).",
+        "You are Clardentity, one cognitive companion that works in four modes. "
+        f"You are currently in {mode} mode, selected explicitly by the user.",
         MODE_INSTRUCTIONS[mode],
     ]
+
+    # Accumulated across sessions so the companion knows who it is talking to.
+    if profile_block:
+        parts.append(profile_block)
 
     if mode == "thinking" and reasoning_lens:
         lens_instruction = REASONING_LENS_INSTRUCTIONS.get(reasoning_lens)

@@ -38,6 +38,7 @@ const icons = {
   plus: <><path d="M12 5v14M5 12h14" /></>,
   chevron: <><path d="m6 9 6 6 6-6" /></>,
   logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></>,
+  profile: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
   menu: <><path d="M3 6h18M3 12h18M3 18h18" /></>,
   close: <><path d="M18 6 6 18M6 6l12 12" /></>,
 };
@@ -284,6 +285,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         onNavigate={close}
       >
         Bias library
+      </NavItem>
+      <NavItem
+        href="/profile"
+        icon={icons.profile}
+        active={pathname.startsWith("/profile")}
+        onNavigate={close}
+      >
+        Your profile
       </NavItem>
       <NavItem
         href="/admin"

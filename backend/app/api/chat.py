@@ -50,6 +50,11 @@ from app.services.prompt_builder import (
     build_conversation_input,
     build_system_instructions,
 )
+from app.services.profile_service import (
+    get_profile,
+    profile_prompt_block,
+    should_rebuild as should_rebuild_profile,
+)
 from app.services.query_optimizer import optimize_query
 from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
@@ -57,6 +62,7 @@ from app.services.router import InvalidModeError, InvalidReasoningLensError, val
 from app.services.taxonomy import describe_bias
 from app.services.verification_agent import verify_claim
 from app.workers.rebuild_memory import rebuild_memory_task
+from app.workers.rebuild_profile import rebuild_profile_task
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -288,7 +294,10 @@ async def send_message(
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
     bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
-    instructions = build_system_instructions(mode, reasoning_lens, bias_guidance)
+    profile_block = profile_prompt_block(await get_profile(db, current_user.id))
+    instructions = build_system_instructions(
+        mode, reasoning_lens, bias_guidance, profile_block
+    )
     context_block = build_context_block(chunks)
     input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
     scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
@@ -453,6 +462,13 @@ async def send_message(
 
         if should_rebuild_memory(total_messages or 0):
             rebuild_memory_task.delay(str(conversation_id))
+
+        # The long-term profile spans every conversation, so it's refreshed on
+        # its own cadence rather than per-conversation. Checked in the
+        # generation session because `db` is closed by this point.
+        async with AsyncSessionLocal() as profile_db:
+            if await should_rebuild_profile(profile_db, current_user.id):
+                rebuild_profile_task.delay(str(current_user.id))
 
         claims_out = [
             ClaimOut(
