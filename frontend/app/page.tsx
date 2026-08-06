@@ -10,15 +10,15 @@ import { COGNITIVE_MODES } from "@/lib/modes";
    is actually done. No counts or metrics either - a number invites a
    comparison, and the claim here is about kind, not quantity. */
 
-function Nav({ signedIn, loading }: { signedIn: boolean; loading: boolean }) {
+function Nav({ signedIn }: { signedIn: boolean }) {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-surface/80 backdrop-blur-xl">
       <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-between px-6">
-        <span className="text-[15px] font-semibold tracking-tight text-ink">
+        <Link href="/" className="text-[15px] font-semibold tracking-tight text-ink">
           Clardentity
-        </span>
+        </Link>
         <nav className="flex items-center gap-1 text-[13px]">
-          {loading ? null : signedIn ? (
+          {signedIn ? (
             <Link
               href="/workspace"
               className="rounded-full bg-brand px-4 py-1.5 font-medium text-white transition-colors hover:bg-brand-dark"
@@ -48,13 +48,18 @@ function Nav({ signedIn, loading }: { signedIn: boolean; loading: boolean }) {
 }
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  // Deliberately not gated on `loading`. This is a public page, so signed-out
+  // is the right default: gating the calls to action on an auth check meant
+  // the server-rendered HTML shipped with no sign-up or sign-in link at all,
+  // and a visitor with a stale token sat looking at a landing page with no way
+  // in until the auth request came back - up to a minute on a cold backend.
+  const { user } = useAuth();
   const primaryHref = user ? "/workspace" : "/register";
   const primaryLabel = user ? "Open your workspace" : "Get started";
 
   return (
     <div className="bg-canvas">
-      <Nav signedIn={!!user} loading={loading} />
+      <Nav signedIn={!!user} />
 
       {/* Hero ------------------------------------------------------------ */}
       <section className="px-6 pb-20 pt-24 text-center sm:pt-32">
@@ -67,22 +72,20 @@ export default function Home() {
           Anything can sound certain. Clardentity gives you the evidence behind
           every claim — and tells you plainly when there isn&apos;t any.
         </p>
-        {!loading && (
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-            <Link
-              href={primaryHref}
-              className="rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
-            >
-              {primaryLabel}
-            </Link>
-            <Link
-              href="#modes"
-              className="text-[15px] font-medium text-brand transition-opacity hover:opacity-70"
-            >
-              See how it thinks ›
-            </Link>
-          </div>
-        )}
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+          <Link
+            href={primaryHref}
+            className="rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
+          >
+            {primaryLabel}
+          </Link>
+          <Link
+            href="#modes"
+            className="text-[15px] font-medium text-brand transition-opacity hover:opacity-70"
+          >
+            See how it thinks ›
+          </Link>
+        </div>
       </section>
 
       {/* The problem, named without naming anyone --------------------------- */}
@@ -231,14 +234,12 @@ export default function Home() {
         <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-ink-secondary">
           No setup, no tour. Sign in and ask — your workspace is already there.
         </p>
-        {!loading && (
-          <Link
-            href={primaryHref}
-            className="mt-9 inline-block rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
-          >
-            {primaryLabel}
-          </Link>
-        )}
+        <Link
+          href={primaryHref}
+          className="mt-9 inline-block rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
+        >
+          {primaryLabel}
+        </Link>
       </section>
 
       <footer className="border-t border-hairline px-6 py-10">
