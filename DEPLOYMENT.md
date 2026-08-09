@@ -158,3 +158,35 @@ Render's GitHub App and registers the webhook).
 - Secrets (DB password, Redis password, S3 keys, JWT secret, OpenAI key) live
   only in Render's env vars and this local session's history — never
   committed. This repo is public.
+
+## Google sign-in
+
+Uses the Google Identity Services ID-token flow, so only the **client ID** is
+needed — there is no client secret to leak. It is public by design (it ships to
+the browser).
+
+- Backend: `GOOGLE_CLIENT_ID` on Render.
+- Frontend: `NEXT_PUBLIC_GOOGLE_CLIENT_ID` on Vercel.
+
+Authorised JavaScript origins must list every origin the button renders on
+(the Vercel production URL, plus `http://localhost:3100` for local work).
+Preview deploys get a new URL each time and will not work unless added.
+
+With the variable unset the button renders nothing and `/auth/oauth/google`
+returns 501, so an unconfigured environment shows no broken affordance.
+
+## Welcome email (Resend)
+
+`RESEND_API_KEY` on Render enables it; unset makes sending a no-op so local dev
+needs no provider. Sending is queued to Celery — a slow or failing provider can
+never delay or fail account creation.
+
+**Current limitation:** the sender is Resend's shared `onboarding@resend.dev`,
+which only delivers to the Resend account owner's own address
+(`toclardentity@gmail.com`). Every other recipient is rejected with HTTP 403
+and `validation_error`. Real users therefore do **not** receive the welcome
+email yet.
+
+To fix, verify a domain at resend.com/domains and set `EMAIL_FROM` to an
+address on it, e.g. `Clardentity <hello@clardentity.com>`. No code change
+needed — it is one env var.
