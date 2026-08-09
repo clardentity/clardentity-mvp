@@ -30,7 +30,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6 py-16">
+    <div className="flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 sm:py-16">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <Link href="/" className="text-[15px] font-semibold tracking-tight text-ink">

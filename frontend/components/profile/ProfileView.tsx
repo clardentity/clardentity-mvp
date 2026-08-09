@@ -119,7 +119,7 @@ export function ProfileView() {
   const hasProfile = !!profile?.personality_md;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
       <PageHeader
         title="Your profile"
         description="Built from your own conversations and documents, so the companion knows who it's talking to. Yours to correct or delete."

@@ -35,8 +35,15 @@ interface BentoCardProps extends Omit<ComponentPropsWithoutRef<"div">, "title"> 
 export function BentoGrid({ children, className, ...props }: BentoGridProps) {
   return (
     <div
+      // Fixed row heights only from `sm` up. On a phone every card is full
+      // width and stacked, so a fixed 18rem row just leaves dead space under
+      // short copy - let content size the card instead. (Note that overriding
+      // an arbitrary value like auto-rows-[18rem] from a caller's className is
+      // unreliable: same specificity means CSS source order decides, not the
+      // order in the class string. Hence the breakpoint rather than an
+      // override.)
       className={cx(
-        "grid w-full auto-rows-[18rem] grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[20rem] lg:grid-cols-3",
+        "grid w-full grid-cols-1 gap-4 sm:auto-rows-[18rem] sm:grid-cols-2 lg:auto-rows-[20rem] lg:grid-cols-3",
         className,
       )}
       {...props}

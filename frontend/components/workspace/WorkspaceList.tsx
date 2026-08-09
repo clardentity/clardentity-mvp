@@ -64,7 +64,7 @@ export function WorkspaceList() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
         title="Workspaces"
         description="Each workspace keeps its own documents, conversations, and search history."

@@ -239,32 +239,38 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b border-hairline bg-surface px-6 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-hairline bg-surface px-4 py-3 sm:px-6">
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold text-ink">
             {conversation?.title || "Conversation"}
           </h1>
-          <p className="text-xs text-ink-muted">
+          {/* The strapline is the first thing to go when space is tight - the
+              title and the export controls both matter more on a phone. */}
+          <p className="hidden text-xs text-ink-muted sm:block">
             Claims are checked against your documents and screened for cognitive bias.
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {messages.length > 0 && (
             <>
               <Button
                 size="sm"
                 onClick={() => handleExport("markdown")}
                 disabled={exporting !== null}
+                title="Export as Markdown"
               >
-                {exporting === "markdown" ? "Exporting…" : "Export .md"}
+                {exporting === "markdown" ? "…" : <>.md</>}
+                <span className="sr-only">Export as Markdown</span>
               </Button>
               <Button
                 size="sm"
                 onClick={() => handleExport("pdf")}
                 disabled={exporting !== null}
+                title="Export as PDF"
               >
-                {exporting === "pdf" ? "Exporting…" : "Export .pdf"}
+                {exporting === "pdf" ? "…" : <>.pdf</>}
+                <span className="sr-only">Export as PDF</span>
               </Button>
             </>
           )}
@@ -276,7 +282,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col px-6">
+      <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col px-4 sm:px-6">
         <MessageList
           messages={messages}
           streaming={streaming}

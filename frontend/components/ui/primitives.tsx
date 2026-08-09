@@ -184,14 +184,18 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         <h1 className="text-xl font-semibold tracking-tight text-ink">{title}</h1>
         {description && (
           <p className="mt-1 text-sm text-ink-muted">{description}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {/* Actions drop to their own row on narrow screens rather than being
+          squeezed alongside a wrapping title. */}
+      {actions && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+      )}
     </header>
   );
 }

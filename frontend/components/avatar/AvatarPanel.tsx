@@ -86,7 +86,7 @@ export function AvatarPanel({
     <div className="flex items-center justify-center" aria-hidden="true">
       <svg
         viewBox="0 0 200 220"
-        className="h-28 w-28"
+        className="h-16 w-16 sm:h-24 sm:w-24 lg:h-28 lg:w-28"
         role="img"
         aria-label={`Avatar companion: ${state}`}
       >

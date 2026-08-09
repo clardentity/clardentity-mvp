@@ -24,7 +24,7 @@ export function MessageList({
 }) {
   if (messages.length === 0 && !streaming) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 py-16">
+      <div className="flex flex-1 items-center justify-center px-4 py-16 sm:px-6">
         <div className="max-w-sm text-center">
           <p className="text-sm font-medium text-ink">Start a conversation</p>
           <p className="mt-1 text-sm text-ink-muted">

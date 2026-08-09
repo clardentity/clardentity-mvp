@@ -73,7 +73,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
         <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
           {error}
         </div>
@@ -101,7 +101,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         }
       />
 
-      <BentoGrid className="mb-5 auto-rows-[13rem] lg:auto-rows-[14rem]">
+      <BentoGrid className="mb-5 sm:auto-rows-[14rem] lg:auto-rows-[15rem]">
         <BentoCard
           name="Documents"
           description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."

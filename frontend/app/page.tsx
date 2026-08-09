@@ -124,7 +124,7 @@ export default function Home() {
           {/* Knowing spans two columns on desktop: it's the mode most people
               arrive for, and an even 2x2 grid reads as four equal options
               rather than a starting point. */}
-          <BentoGrid className="mt-14 auto-rows-[16rem] lg:auto-rows-[17rem]">
+          <BentoGrid className="mt-14 sm:auto-rows-[17rem] lg:auto-rows-[18rem]">
             {COGNITIVE_MODES.map((mode, i) => (
               <BentoCard
                 key={mode.value}

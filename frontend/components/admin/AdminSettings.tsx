@@ -123,7 +123,7 @@ export function AdminSettings() {
 
   if (error && !settings) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-8">
+      <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
         <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
           {error}
         </div>
@@ -140,7 +140,7 @@ export function AdminSettings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
       <PageHeader
         title="Admin settings"
         description="Model parameters, scoring weights, avatar gestures, and feature flags. Changes take effect on the next request."
