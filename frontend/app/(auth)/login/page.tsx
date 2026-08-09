@@ -21,7 +21,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      router.push("/workspace");
+      router.push("/workspace?enter=1");
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {

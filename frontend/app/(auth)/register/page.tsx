@@ -22,7 +22,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await register(email, password, displayName);
-      router.push("/workspace");
+      router.push("/workspace?enter=1");
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {

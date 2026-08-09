@@ -53,7 +53,7 @@ export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_w
         const tokens = await res.json();
         setTokens(tokens.access_token, tokens.refresh_token);
         await refresh();
-        router.push("/workspace");
+        router.push("/workspace?enter=1");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Google sign-in failed");
       }

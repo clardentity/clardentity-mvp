@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
@@ -21,6 +22,13 @@ type Workspace = {
 };
 
 export function WorkspaceList() {
+  const router = useRouter();
+  // Set only by the sign-in and registration redirects. Arriving here from
+  // anywhere else - the sidebar, a breadcrumb - means the list was asked for
+  // deliberately, and skipping past it would make a second workspace
+  // impossible to create once you have one.
+  const autoEnter = useSearchParams().get("enter") === "1";
+
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -34,7 +42,15 @@ export function WorkspaceList() {
     let cancelled = false;
     fetchWorkspaces()
       .then((data) => {
-        if (!cancelled) setWorkspaces(data);
+        if (cancelled) return;
+        // Signing in should land you where you can ask something, not on a
+        // list with one item on it. `replace` so Back returns to the page you
+        // signed in from rather than bouncing through here again.
+        if (autoEnter && data.length === 1) {
+          router.replace(`/workspace/${data[0].id}`);
+          return;
+        }
+        setWorkspaces(data);
       })
       .catch((err) => {
         if (!cancelled) setError(authErrorMessage(err));
@@ -42,7 +58,7 @@ export function WorkspaceList() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [autoEnter, router]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
