@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -66,6 +66,26 @@ async def provision_new_user(db: AsyncSession, user: User) -> None:
     db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
 
 
+async def ensure_workspace(db: AsyncSession, user: User) -> None:
+    """Guarantee the signed-in user has somewhere to work.
+
+    Provisioning at registration only helps accounts created after that feature
+    existed. Anyone who registered earlier - or who deleted their last
+    workspace - lands on an empty screen that looks exactly like a broken
+    login: the redirect worked, the app loaded, and there is simply nothing
+    there. Checking on every sign-in makes "a user always has a workspace" true
+    rather than assumed.
+    """
+    count = await db.scalar(
+        select(func.count())
+        .select_from(WorkspaceMember)
+        .where(WorkspaceMember.user_id == user.id)
+    )
+    if not count:
+        await provision_new_user(db, user)
+        await db.commit()
+
+
 def queue_welcome_email(user: User) -> None:
     """Best-effort and always out-of-band. A slow or misconfigured email
     provider must never delay or fail account creation.
@@ -121,6 +141,8 @@ async def login(
 
     if not verify_password(payload.password, user.password_hash):
         raise invalid_credentials
+
+    await ensure_workspace(db, user)
 
     return _issue_tokens(user)
 
@@ -196,13 +218,15 @@ async def oauth_google(payload: GoogleOAuthRequest, db: AsyncSession = Depends(g
         await provision_new_user(db, user)
     elif user.oauth_provider is None:
         # Existing password account signing in with Google for the first time:
-        # link the identity rather than creating a duplicate account. Their
-        # workspace already exists, so no provisioning.
+        # link the identity rather than creating a duplicate account.
         user.oauth_provider = "google"
         user.oauth_subject = oauth_subject
 
     await db.commit()
     await db.refresh(user)
+
+    # Covers the returning-user branches above, where nothing is provisioned.
+    await ensure_workspace(db, user)
 
     if is_new_user:
         queue_welcome_email(user)
