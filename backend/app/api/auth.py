@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -30,6 +31,10 @@ from app.schemas.auth import (
     UserPublic,
 )
 
+from app.workers.send_welcome_email import send_welcome_email_task
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -42,6 +47,35 @@ def _issue_tokens(user: User) -> TokenResponse:
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id, user.refresh_token_version),
     )
+
+
+async def provision_new_user(db: AsyncSession, user: User) -> None:
+    """Everything a brand-new account needs, whichever way they signed up.
+
+    Shared by password registration and Google sign-in: when this only lived in
+    the password path, Google users arrived at an empty screen demanding they
+    create a "workspace" before asking anything - the exact friction the
+    auto-workspace was added to remove.
+
+    Expects `user` to be flushed (so it has an id) and does not commit; the
+    caller owns the transaction.
+    """
+    workspace = Workspace(owner_id=user.id, name="My workspace")
+    db.add(workspace)
+    await db.flush()
+    db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
+
+
+def queue_welcome_email(user: User) -> None:
+    """Best-effort and always out-of-band. A slow or misconfigured email
+    provider must never delay or fail account creation.
+    """
+    if not user.email:
+        return
+    try:
+        send_welcome_email_task.delay(user.email, user.display_name)
+    except Exception:
+        logger.exception("could not queue welcome email", extra={"user_id": str(user.id)})
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -61,19 +95,12 @@ async def register(
     )
     db.add(user)
     await db.flush()
-
-    # Give every new account a workspace up front. Otherwise the first thing a
-    # new user meets is an empty screen demanding they name a "workspace"
-    # before they can ask a single question - the friction this product is
-    # meant to avoid. They can rename it or add more later.
-    workspace = Workspace(owner_id=user.id, name="My workspace")
-    db.add(workspace)
-    await db.flush()
-    db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
+    await provision_new_user(db, user)
 
     await db.commit()
     await db.refresh(user)
 
+    queue_welcome_email(user)
     tokens = _issue_tokens(user)
     return AuthResponse(user=UserPublic.model_validate(user), **tokens.model_dump())
 
@@ -156,6 +183,7 @@ async def oauth_google(payload: GoogleOAuthRequest, db: AsyncSession = Depends(g
     if user is None and email:
         user = await db.scalar(select(User).where(User.email == email))
 
+    is_new_user = user is None
     if user is None:
         user = User(
             email=email,
@@ -164,12 +192,20 @@ async def oauth_google(payload: GoogleOAuthRequest, db: AsyncSession = Depends(g
             display_name=info.get("name"),
         )
         db.add(user)
+        await db.flush()
+        await provision_new_user(db, user)
     elif user.oauth_provider is None:
+        # Existing password account signing in with Google for the first time:
+        # link the identity rather than creating a duplicate account. Their
+        # workspace already exists, so no provisioning.
         user.oauth_provider = "google"
         user.oauth_subject = oauth_subject
 
     await db.commit()
     await db.refresh(user)
+
+    if is_new_user:
+        queue_welcome_email(user)
 
     return _issue_tokens(user)
 

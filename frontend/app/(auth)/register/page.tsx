@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui/primitives";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -101,6 +102,8 @@ export default function RegisterPage() {
           >
             {submitting ? "Creating account…" : "Sign up"}
           </Button>
+
+          <GoogleSignInButton label="signup_with" />
 
           <p className="text-center text-sm text-ink-muted">
             Already have an account?{" "}

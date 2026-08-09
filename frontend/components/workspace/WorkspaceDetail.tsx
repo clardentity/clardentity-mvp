@@ -5,13 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
-import { DocumentUploader } from "@/components/upload/DocumentUploader";
-import { HistorySearch } from "@/components/workspace/HistorySearch";
+import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 import {
   Badge,
   Button,
   Card,
-  CardHeader,
   PageHeader,
   Spinner,
 } from "@/components/ui/primitives";
@@ -92,7 +90,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
         title={workspace.name}
         description="Documents uploaded here ground every answer in this workspace."
@@ -103,69 +101,103 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-5">
-          <Card padded={false}>
-            <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-3">
-              <h2 className="text-sm font-semibold text-ink">Conversations</h2>
-              <span className="text-xs text-ink-muted">
-                {conversations.length}{" "}
-                {conversations.length === 1 ? "conversation" : "conversations"}
-              </span>
-            </div>
+      <BentoGrid className="mb-5 auto-rows-[13rem] lg:auto-rows-[14rem]">
+        <BentoCard
+          name="Documents"
+          description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."
+          Icon={DocIcon}
+          href={`/workspace/${workspaceId}/documents`}
+          cta="Manage documents"
+        />
+        <BentoCard
+          name="Search history"
+          description="Full-text search across every conversation in this workspace."
+          Icon={SearchIcon}
+          href={`/workspace/${workspaceId}/search`}
+          cta="Search"
+        />
+        <BentoCard
+          name="Bias library"
+          description="The cognitive biases screened for in every answer, grouped by where they show up."
+          Icon={BookIcon}
+          href="/biases"
+          cta="Browse"
+        />
+      </BentoGrid>
 
-            {conversations.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <p className="text-sm font-medium text-ink">No conversations yet</p>
-                <p className="mt-1 text-sm text-ink-muted">
-                  Start one to ask questions against this workspace.
-                </p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-hairline">
-                {conversations.map((conv) => (
-                  <li key={conv.id}>
-                    <Link
-                      href={`/chat/${conv.id}`}
-                      className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-surface-hover"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-ink">
-                          {conv.title || "Untitled conversation"}
-                        </span>
-                        <span className="block text-xs text-ink-muted">
-                          {new Date(conv.created_at).toLocaleString()}
-                        </span>
-                      </span>
-                      {conv.default_mode && (
-                        <Badge tone="neutral" className="shrink-0 uppercase">
-                          {conv.default_mode}
-                        </Badge>
-                      )}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+      <Card padded={false}>
+        <div className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold text-ink">Conversations</h2>
+          <span className="text-xs text-ink-muted">
+            {conversations.length}{" "}
+            {conversations.length === 1 ? "conversation" : "conversations"}
+          </span>
+        </div>
 
-          <div id="search" className="scroll-mt-20">
-            <Card>
-              <HistorySearch workspaceId={workspaceId} />
-            </Card>
+        {conversations.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-medium text-ink">No conversations yet</p>
+            <p className="mt-1 text-sm text-ink-muted">
+              Start one to ask questions against this workspace.
+            </p>
           </div>
-        </div>
-
-        <div id="documents" className="scroll-mt-20">
-          <Card>
-            <CardHeader
-              title="Documents"
-              description="PDF, DOCX, or TXT. Answers cite these directly."
-            />
-            <DocumentUploader workspaceId={workspaceId} />
-          </Card>
-        </div>
-      </div>
+        ) : (
+          <ul className="divide-y divide-hairline">
+            {conversations.map((conv) => (
+              <li key={conv.id}>
+                <Link
+                  href={`/chat/${conv.id}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-hover sm:px-5"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-ink">
+                      {conv.title || "Untitled conversation"}
+                    </span>
+                    <span className="block text-xs text-ink-muted">
+                      {new Date(conv.created_at).toLocaleString()}
+                    </span>
+                  </span>
+                  {conv.default_mode && (
+                    <Badge tone="neutral" className="shrink-0 uppercase">
+                      {conv.default_mode}
+                    </Badge>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
+  );
+}
+
+function DocIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}
+
+function BookIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
   );
 }

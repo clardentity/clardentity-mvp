@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
 
+    # Email (Resend). Unset disables sending entirely - registration must work
+    # without an email provider configured.
+    resend_api_key: str | None = None
+    email_from: str = "Clardentity <onboarding@resend.dev>"
+    # Where the welcome email's call to action points.
+    app_url: str = "http://localhost:3000"
+
     # Misc
     backend_cors_origins: str = "http://localhost:3000"
     max_upload_size_mb: int = 25

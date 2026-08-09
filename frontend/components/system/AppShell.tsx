@@ -244,32 +244,35 @@ export function AppShell({ children }: { children: ReactNode }) {
       <p className="px-2.5 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
         Workspace
       </p>
+      {/* Real routes, not `#documents` anchors. As anchors these silently did
+          nothing: a same-route hash is not re-scrolled by the App Router, the
+          scroll container is <main> rather than the document, and with no
+          workspace resolved they both fell back to the workspace list. Three
+          different ways to click a nav item and see no change. */}
       <NavItem
         href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}` : "/workspace"}
         icon={icons.chat}
-        active={pathname.startsWith("/workspace") || pathname.startsWith("/chat")}
+        active={
+          pathname === "/workspace" ||
+          pathname.startsWith("/chat") ||
+          /^\/workspace\/[^/]+$/.test(pathname)
+        }
         onNavigate={close}
       >
         Conversations
       </NavItem>
       <NavItem
-        href={
-          activeWorkspaceId
-            ? `/workspace/${activeWorkspaceId}#documents`
-            : "/workspace"
-        }
+        href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}/documents` : "/workspace"}
         icon={icons.docs}
-        active={false}
+        active={pathname.endsWith("/documents")}
         onNavigate={close}
       >
         Documents
       </NavItem>
       <NavItem
-        href={
-          activeWorkspaceId ? `/workspace/${activeWorkspaceId}#search` : "/workspace"
-        }
+        href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}/search` : "/workspace"}
         icon={icons.search}
-        active={false}
+        active={pathname.endsWith("/search")}
         onNavigate={close}
       >
         Search history
@@ -442,7 +445,17 @@ function Breadcrumbs({
     const id = segments[1];
     if (root === "workspace") {
       const ws = workspaces.find((w) => w.id === id);
-      crumbs.push({ label: ws?.name ?? "Workspace" });
+      const name = ws?.name ?? "Workspace";
+      const sub = segments[2];
+      if (sub) {
+        // Keep the workspace clickable when we're a level deeper.
+        crumbs.push({ label: name, href: `/workspace/${id}` });
+        crumbs.push({
+          label: sub === "documents" ? "Documents" : sub === "search" ? "Search history" : sub,
+        });
+      } else {
+        crumbs.push({ label: name });
+      }
     } else if (root === "biases") {
       crumbs.push({ label: "Detail" });
     }

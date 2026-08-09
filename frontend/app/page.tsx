@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { COGNITIVE_MODES } from "@/lib/modes";
+import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 
 /* Positioning is deliberately indirect: it names the failure modes people
    already recognise in assistants that answer confidently and can't be
@@ -120,25 +121,26 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mt-14 grid gap-4 sm:grid-cols-2">
-            {COGNITIVE_MODES.map((mode) => (
-              <article
+          {/* Knowing spans two columns on desktop: it's the mode most people
+              arrive for, and an even 2x2 grid reads as four equal options
+              rather than a starting point. */}
+          <BentoGrid className="mt-14 auto-rows-[16rem] lg:auto-rows-[17rem]">
+            {COGNITIVE_MODES.map((mode, i) => (
+              <BentoCard
                 key={mode.value}
-                className="rounded-3xl border border-hairline bg-surface p-8 transition-colors hover:border-brand-border"
-              >
-                <h3 className="text-2xl font-semibold tracking-[-0.01em] text-ink">
-                  {mode.label}
-                </h3>
-                <p className="mt-1 text-sm font-medium text-brand">{mode.hint}</p>
-                <p className="mt-4 text-[15px] leading-relaxed text-ink-secondary">
-                  {mode.when}
-                </p>
-                <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
-                  {mode.detail}
-                </p>
-              </article>
+                name={mode.label}
+                description={mode.when}
+                className={i === 0 ? "lg:col-span-2" : ""}
+                href={primaryHref}
+                cta={`Try ${mode.label} mode`}
+                background={
+                  <div className="absolute right-0 top-0 p-6 text-right">
+                    <span className="text-sm font-medium text-brand">{mode.hint}</span>
+                  </div>
+                }
+              />
             ))}
-          </div>
+          </BentoGrid>
         </div>
       </section>
 

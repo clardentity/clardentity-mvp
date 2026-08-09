@@ -85,6 +85,9 @@ type AuthContextValue = {
     displayName?: string,
   ) => Promise<void>;
   logout: () => void;
+  /** Re-read the signed-in user. Used after an external flow (Google
+   *  sign-in) has written tokens directly. */
+  refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -147,8 +150,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      setUser(await apiFetch<User>("/auth/me"));
+    } catch {
+      clearTokens();
+      setUser(null);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   );
