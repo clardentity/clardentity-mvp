@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import type { Claim } from "@/lib/sse";
 import { cx } from "@/components/ui/primitives";
@@ -21,7 +20,8 @@ const ENTAILMENT_TONES: Record<string, string> = {
 
 /** A detected cognitive bias, named from the taxonomy rather than shown as a
  *  raw flag. The definition travels with the claim from the API so the reader
- *  can tell what the label means without leaving the message. */
+ *  can tell what the label means without leaving the message - which is the
+ *  whole reason there is no longer a browsable library to link out to. */
 function BiasCallout({ claim }: { claim: Claim }) {
   if (!claim.distortion_flag) return null;
 
@@ -33,12 +33,7 @@ function BiasCallout({ claim }: { claim: Claim }) {
         <span className="text-[11px] font-semibold uppercase tracking-wide text-caution">
           Possible bias
         </span>
-        <Link
-          href={`/biases?focus=${encodeURIComponent(claim.distortion_flag)}`}
-          className="text-xs font-semibold text-caution underline underline-offset-2 opacity-90 hover:opacity-100"
-        >
-          {name}
-        </Link>
+        <span className="text-xs font-semibold text-caution opacity-90">{name}</span>
         {claim.bias_category_name && (
           <span className="text-[11px] text-caution opacity-80">
             · {claim.bias_category_name}

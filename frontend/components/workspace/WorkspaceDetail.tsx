@@ -116,13 +116,6 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           href={`/workspace/${workspaceId}/search`}
           cta="Search"
         />
-        <BentoCard
-          name="Bias library"
-          description="The cognitive biases screened for in every answer, grouped by where they show up."
-          Icon={BookIcon}
-          href="/biases"
-          cta="Browse"
-        />
       </BentoGrid>
 
       <Card padded={false}>
@@ -188,16 +181,6 @@ function SearchIcon({ className }: { className?: string }) {
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
-
-function BookIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </svg>
   );
 }
