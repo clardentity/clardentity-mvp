@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { cx } from "@/components/ui/primitives";
 
 /* One question the answer needs answered, with options you can click.
@@ -26,17 +26,18 @@ export function ClarifierCard({
 }) {
   const [dismissed, setDismissed] = useState(false);
   const [custom, setCustom] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (dismissed || disabled) return;
-      // Not while typing somewhere - the composer owns number keys.
+      // Never while a field has focus. That covers the composer and this
+      // card's own "something else" box, where a number key is a number.
       const active = document.activeElement;
       if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) {
-        if (!containerRef.current?.contains(active)) return;
-        if (active.tagName === "INPUT" && containerRef.current?.contains(active)) return;
+        return;
       }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
       const index = Number(event.key) - 1;
       if (Number.isInteger(index) && index >= 0 && index < options.length) {
         event.preventDefault();
@@ -50,10 +51,7 @@ export function ClarifierCard({
   if (dismissed) return null;
 
   return (
-    <div
-      ref={containerRef}
-      className="mt-3 overflow-hidden rounded-xl border border-brand-border bg-brand-soft"
-    >
+    <div className="mt-3 overflow-hidden rounded-xl border border-brand-border bg-brand-soft">
       <div className="flex items-start justify-between gap-3 px-3 py-2">
         <p className="text-xs font-medium text-ink">{question}</p>
         <button

@@ -49,7 +49,10 @@ export function cleanMessageText(text: string): string {
   }
 
   // Em/en dashes to hyphens, with the spacing an em dash implies.
-  out = out.replace(/[----]/g, "-").replace(/\s+-\s+/g, " - ");
+  // \u escapes, not literal characters: a repo-wide "replace dashes with
+  // hyphens" sweep rewrites a literal class into /[----]/, which matches only
+  // a hyphen and quietly turns this line into a no-op. It already did once.
+  out = out.replace(/[\u2014\u2013\u2012\u2015]/g, "-").replace(/\s+-\s+/g, " - ");
 
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
