@@ -67,21 +67,61 @@ from app.workers.rebuild_profile import rebuild_profile_task
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-_TITLE_MAX_CHARS = 70
+_TITLE_MAX_CHARS = 38
+_TITLE_MAX_WORDS = 6
+
+# Openers that carry no information about the subject. Stripped so the title
+# starts on the actual topic - "Hi, what's the difference between X and Y"
+# should be filed under the difference, not under the greeting.
+_TITLE_FILLER_PREFIXES = (
+    "hi", "hey", "hello", "ok", "okay", "so", "well", "please", "quick question",
+    "i was wondering", "i wanted to ask", "can you", "could you", "would you",
+    "i'd like to know", "i want to know", "tell me", "let's say", "lets say",
+)
 
 
 def _derive_title(first_message: str) -> str:
-    """A readable conversation title from its opening message.
+    """A short label for a conversation, from its opening message.
 
     Deliberately not an LLM call: this runs on the first turn of every
     conversation, and a round-trip to name something the user just typed isn't
-    worth the latency. Truncates on a word boundary.
+    worth the latency.
+
+    It is a label in a sidebar, not a summary - so it is cut hard, to a few
+    words. A title long enough to need truncating in the UI tells you nothing
+    the truncation didn't already hide.
     """
     text = " ".join(first_message.split())
-    if len(text) <= _TITLE_MAX_CHARS:
-        return text
-    clipped = text[:_TITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(",;:.-")
-    return f"{clipped or text[:_TITLE_MAX_CHARS]}…"
+
+    # Peel greetings off one at a time: "Hi, so I was wondering..." has three.
+    changed = True
+    while changed:
+        changed = False
+        lowered = text.lower()
+        for prefix in _TITLE_FILLER_PREFIXES:
+            if lowered.startswith(prefix):
+                rest = text[len(prefix) :].lstrip(" ,:-–—")
+                # Only if something survives; "Hi" alone is still the title.
+                if rest:
+                    text = rest
+                    changed = True
+                    break
+
+    words = text.split()
+    truncated = len(words) > _TITLE_MAX_WORDS
+    words = words[:_TITLE_MAX_WORDS]
+    text = " ".join(words)
+
+    if len(text) > _TITLE_MAX_CHARS:
+        text = text[:_TITLE_MAX_CHARS].rsplit(" ", 1)[0] or text[:_TITLE_MAX_CHARS]
+        truncated = True
+
+    text = text.rstrip(" ,;:.-–—")
+    if not text:
+        return "Conversation"
+
+    text = text[0].upper() + text[1:]
+    return f"{text}…" if truncated else text
 
 
 def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:

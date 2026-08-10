@@ -16,16 +16,22 @@ export function MessageList({
   streaming,
   playingMessageId,
   onPlayAudio,
+  emptyStateAvatar,
 }: {
   messages: ChatMessage[];
   streaming: StreamingMessage | null;
   playingMessageId?: string | null;
   onPlayAudio?: (messageId: string, text: string) => void;
+  /** Shown above the empty-state copy. An empty chat is the one moment there
+   *  is room for the companion at full size, and the one moment a greeting
+   *  from it is worth anything. */
+  emptyStateAvatar?: ReactNode;
 }) {
   if (messages.length === 0 && !streaming) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 py-16 sm:px-6">
-        <div className="max-w-sm text-center">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
+        {emptyStateAvatar}
+        <div className="mt-4 max-w-sm text-center">
           <p className="text-sm font-medium text-ink">Start a conversation</p>
           <p className="mt-1 text-sm text-ink-muted">
             Pick a cognitive mode below, then ask your question. Every answer is

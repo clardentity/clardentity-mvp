@@ -249,6 +249,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           streaming={streaming}
           playingMessageId={playingMessageId}
           onPlayAudio={handlePlayAudio}
+          emptyStateAvatar={
+            <AvatarPanel
+              state={avatarState}
+              gesture={avatarGesture}
+              expression={avatarExpression}
+              className="h-36 w-36"
+            />
+          }
         />
 
         {error && (
@@ -259,15 +267,18 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
         <div className="space-y-3 border-t border-hairline py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            {/* The companion sits with the controls rather than in a header of
-                its own: it reacts to what you're doing, and this is where you
-                do it. */}
-            <AvatarPanel
-              state={avatarState}
-              gesture={avatarGesture}
-              expression={avatarExpression}
-              className="h-11 w-11 shrink-0"
-            />
+            {/* Once there are messages the companion moves down here, beside
+                the controls it reacts to. While the chat is empty it is the
+                centrepiece above instead, and showing it twice would just be
+                two of the same thing on one screen. */}
+            {messages.length > 0 && (
+              <AvatarPanel
+                state={avatarState}
+                gesture={avatarGesture}
+                expression={avatarExpression}
+                className="h-11 w-11 shrink-0"
+              />
+            )}
             {/* flex-1 so the unselected state - which renders all four modes
                 as cards - gets the full row instead of shrink-wrapping next
                 to the avatar. */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { cx } from "@/components/ui/primitives";
 
 export type AvatarState = "idle" | "listening" | "thinking" | "speaking" | "reacting";
@@ -9,6 +9,7 @@ export type AvatarGesture =
   | "chin_stroke"
   | "weighing_scales"
   | "open_hand_explaining"
+  | "wave"
   | "none";
 export type AvatarExpression = "confident" | "thoughtful" | "cautious" | "concerned" | "neutral";
 
@@ -32,7 +33,25 @@ const ARM_ANGLES: Record<AvatarGesture, { left: number; right: number }> = {
   chin_stroke: { left: 14, right: 131 },
   weighing_scales: { left: 100, right: -100 },
   open_hand_explaining: { left: 128, right: -128 },
+  wave: { left: 14, right: -145 },
 };
+
+/* An idle companion that holds one pose is indistinguishable from a broken
+ * one, so when there is nothing specific to show it works through these
+ * instead - opening on a wave, the way a chat app greets you, then settling
+ * into small shifts of attention. Each pose transitions rather than snapping. */
+const IDLE_CYCLE: Array<{ gesture: AvatarGesture; expression: AvatarExpression }> = [
+  { gesture: "wave", expression: "confident" },
+  { gesture: "none", expression: "neutral" },
+  { gesture: "chin_stroke", expression: "thoughtful" },
+  { gesture: "none", expression: "confident" },
+  { gesture: "presenting", expression: "neutral" },
+  { gesture: "none", expression: "neutral" },
+  { gesture: "open_hand_explaining", expression: "confident" },
+  { gesture: "none", expression: "thoughtful" },
+];
+
+const IDLE_POSE_MS = 3800;
 
 const EXPRESSION_EYEBROW_ROTATION: Record<AvatarExpression, { left: number; right: number }> = {
   neutral: { left: 0, right: 0 },
@@ -61,13 +80,19 @@ function Arm({
   shoulderX: number;
   shoulderY: number;
   baseAngle: number;
-  wobble: "left" | "right" | null;
+  wobble: "left" | "right" | "wave" | null;
   fill: string;
   handFill: string;
 }) {
   return (
     // Outer group: static base pose via the SVG transform attribute only.
-    <g transform={`translate(${shoulderX},${shoulderY}) rotate(${baseAngle})`}>
+    // The transition is what turns the idle cycle into movement rather than a
+    // slideshow - `transform` is a real CSS property on SVG elements, so an
+    // attribute change animates.
+    <g
+      transform={`translate(${shoulderX},${shoulderY}) rotate(${baseAngle})`}
+      style={{ transition: "transform 0.7s cubic-bezier(0.34, 1.2, 0.64, 1)" }}
+    >
       {/* Inner group: CSS-animated wobble only. Mixing an SVG transform
           attribute with a CSS transform (animation/class) on the *same*
           element makes the CSS one fully replace the attribute rather than
@@ -101,15 +126,35 @@ export function AvatarPanel({
   const uid = useId().replace(/:/g, "");
   const id = (name: string) => `${name}-${uid}`;
 
-  const angles = ARM_ANGLES[gesture] ?? ARM_ANGLES.none;
-  const eyebrows = EXPRESSION_EYEBROW_ROTATION[expression] ?? EXPRESSION_EYEBROW_ROTATION.neutral;
-  const mouthPath = MOUTH_PATHS[expression] ?? MOUTH_PATHS.neutral;
+  // Only take over when the caller has nothing of its own to show. A cue
+  // carried over from the last answer is real information; overwriting it with
+  // decoration would throw that away.
+  const idling = state === "idle" && gesture === "none";
+  const [idleStep, setIdleStep] = useState(0);
+
+  useEffect(() => {
+    if (!idling) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = setInterval(() => setIdleStep((step) => step + 1), IDLE_POSE_MS);
+    return () => clearInterval(timer);
+  }, [idling]);
+
+  const idlePose = idling ? IDLE_CYCLE[idleStep % IDLE_CYCLE.length] : null;
+  const activeGesture = idlePose ? idlePose.gesture : gesture;
+  const activeExpression = idlePose ? idlePose.expression : expression;
+
+  const angles = ARM_ANGLES[activeGesture] ?? ARM_ANGLES.none;
+  const eyebrows =
+    EXPRESSION_EYEBROW_ROTATION[activeExpression] ?? EXPRESSION_EYEBROW_ROTATION.neutral;
+  const mouthPath = MOUTH_PATHS[activeExpression] ?? MOUTH_PATHS.neutral;
 
   const isListening = state === "listening";
   const isThinking = state === "thinking";
   const isSpeaking = state === "speaking";
   const isReacting = state === "reacting";
-  const isWeighing = gesture === "weighing_scales" && (isThinking || isSpeaking);
+  const isWeighing =
+    activeGesture === "weighing_scales" && (isThinking || isSpeaking);
+  const isWaving = activeGesture === "wave";
 
   return (
     <div className="flex items-center justify-center" aria-hidden="true">
@@ -182,7 +227,7 @@ export function AvatarPanel({
               shoulderX={146}
               shoulderY={132}
               baseAngle={angles.right}
-              wobble={isWeighing ? "right" : null}
+              wobble={isWaving ? "wave" : isWeighing ? "right" : null}
               fill={`url(#${id("arm")})`}
               handFill="var(--avatar-skin)"
             />

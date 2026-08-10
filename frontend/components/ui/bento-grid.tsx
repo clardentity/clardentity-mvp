@@ -83,32 +83,16 @@ function ArrowRight({ className }: { className?: string }) {
   );
 }
 
-const CTA_CLASS =
-  "inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline";
-
-/** Renders the CTA as whichever element is honest about what it does. */
-function Cta({
-  href,
-  onClick,
-  label,
-}: {
-  href?: string;
-  onClick?: () => void;
-  label: string;
-}) {
-  if (href) {
-    return (
-      <Link href={href} className={CTA_CLASS}>
-        {label}
-        <ArrowRight className="h-3.5 w-3.5" />
-      </Link>
-    );
-  }
+/** The visible call to action. Deliberately *not* interactive: the real
+ *  control is an overlay covering the whole card (see below), so this is only
+ *  the label for it. Two hit targets would mean two tab stops for one action,
+ *  and the smaller one is only visible on hover. */
+function Cta({ label }: { label: string }) {
   return (
-    <button type="button" onClick={onClick} className={CTA_CLASS}>
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand">
       {label}
       <ArrowRight className="h-3.5 w-3.5" />
-    </button>
+    </span>
   );
 }
 
@@ -156,16 +140,33 @@ export function BentoCard({
 
         {interactive && (
           <div className="mt-3 flex flex-row items-center lg:hidden">
-            <Cta href={href} onClick={onClick} label={cta!} />
+            <Cta label={cta!} />
           </div>
         )}
       </div>
 
       {interactive && (
-        <div className="absolute bottom-0 hidden w-full translate-y-8 transform-gpu flex-row items-center p-6 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 lg:flex">
-          <Cta href={href} onClick={onClick} label={cta!} />
+        <div className="pointer-events-none absolute bottom-0 hidden w-full translate-y-8 transform-gpu flex-row items-center p-6 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 lg:flex">
+          <Cta label={cta!} />
         </div>
       )}
+
+      {/* The whole card is the button. Previously only the CTA was clickable,
+          and on desktop that CTA is invisible until you hover - so a card that
+          looks entirely like one big target did nothing for anyone who clicked
+          the obvious place. The overlay carries the accessible name, and sits
+          above the content so no child can swallow the click. */}
+      {interactive &&
+        (href ? (
+          <Link href={href} aria-label={cta} className="absolute inset-0 z-20 rounded-2xl" />
+        ) : (
+          <button
+            type="button"
+            onClick={onClick}
+            aria-label={cta}
+            className="absolute inset-0 z-20 cursor-pointer rounded-2xl"
+          />
+        ))}
     </div>
   );
 }

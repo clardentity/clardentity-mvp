@@ -296,6 +296,14 @@ body {
   animation: avatar-scale-wobble 1.4s ease-in-out infinite;
 }
 
+/* Faster and wider than the weighing wobble - a wave is a greeting, not a
+   deliberation. */
+.avatar-wobble-wave {
+  animation: avatar-scale-wobble 0.5s ease-in-out infinite;
+  --wobble-from: -16deg;
+  --wobble-to: 16deg;
+}
+
 .avatar-react {
   animation: avatar-react-pulse 0.7s ease-out;
   transform-origin: 100px 160px;
@@ -307,6 +315,7 @@ body {
   .avatar-talk,
   .avatar-wobble-left,
   .avatar-wobble-right,
+  .avatar-wobble-wave,
   .avatar-antenna-pulse,
   .avatar-react {
     animation: none;
