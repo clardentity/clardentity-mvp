@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -254,6 +254,50 @@ async def export_conversation(
     )
 
 
+@router.delete(
+    "/{conversation_id}/messages/{message_id}/onwards",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def rewind_conversation(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Delete a message and everything after it.
+
+    What "edit" and "regenerate" actually are. A conversation is a sequence
+    the model is re-fed on every turn, so changing a message in the middle
+    without dropping what followed would leave answers on screen that were
+    replies to something no longer said. Rewinding to the edit point and
+    re-asking is the only version of this that stays coherent.
+
+    Claims, evidence and citations hang off `messages` with ON DELETE CASCADE,
+    so removing the rows is the whole operation.
+    """
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+
+    target = await db.get(Message, message_id)
+    if target is None or target.conversation_id != conversation.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    # Ordered by creation time rather than id: ids are random UUIDs, so ">"
+    # on them means nothing. Ties on the same timestamp are impossible in
+    # practice (user and assistant rows are written in separate transactions)
+    # but the id comparison keeps the boundary deterministic if they happen.
+    await db.execute(
+        delete(Message).where(
+            Message.conversation_id == conversation.id,
+            or_(
+                Message.created_at > target.created_at,
+                and_(Message.created_at == target.created_at, Message.id == target.id),
+            ),
+        )
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/{conversation_id}/messages")
 async def send_message(
     conversation_id: uuid.UUID,
@@ -320,21 +364,27 @@ async def send_message(
 
     # §5.2 step 3: ambiguity detection/query rewrite for retrieval only —
     # `mode` and the persisted/displayed message are untouched by this.
-    # Decision classification runs alongside it: it picks a *bias domain* only,
-    # and never influences which cognitive mode is in play (§7.2).
+    # Decision classification picks a *bias domain* only, and never influences
+    # which cognitive mode is in play (§7.2).
     async def _classify() -> DecisionClassification:
         if not flags.get("bias_screening_enabled", True):
             return NO_DECISION
         return await classify_decision(payload.content)
 
-    retrieval_query, decision = await asyncio.gather(
-        optimize_query(history, payload.content), _classify()
-    )
+    # Only Decision mode needs the classification *before* generating, because
+    # only it puts a bias watch-list in the prompt. Every other mode uses it
+    # after the fact, to scope the screening vocabulary during verification -
+    # so it runs alongside the generation instead of delaying its first token.
+    decision_task = asyncio.create_task(_classify())
+    decision: DecisionClassification = NO_DECISION
+    if mode == "decision":
+        decision = await decision_task
+
+    retrieval_query = await optimize_query(history, payload.content)
     chunks: list[RetrievedChunk] = await retrieve_chunks(
         db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
     )
 
-    bias_category_id = decision.bias_category_id
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
     bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
@@ -376,14 +426,52 @@ async def send_message(
                 elif event["type"] == "done":
                     full_text = event["full_text"]
         except Exception as exc:  # noqa: BLE001 - surfaced to the client as an SSE error event
+            decision_task.cancel()
             yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
             return
 
+        # ------------------------------------------------------------------
+        # The answer is done. Everything below it - reflection, verification,
+        # scoring - is *about* the answer, and used to run before the client
+        # was told anything, which left the composer disabled for as long as
+        # the whole validation pipeline took. So the draft is persisted and
+        # announced here, and the analysis lands afterwards as an update.
+        #
+        # Persisting first also means a follow-up question sent during that
+        # window sees this turn in its history, rather than a hole where the
+        # assistant's reply should be.
+        # ------------------------------------------------------------------
+        draft_display_text = strip_claim_tags(full_text)
+
+        async with AsyncSessionLocal() as answer_db:
+            assistant_message = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=draft_display_text,
+                mode_used=mode,
+                reasoning_lens=reasoning_lens if mode == "thinking" else None,
+            )
+            answer_db.add(assistant_message)
+            await answer_db.commit()
+            await answer_db.refresh(assistant_message)
+            assistant_message_id = assistant_message.id
+            answer_payload = _serialize_message(assistant_message, []).model_dump(mode="json")
+
+        yield {"event": "answer", "data": json.dumps({"message": answer_payload})}
+
         # §9.1 step 2: Reflection Agent may revise the draft before it's
-        # scored/persisted. The (rare) visible effect is that the streamed
-        # draft and the final displayed message differ slightly — the
-        # existing streaming→final swap in the client already handles this.
+        # scored. The (rare) visible effect is that the streamed draft and the
+        # final displayed message differ slightly — the client's final-event
+        # swap already handles this.
         final_text, _was_revised = await reflect_and_revise(mode, full_text)
+
+        # Started before generation; awaited only now, so classification cost
+        # overlapped the stream instead of preceding it.
+        try:
+            decision_result = await decision_task
+        except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
+            decision_result = NO_DECISION
+        bias_category_id = decision_result.bias_category_id
 
         parsed_claims = extract_claims(final_text)
 
@@ -435,19 +523,16 @@ async def send_message(
         )
 
         async with AsyncSessionLocal() as gen_db:
-            assistant_message = Message(
-                conversation_id=conversation_id,
-                role="assistant",
-                content=display_text,
-                mode_used=mode,
-                reasoning_lens=reasoning_lens if mode == "thinking" else None,
-                confidence_score=message_score.score,
-                confidence_band=message_score.band,
-                distortion_penalty_applied=message_score.distortion_penalty_applied,
-                avatar_expression=avatar_cue.expression,
-                avatar_gesture=avatar_cue.gesture,
-            )
-            gen_db.add(assistant_message)
+            # The row already exists - it was written the moment the answer
+            # finished streaming. This fills in everything the analysis
+            # produced, and rewrites the text only if reflection changed it.
+            assistant_message = await gen_db.get(Message, assistant_message_id)
+            assistant_message.content = display_text
+            assistant_message.confidence_score = message_score.score
+            assistant_message.confidence_band = message_score.band
+            assistant_message.distortion_penalty_applied = message_score.distortion_penalty_applied
+            assistant_message.avatar_expression = avatar_cue.expression
+            assistant_message.avatar_gesture = avatar_cue.gesture
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere

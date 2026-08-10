@@ -5,6 +5,7 @@ import type { Claim, ChatMessage } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
+import { cx, Spinner } from "@/components/ui/primitives";
 
 export type StreamingMessage = {
   mode_used: string;
@@ -17,6 +18,10 @@ export function MessageList({
   playingMessageId,
   onPlayAudio,
   emptyStateAvatar,
+  validatingId,
+  onEditMessage,
+  onRegenerate,
+  busy,
 }: {
   messages: ChatMessage[];
   streaming: StreamingMessage | null;
@@ -26,6 +31,11 @@ export function MessageList({
    *  is room for the companion at full size, and the one moment a greeting
    *  from it is worth anything. */
   emptyStateAvatar?: ReactNode;
+  /** Answer shown and saved, claims still being checked. */
+  validatingId?: string | null;
+  onEditMessage?: (messageId: string, content: string) => void;
+  onRegenerate?: (messageId: string) => void;
+  busy?: boolean;
 }) {
   if (messages.length === 0 && !streaming) {
     return (
@@ -60,6 +70,16 @@ export function MessageList({
           claims={m.claims}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
+          isValidating={validatingId === m.id}
+          onEdit={
+            m.role === "user" && onEditMessage
+              ? () => onEditMessage(m.id, m.content ?? "")
+              : undefined
+          }
+          onRegenerate={
+            m.role === "assistant" && onRegenerate ? () => onRegenerate(m.id) : undefined
+          }
+          busy={busy}
         />
       ))}
       {streaming && (
@@ -111,6 +131,10 @@ function MessageBubble({
   isStreaming,
   isPlaying,
   onPlayAudio,
+  isValidating,
+  onEdit,
+  onRegenerate,
+  busy,
 }: {
   id: string;
   role: string;
@@ -123,6 +147,10 @@ function MessageBubble({
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
+  isValidating?: boolean;
+  onEdit?: () => void;
+  onRegenerate?: () => void;
+  busy?: boolean;
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
@@ -132,7 +160,7 @@ function MessageBubble({
   const [evidenceOpen, setEvidenceOpen] = useState(false);
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`group/msg flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={
           isUser
@@ -210,7 +238,17 @@ function MessageBubble({
           )}
         </p>
 
-        {!isUser && (
+        {isValidating && (
+          // The answer above is complete and saved. This says what is still
+          // happening, so a message that gains a score a few seconds later
+          // doesn't look like it changed on its own.
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-muted">
+            <Spinner className="h-3 w-3" />
+            Checking claims against your documents…
+          </p>
+        )}
+
+        {!isUser && !isStreaming && (
           <EvidencePanel
             claims={claims}
             band={confidenceBand}
@@ -219,7 +257,142 @@ function MessageBubble({
             onToggle={() => setEvidenceOpen((v) => !v)}
           />
         )}
+
+        {!isStreaming && (
+          <MessageActions
+            content={content}
+            onEdit={onEdit}
+            onRegenerate={onRegenerate}
+            busy={busy}
+            tone={isUser ? "onBrand" : "default"}
+          />
+        )}
       </div>
     </div>
   );
 }
+
+/** Copy / edit / regenerate. Hidden until the message is hovered or focused
+ *  so a conversation doesn't read as rows of buttons, but always reachable by
+ *  keyboard. Edit belongs to your messages, regenerate to its answers. */
+function MessageActions({
+  content,
+  onEdit,
+  onRegenerate,
+  busy,
+  tone,
+}: {
+  content: string;
+  onEdit?: () => void;
+  onRegenerate?: () => void;
+  busy?: boolean;
+  tone: "onBrand" | "default";
+}) {
+  const [copied, setCopied] = useState(false);
+
+  if (!content) return null;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied; silently leaving the label unchanged
+      // is better than an error toast for something this small.
+    }
+  }
+
+  const base =
+    tone === "onBrand"
+      ? "text-white/70 hover:bg-white/15 hover:text-white"
+      : "text-ink-muted hover:bg-surface-hover hover:text-ink";
+
+  return (
+    <div
+      className={cx(
+        "mt-2 flex items-center gap-0.5 opacity-0 transition-opacity",
+        "group-hover/msg:opacity-100 focus-within:opacity-100",
+        tone === "onBrand" && "justify-end",
+      )}
+    >
+      <button
+        type="button"
+        onClick={copy}
+        title={copied ? "Copied" : "Copy"}
+        aria-label={copied ? "Copied" : "Copy message"}
+        className={cx("rounded-md p-1 transition-colors", base)}
+      >
+        {copied ? <TickIcon /> : <CopyIcon />}
+      </button>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={busy}
+          title="Edit and resend"
+          aria-label="Edit and resend"
+          className={cx("rounded-md p-1 transition-colors disabled:opacity-40", base)}
+        >
+          <PencilIcon />
+        </button>
+      )}
+      {onRegenerate && (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={busy}
+          title="Regenerate this answer"
+          aria-label="Regenerate this answer"
+          className={cx("rounded-md p-1 transition-colors disabled:opacity-40", base)}
+        >
+          <RedoIcon />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ActionIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-3.5 w-3.5"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const CopyIcon = () => (
+  <ActionIcon>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </ActionIcon>
+);
+
+const TickIcon = () => (
+  <ActionIcon>
+    <path d="m5 13 4 4L19 7" />
+  </ActionIcon>
+);
+
+const PencilIcon = () => (
+  <ActionIcon>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </ActionIcon>
+);
+
+const RedoIcon = () => (
+  <ActionIcon>
+    <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+    <path d="M21 4v5h-5" />
+  </ActionIcon>
+);

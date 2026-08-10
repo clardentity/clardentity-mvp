@@ -1,30 +1,39 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 
 export type PendingImage = { data: string; mimeType: string; previewUrl: string };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
+/** The text is controlled by the parent rather than held here, because editing
+ *  a sent message has to put that message back in the box. Pushing text into a
+ *  child that owns it means an effect that writes state on every change - the
+ *  parent owning it makes the same feature a plain assignment. */
 export function MessageInput({
   disabled,
   disabledReason,
+  value,
+  onChange,
   onSend,
   onTypingChange,
+  textareaRef,
 }: {
   disabled: boolean;
   disabledReason?: string;
+  value: string;
+  onChange: (value: string) => void;
   onSend: (content: string, images: PendingImage[]) => void;
   onTypingChange?: (isTyping: boolean) => void;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
 }) {
-  const [value, setValue] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleChange(newValue: string) {
-    setValue(newValue);
+    onChange(newValue);
     onTypingChange?.(newValue.trim().length > 0);
   }
 
@@ -32,7 +41,7 @@ export function MessageInput({
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed, images);
-    setValue("");
+    onChange("");
     setImages([]);
     onTypingChange?.(false);
   }
@@ -136,6 +145,7 @@ export function MessageInput({
         />
 
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -50,6 +50,10 @@ export type ChatFinalEvent = {
 
 export type ChatStreamHandlers = {
   onDelta: (text: string) => void;
+  /** The answer is written and saved, but not yet analysed. Fires well before
+   *  `onFinal` - claim verification and scoring take several seconds - and is
+   *  the point at which the composer should become usable again. */
+  onAnswer: (message: ChatMessage) => void;
   onFinal: (event: ChatFinalEvent) => void;
   onError: (detail: string) => void;
 };
@@ -151,6 +155,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
   try {
     const parsed = JSON.parse(data);
     if (eventType === "delta") handlers.onDelta(parsed.text);
+    else if (eventType === "answer") handlers.onAnswer(parsed.message);
     else if (eventType === "final") handlers.onFinal(parsed);
     else if (eventType === "error") handlers.onError(parsed.detail);
   } catch {

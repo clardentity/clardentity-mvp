@@ -11,7 +11,6 @@ import {
 } from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
-import { Button } from "@/components/ui/primitives";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -35,19 +34,23 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
 };
 
 export function ChatView({ conversationId }: { conversationId: string }) {
-  const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
   const [reasoningLens, setReasoningLens] = useState<ReasoningLens | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
+  // The message whose claims are still being verified. It is already on
+  // screen and already saved; this only drives the "checking claims" note.
+  const [validatingId, setValidatingId] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"markdown" | "pdf" | null>(null);
+  // The composer's text lives here so editing a sent message can put it back.
+  const [draft, setDraft] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +61,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     ])
       .then(([conv, msgs]) => {
         if (cancelled) return;
-        setConversation(conv);
         setMessages(msgs);
         if (conv.default_mode) setMode(conv.default_mode);
 
@@ -79,20 +81,28 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     };
   }, [conversationId]);
 
-  async function handleSend(content: string, images: PendingImage[]) {
-    if (!mode) return;
+  async function handleSend(
+    content: string,
+    images: PendingImage[],
+    // Regenerating re-sends in the mode the original turn used. `mode` state
+    // may not have caught up yet - setMode in the same tick doesn't apply
+    // until the next render - so the caller passes it explicitly.
+    modeOverride?: CognitiveMode,
+  ) {
+    const sendMode = modeOverride ?? mode;
+    if (!sendMode) return;
 
     setError(null);
     setSending(true);
     setIsTyping(false);
 
-    const lensForSend = mode === "thinking" ? reasoningLens : null;
+    const lensForSend = sendMode === "thinking" ? reasoningLens : null;
 
     const userMessage: ChatMessage = {
       id: `local-${Date.now()}`,
       role: "user",
       content,
-      mode_used: mode,
+      mode_used: sendMode,
       reasoning_lens: lensForSend,
       confidence_score: null,
       confidence_band: null,
@@ -102,13 +112,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);
-    setStreaming({ mode_used: mode, content: "" });
+    setStreaming({ mode_used: sendMode, content: "" });
 
     await streamChatMessage(
       conversationId,
       {
         content,
-        mode,
+        mode: sendMode,
         reasoning_lens: lensForSend,
         attachments: images.map((img) => ({
           type: "image",
@@ -122,8 +132,27 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             prev ? { ...prev, content: prev.content + text } : prev,
           );
         },
+        onAnswer: (message) => {
+          // The text is written and saved; only the analysis is outstanding.
+          // Waiting for that to finish before letting you type again is what
+          // made the app feel like it was still working long after it had
+          // clearly finished answering.
+          setMessages((prev) => [...prev, message]);
+          setStreaming(null);
+          setSending(false);
+          setValidatingId(message.id);
+        },
         onFinal: (finalEvent) => {
-          setMessages((prev) => [...prev, finalEvent.message]);
+          setMessages((prev) => {
+            const index = prev.findIndex((m) => m.id === finalEvent.message.id);
+            if (index === -1) return [...prev, finalEvent.message];
+            // Replace in place: reflection may have edited the text, and the
+            // claims and score arrive only now.
+            const next = [...prev];
+            next[index] = finalEvent.message;
+            return next;
+          });
+          setValidatingId(null);
           setStreaming(null);
           setSending(false);
           if (finalEvent.avatar_cue) {
@@ -139,9 +168,75 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setError(detail);
           setStreaming(null);
           setSending(false);
+          setValidatingId(null);
         },
       },
     );
+  }
+
+  /** Drop `messageId` and everything after it, locally and on the server, and
+   *  hand back the mode the rewound turn used so the resend matches it. */
+  async function rewindTo(messageId: string): Promise<CognitiveMode | null> {
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index === -1) return null;
+    const modeUsed = messages[index].mode_used as CognitiveMode | undefined;
+
+    // Locally first, so the messages disappear on click rather than after a
+    // round-trip. A failure below restores them from the server copy.
+    setMessages((prev) => prev.slice(0, index));
+    await apiFetch<void>(`/chat/${conversationId}/messages/${messageId}/onwards`, {
+      method: "DELETE",
+    });
+    return modeUsed ?? null;
+  }
+
+  /** Regenerate: rewind to this answer, then re-ask the question above it. */
+  async function handleRegenerate(messageId: string) {
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index < 1) return;
+    const question = messages[index - 1];
+    if (question.role !== "user" || !question.content) return;
+
+    setError(null);
+    try {
+      // Rewind to the *question*, not the answer - re-sending it writes a new
+      // user row, and leaving the old one would duplicate it in the history.
+      const modeUsed = await rewindTo(question.id);
+      if (modeUsed) setMode(modeUsed);
+      await handleSend(question.content, [], modeUsed ?? undefined);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      await reloadMessages();
+    }
+  }
+
+  /** Edit: rewind to the message and drop its text back into the composer. */
+  async function handleEditMessage(messageId: string, content: string) {
+    setError(null);
+    try {
+      const modeUsed = await rewindTo(messageId);
+      if (modeUsed) setMode(modeUsed);
+      setDraft(content);
+      const el = composerRef.current;
+      if (el) {
+        el.focus();
+        // Caret at the end, so you carry on typing rather than having to click
+        // past the text you came here to change.
+        el.setSelectionRange(content.length, content.length);
+      }
+    } catch (err) {
+      setError(authErrorMessage(err));
+      await reloadMessages();
+    }
+  }
+
+  async function reloadMessages() {
+    try {
+      setMessages(await apiFetch<ChatMessage[]>(`/chat/${conversationId}/messages`));
+    } catch {
+      // The error from the failed action is already on screen; a second one
+      // about the recovery attempt would only add noise.
+    }
   }
 
   async function handlePlayAudio(messageId: string, text: string) {
@@ -182,39 +277,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     }
   }
 
-  async function handleExport(format: "markdown" | "pdf") {
-    setError(null);
-    setExporting(format);
-    try {
-      const accessToken = getAccessToken();
-      const res = await fetch(
-        `${API_BASE_URL}/chat/${conversationId}/export?format=${format}`,
-        {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.detail ?? `Export failed with status ${res.status}`);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const extension = format === "markdown" ? "md" : "pdf";
-      const safeTitle = (conversation?.title || "conversation").replace(/[^a-zA-Z0-9-_]/g, "_");
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${safeTitle}.${extension}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't export conversation");
-    } finally {
-      setExporting(null);
-    }
-  }
-
   const avatarState: AvatarState = reacting
     ? "reacting"
     : playingMessageId !== null
@@ -249,6 +311,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           streaming={streaming}
           playingMessageId={playingMessageId}
           onPlayAudio={handlePlayAudio}
+          validatingId={validatingId}
+          onEditMessage={handleEditMessage}
+          onRegenerate={handleRegenerate}
+          busy={sending}
           emptyStateAvatar={
             <AvatarPanel
               state={avatarState}
@@ -292,36 +358,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                 disabled={sending}
               />
             )}
-            {messages.length > 0 && (
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <Button
-                  size="sm"
-                  onClick={() => handleExport("markdown")}
-                  disabled={exporting !== null}
-                  title="Export as Markdown"
-                >
-                  {exporting === "markdown" ? "…" : <>.md</>}
-                  <span className="sr-only">Export as Markdown</span>
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => handleExport("pdf")}
-                  disabled={exporting !== null}
-                  title="Export as PDF"
-                >
-                  {exporting === "pdf" ? "…" : <>.pdf</>}
-                  <span className="sr-only">Export as PDF</span>
-                </Button>
-              </div>
-            )}
           </div>
           <MessageInput
             disabled={!mode || sending}
             disabledReason={
               !mode ? "Select a cognitive mode above to start typing" : undefined
             }
+            value={draft}
+            onChange={setDraft}
             onSend={handleSend}
             onTypingChange={setIsTyping}
+            textareaRef={composerRef}
           />
         </div>
       </div>
