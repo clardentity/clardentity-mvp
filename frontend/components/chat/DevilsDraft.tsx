@@ -11,8 +11,10 @@ import { cx, Spinner } from "@/components/ui/primitives";
  * read as waffle right up until you see the confident version that leaves them
  * out, and then it's obvious which of them were load-bearing.
  *
- * Fetched on first open, never with the message - it's a second full
- * generation and most answers are never compared. */
+ * Generated in parallel with the answer's own validation, so by the time the
+ * message lands the comparison is already sitting on it and the panel opens
+ * instantly. The endpoint remains for older messages that predate that, and
+ * for any turn where the parallel generation failed. */
 
 function DevilIcon({ className }: { className?: string }) {
   return (
@@ -37,13 +39,17 @@ export function DevilsDraft({
   conversationId,
   messageId,
   answer,
+  preloaded,
 }: {
   conversationId: string;
   messageId: string;
   answer: string;
+  /** Generated alongside the answer and shipped with it. When present the
+   *  panel opens instantly and the endpoint is never called. */
+  preloaded?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState<string | null>(null);
+  const [text, setText] = useState<string | null>(preloaded ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

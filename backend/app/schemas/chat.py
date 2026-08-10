@@ -95,6 +95,9 @@ class MessageOut(BaseModel):
     avatar_expression: str | None
     avatar_gesture: str | None
     created_at: datetime
+    #: The Devil's Draft, produced alongside the answer. Present on reload too,
+    #: so the comparison stays instant after a refresh.
+    counterfactual_content: str | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

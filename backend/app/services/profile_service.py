@@ -127,6 +127,7 @@ async def infer_profile(evidence: str) -> InferredProfile | None:
 
     try:
         raw = await generate_text(
+            fast=True,
             instructions=_INSTRUCTIONS + taxonomy.role_vocabulary(),
             input_text=evidence,
         )

@@ -180,6 +180,7 @@ async def _supervise(claim: str, sources: list[WebSource]) -> dict:
     )
     try:
         raw = await generate_text(
+            fast=True,
             instructions=_SUPERVISOR_INSTRUCTIONS,
             input_text=f"CLAIM:\n{claim}\n\nSOURCES:\n{listing}",
         )
@@ -192,37 +193,19 @@ async def _supervise(claim: str, sources: list[WebSource]) -> dict:
 async def gather_context(query: str) -> list[WebSource]:
     """One search round, scored, for use as *context* before generating.
 
-    Runs only when the workspace turned up nothing to answer from. There is no
-    loop here - there is no claim to iterate against yet, since the answer
-    hasn't been written. The per-claim loop in `research_claim` is what does
-    the hard checking, afterwards.
+    Runs speculatively, alongside document retrieval, and is thrown away if
+    the workspace turned out to have something. That makes it latency the user
+    never pays for when it isn't needed - and, when it is, latency that
+    happened while the database was being queried anyway.
+
+    Deliberately *one* call, with no supervision pass: there is no claim to
+    judge these against yet, because the answer hasn't been written. Scoring
+    them here would be scoring relevance to a question, which is what the
+    search already did. The supervisor's real work - does this passage state
+    the specific thing the answer ended up asserting - happens per claim, in
+    `research_claim`, once there is something to check.
     """
-    sources = await _search_round(query, guidance=None)
-    if not sources:
-        return []
-
-    judgement = await _supervise(query, sources)
-    scored_by_url = {
-        str(entry.get("url")): entry
-        for entry in judgement.get("sources", [])
-        if isinstance(entry, dict) and entry.get("url")
-    }
-    for source in sources:
-        entry = scored_by_url.get(source.url) or {}
-        try:
-            source.credibility_score = float(entry.get("score"))
-        except (TypeError, ValueError):
-            source.credibility_score = None
-        note = entry.get("note")
-        source.credibility_note = str(note)[:400] if note else None
-
-    # Anything the supervisor won't stand behind never reaches the prompt, so
-    # the model can't cite it in the first place.
-    kept = [
-        s for s in sources
-        if s.credibility_score is None or s.credibility_score >= CREDIBILITY_FLOOR
-    ]
-    return sorted(kept, key=lambda s: s.credibility_score or 0, reverse=True)
+    return await _search_round(query, guidance=None)
 
 
 async def research_claim(claim: str) -> ResearchResult:

@@ -65,6 +65,7 @@ async def rebuild_memory_summary(db: AsyncSession, conversation_id: uuid.UUID) -
     input_parts.append(f"CONVERSATION TURNS:\n{turns_text}")
 
     summary = await generate_text(
+        fast=True,
         instructions=_SUMMARY_INSTRUCTIONS, input_text="\n\n".join(input_parts)
     )
 

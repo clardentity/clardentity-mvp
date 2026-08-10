@@ -44,6 +44,8 @@ export type ChatMessage = {
   avatar_expression: string | null;
   avatar_gesture: string | null;
   created_at: string;
+  /** The Devil's Draft, generated alongside the answer rather than on click. */
+  counterfactual_content: string | null;
   claims: Claim[];
 };
 
@@ -52,7 +54,13 @@ export type ChatFinalEvent = {
   claims: Claim[];
   confidence: { score: number; band: string } | null;
   avatar_cue: { expression: string; gesture: string } | null;
+  counterfactual_content: string | null;
+  /** What the search agent tried, when it came back empty-handed. */
+  research_notes: string[];
 };
+
+/** Named phase of the work in progress, for the waiting indicator. */
+export type ChatStatus = { phase: string; label: string };
 
 export type ChatStreamHandlers = {
   onDelta: (text: string) => void;
@@ -60,6 +68,8 @@ export type ChatStreamHandlers = {
    *  `onFinal` - claim verification and scoring take several seconds - and is
    *  the point at which the composer should become usable again. */
   onAnswer: (message: ChatMessage) => void;
+  /** Named phase of the pipeline, so the wait can say what it's waiting on. */
+  onStatus?: (status: ChatStatus) => void;
   onFinal: (event: ChatFinalEvent) => void;
   onError: (detail: string) => void;
 };
@@ -162,6 +172,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
     const parsed = JSON.parse(data);
     if (eventType === "delta") handlers.onDelta(parsed.text);
     else if (eventType === "answer") handlers.onAnswer(parsed.message);
+    else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);
     else if (eventType === "error") handlers.onError(parsed.detail);
   } catch {

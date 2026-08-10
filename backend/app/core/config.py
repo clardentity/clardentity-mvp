@@ -14,7 +14,21 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str
-    openai_model: str = "gpt-5"
+    # Measured against this account on 2026-08-10, streaming the same prompt:
+    #   gpt-5                        6.87s to first token,  7.80s total
+    #   gpt-5-mini    (low effort)   1.95s to first token,  4.73s total
+    #   gpt-5.4-mini  (low effort)   0.98s to first token,  1.91s total
+    # gpt-5 spends most of that budget reasoning before emitting anything,
+    # which is the worst possible shape for a streaming chat UI - the user
+    # watches a blank box for seven seconds and concludes streaming is broken.
+    openai_model: str = "gpt-5.4-mini"
+    # Classification, query rewriting, verification, supervision. Each is a
+    # short structured judgement, none of them is the answer, and all of them
+    # sit between the user and something they're waiting for.
+    openai_fast_model: str = "gpt-5.4-nano"
+    # gpt-5 family are reasoning models; effort is the single biggest lever on
+    # latency. "low" still reasons, it just doesn't deliberate.
+    openai_reasoning_effort: str = "low"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_stt_model: str = "whisper-1"
     openai_tts_model: str = "tts-1"

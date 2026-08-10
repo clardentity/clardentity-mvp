@@ -50,6 +50,7 @@ async def classify_decision(message: str) -> DecisionClassification:
     """
     try:
         raw = await generate_text(
+            fast=True,
             instructions=_build_instructions(), input_text=message.strip()[:2000]
         )
     except Exception:

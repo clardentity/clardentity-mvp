@@ -6,6 +6,7 @@ import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
 import { DevilsDraft } from "@/components/chat/DevilsDraft";
+import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { cx, Spinner } from "@/components/ui/primitives";
 
 export type StreamingMessage = {
@@ -24,6 +25,7 @@ export function MessageList({
   onEditMessage,
   onRegenerate,
   busy,
+  statusLabel,
 }: {
   conversationId: string;
   messages: ChatMessage[];
@@ -39,8 +41,10 @@ export function MessageList({
   onEditMessage?: (messageId: string, content: string) => void;
   onRegenerate?: (messageId: string) => void;
   busy?: boolean;
+  /** Shown while a request is in flight and no tokens have arrived yet. */
+  statusLabel?: string | null;
 }) {
-  if (messages.length === 0 && !streaming) {
+  if (messages.length === 0 && !streaming && !busy) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
         {emptyStateAvatar}
@@ -71,6 +75,7 @@ export function MessageList({
           confidenceScore={m.confidence_score}
           confidenceBand={m.confidence_band}
           claims={m.claims}
+          counterfactual={m.counterfactual_content}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -86,6 +91,13 @@ export function MessageList({
           conversationId={conversationId}
         />
       ))}
+      {busy && !streaming && (
+        <div className="flex justify-start">
+          <div className="rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3">
+            <ThinkingIndicator label={statusLabel} />
+          </div>
+        </div>
+      )}
       {streaming && (
         <MessageBubble
           id="streaming"
@@ -132,6 +144,7 @@ function MessageBubble({
   confidenceScore,
   confidenceBand,
   claims,
+  counterfactual,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -149,6 +162,7 @@ function MessageBubble({
   confidenceScore: number | null;
   confidenceBand: string | null;
   claims: Claim[];
+  counterfactual?: string | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -269,6 +283,7 @@ function MessageBubble({
             conversationId={conversationId}
             messageId={id}
             answer={content}
+            preloaded={counterfactual}
           />
         )}
 

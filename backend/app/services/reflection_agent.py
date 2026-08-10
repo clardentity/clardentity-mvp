@@ -28,7 +28,9 @@ async def reflect_and_revise(mode: str, draft_text: str) -> tuple[str, bool]:
     instructions = _INSTRUCTIONS_TEMPLATE.format(mode=mode, mode_purpose=MODE_INSTRUCTIONS[mode])
 
     try:
-        result = await generate_text(instructions=instructions, input_text=f"DRAFT:\n{draft_text}")
+        result = await generate_text(
+            instructions=instructions, input_text=f"DRAFT:\n{draft_text}", fast=True
+        )
     except Exception:
         return draft_text, False
 

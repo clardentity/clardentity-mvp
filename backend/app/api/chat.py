@@ -72,11 +72,20 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 _TITLE_MAX_CHARS = 38
 _TITLE_MAX_WORDS = 6
 
-# Per-claim web research runs up to three rounds and is serial with the rest
-# of validation, so an answer full of unsupported claims could otherwise spend
-# a minute searching. The first few unsupported claims are the informative
-# ones anyway.
+# Unsupported claims are researched concurrently, one agent each, but each
+# agent still runs up to three search+judge rounds. Capping keeps a
+# ten-unsupported-claim answer from making thirty search calls; the first
+# couple are the informative ones anyway.
 _MAX_RESEARCHED_CLAIMS = 2
+
+# The whole per-claim research phase, however many agents are in it.
+#
+# Measured 2026-08-10: a search round is ~8s and a supervisor round ~3s, so a
+# claim that takes two rounds to settle costs ~27s on its own. Generation is
+# ~3s and validation ~3s, which leaves about this much before the 30-second
+# end-to-end budget is gone. Agents run concurrently, so this is a wall-clock
+# cap on the phase, not a per-claim one.
+_RESEARCH_DEADLINE_SECONDS = 20.0
 
 # Openers that carry no information about the subject. Stripped so the title
 # starts on the actual topic - "Hi, what's the difference between X and Y"
@@ -144,6 +153,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         avatar_expression=message.avatar_expression,
         avatar_gesture=message.avatar_gesture,
         created_at=message.created_at,
+        counterfactual_content=message.counterfactual_content,
         claims=claims,
     )
 
@@ -440,17 +450,29 @@ async def send_message(
         decision = await decision_task
 
     retrieval_query = await optimize_query(history, payload.content)
+
+    # Documents first, always: a user's own documents are the thing they
+    # trusted enough to upload, and a search result is not. But *finding out*
+    # whether the documents have anything is a database round-trip, and
+    # waiting for that answer before starting a search adds the whole search
+    # latency on top. So both go at once and the loser is discarded.
+    web_enabled = flags.get("web_search_enabled", True)
+    web_task = (
+        asyncio.create_task(gather_context(retrieval_query)) if web_enabled else None
+    )
     chunks: list[RetrievedChunk] = await retrieve_chunks(
         db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
     )
 
-    # Documents first, always. The web is the fallback for a workspace that has
-    # nothing to say about the question - not a supplement to one that does,
-    # because a user's own documents are the thing they trusted enough to
-    # upload and a search result is not.
     web_sources: list[WebSource] = []
-    if not chunks and flags.get("web_search_enabled", True):
-        web_sources = await gather_context(retrieval_query)
+    if web_task is not None:
+        if chunks:
+            web_task.cancel()
+        else:
+            try:
+                web_sources = await web_task
+            except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
+                web_sources = []
 
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
@@ -477,6 +499,21 @@ async def send_message(
     async def event_stream() -> AsyncIterator[dict]:
         full_text = ""
         stripper = ClaimTagStripper()
+
+        # Named phases, so the wait says what is being waited on. Silence for
+        # eight seconds and "Weighing sources" for eight seconds are the same
+        # eight seconds, and only one of them reads as progress.
+        yield {
+            "event": "status",
+            "data": json.dumps(
+                {"phase": "reading", "label": "Reading your documents"}
+                if chunks
+                else {"phase": "searching", "label": "Searching the web"}
+                if web_sources
+                else {"phase": "thinking", "label": "Cogitating"}
+            ),
+        }
+
         try:
             async for event in stream_generation(
                 instructions=instructions,
@@ -525,22 +562,38 @@ async def send_message(
             answer_payload = _serialize_message(assistant_message, []).model_dump(mode="json")
 
         yield {"event": "answer", "data": json.dumps({"message": answer_payload})}
+        yield {
+            "event": "status",
+            "data": json.dumps({"phase": "validating", "label": "Weighing the evidence"}),
+        }
 
-        # §9.1 step 2: Reflection Agent may revise the draft before it's
-        # scored. The (rare) visible effect is that the streamed draft and the
-        # final displayed message differ slightly — the client's final-event
-        # swap already handles this.
-        final_text, _was_revised = await reflect_and_revise(mode, full_text)
+        # ------------------------------------------------------------------
+        # Everything left is independent of everything else left, so it all
+        # goes at once. Serially this was reflection, then classification,
+        # then verification, then the counterfactual - four round-trips
+        # stacked end to end for no reason other than the order they were
+        # written in.
+        #
+        # Claim verification runs against the *draft's* claims rather than
+        # waiting for reflection to finish. Reflection is explicitly
+        # instructed to preserve the claim structure and only improve the
+        # prose inside it, and a revision that changes the claim count is
+        # discarded - so the claims being scored are the claims that ship.
+        # ------------------------------------------------------------------
+        parsed_claims = extract_claims(full_text)
 
-        # Started before generation; awaited only now, so classification cost
-        # overlapped the stream instead of preceding it.
+        reflection_task = asyncio.create_task(reflect_and_revise(mode, full_text))
+        counterfactual_task = (
+            asyncio.create_task(generate_counterfactual(draft_display_text))
+            if draft_display_text
+            else None
+        )
+
         try:
             decision_result = await decision_task
         except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
             decision_result = NO_DECISION
         bias_category_id = decision_result.bias_category_id
-
-        parsed_claims = extract_claims(final_text)
 
         # Markers 1..len(chunks) are documents; anything above continues into
         # the web sources, in the order build_context_block numbered them.
@@ -572,46 +625,86 @@ async def send_message(
             )
         )
 
-        scored_claims: list[ScoredClaim] = []
-        research_notes: list[str] = []
-        for claim, markers, verification in zip(parsed_claims, claim_marker_lists, verifications):
-            evidence = build_scored_evidence(markers, chunks, verification.evidence, live_sources)
-            claim_score, entailment_label = compute_claim_score(evidence)
+        evidence_by_claim = [
+            build_scored_evidence(markers, chunks, v.evidence, live_sources)
+            for markers, v in zip(claim_marker_lists, verifications)
+        ]
 
-            # A claim nothing supports is where the search agent earns its
-            # keep: the answer already exists, so there is a specific
-            # proposition to go and check rather than a vague topic. The
-            # supervisor inside research_claim is what keeps this from
-            # degenerating into "found a URL, therefore true".
-            if (
-                not evidence
-                and flags.get("web_search_enabled", True)
-                and len(research_notes) < _MAX_RESEARCHED_CLAIMS
-            ):
-                research = await research_claim(claim.claim_text)
-                if research.succeeded:
+        # A claim nothing supports is where the search agent earns its keep:
+        # the answer already exists, so there is a specific proposition to go
+        # and check rather than a vague topic. Every such claim is researched
+        # at once - one agent per claim - because they have nothing to do with
+        # each other and running them in sequence made a three-unsupported-claim
+        # answer take three times as long for no benefit.
+        research_notes: list[str] = []
+        if web_enabled:
+            targets = [i for i, ev in enumerate(evidence_by_claim) if not ev][
+                :_MAX_RESEARCHED_CLAIMS
+            ]
+            if targets:
+                # A deadline, not a hope. Each agent can run three
+                # search-and-judge rounds, and three rounds against a slow
+                # search is most of the end-to-end budget on its own. Whatever
+                # has come back when the clock runs out is what gets used;
+                # claims still unsupported stay unsupported, which is a true
+                # statement either way.
+                try:
+                    results = await asyncio.wait_for(
+                        asyncio.gather(
+                            *(research_claim(parsed_claims[i].claim_text) for i in targets),
+                            return_exceptions=True,
+                        ),
+                        timeout=_RESEARCH_DEADLINE_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    research_notes.append(
+                        "Ran out of time checking this against outside sources."
+                    )
+                    results = [None] * len(targets)
+                # Marker assignment is serial even though the searches weren't:
+                # every claim's sources need a distinct block of marker numbers
+                # in `live_sources`, and handing them out concurrently would
+                # interleave them.
+                recheck: list[tuple[int, list[int]]] = []
+                for i, research in zip(targets, results):
+                    if research is None:
+                        continue
+                    if isinstance(research, BaseException) or not research.succeeded:
+                        if not isinstance(research, BaseException):
+                            # Say what was tried. "Unsupported after three
+                            # searches" is a stronger statement than
+                            # "unsupported because nobody looked", and the
+                            # reader should be able to tell which they got.
+                            research_notes.extend(research.trail)
+                        continue
                     first_marker = len(chunks) + len(live_sources) + 1
                     live_sources.extend(research.sources)
-                    found_markers = list(
-                        range(first_marker, first_marker + len(research.sources))
+                    recheck.append(
+                        (i, list(range(first_marker, first_marker + len(research.sources))))
                     )
-                    found_verification = await verify_claim(
-                        claim.claim_text,
-                        [source_excerpt(m) for m in found_markers],
-                        bias_category_id=bias_category_id,
-                    )
-                    evidence = build_scored_evidence(
-                        found_markers, chunks, found_verification.evidence, live_sources
-                    )
-                    claim_score, entailment_label = compute_claim_score(evidence)
-                    markers = found_markers
-                else:
-                    # Say what was tried. "Unsupported" after three rounds of
-                    # searching is a stronger statement than "unsupported"
-                    # because nobody looked, and the reader deserves to know
-                    # which one they're being told.
-                    research_notes.extend(research.trail)
 
+                if recheck:
+                    rechecked = await asyncio.gather(
+                        *(
+                            verify_claim(
+                                parsed_claims[i].claim_text,
+                                [source_excerpt(m) for m in found],
+                                bias_category_id=bias_category_id,
+                            )
+                            for i, found in recheck
+                        )
+                    )
+                    for (i, found), v in zip(recheck, rechecked):
+                        claim_marker_lists[i] = found
+                        evidence_by_claim[i] = build_scored_evidence(
+                            found, chunks, v.evidence, live_sources
+                        )
+
+        scored_claims: list[ScoredClaim] = []
+        for claim, markers, verification, evidence in zip(
+            parsed_claims, claim_marker_lists, verifications, evidence_by_claim
+        ):
+            claim_score, entailment_label = compute_claim_score(evidence)
             scored_claims.append(
                 ScoredClaim(
                     claim_index=claim.claim_index,
@@ -626,6 +719,21 @@ async def send_message(
             )
 
         message_score = compute_message_score(scored_claims, scoring_weights)
+
+        # Both were launched before verification started, so by now they are
+        # either done or nearly so - the await costs whatever is left, not the
+        # whole call.
+        try:
+            final_text, _was_revised = await reflection_task
+        except Exception:  # noqa: BLE001 - a failed critique keeps the draft
+            final_text = full_text
+        counterfactual_text: str | None = None
+        if counterfactual_task is not None:
+            try:
+                counterfactual_text = await counterfactual_task
+            except Exception:  # noqa: BLE001 - the comparison is optional
+                counterfactual_text = None
+
         # strip_claim_tags preserves the model's own formatting/whitespace
         # between claims exactly, matching what streaming already showed —
         # rejoining claim_text pieces with an artificial separator would
@@ -648,6 +756,10 @@ async def send_message(
             assistant_message.distortion_penalty_applied = message_score.distortion_penalty_applied
             assistant_message.avatar_expression = avatar_cue.expression
             assistant_message.avatar_gesture = avatar_cue.gesture
+            # Written now, not when someone clicks. Producing it on demand
+            # meant a five-second wait behind a button whose whole appeal is
+            # an instant side-by-side.
+            assistant_message.counterfactual_content = counterfactual_text
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere
@@ -758,6 +870,12 @@ async def send_message(
 
         final_payload = {
             "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
+            # Ships with the answer so the Devil's Draft opens instantly.
+            "counterfactual_content": counterfactual_text,
+            # Only present when the search agent came back empty-handed; it is
+            # the difference between "nothing supports this" and "nothing was
+            # looked for".
+            "research_notes": research_notes,
             "claims": [c.model_dump(mode="json") for c in claims_out],
             "confidence": {"score": message_score.score, "band": message_score.band},
             "avatar_cue": {"expression": avatar_cue.expression, "gesture": avatar_cue.gesture},

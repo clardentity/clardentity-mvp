@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
-import { streamChatMessage, type ChatMessage } from "@/lib/sse";
+import { streamChatMessage, type ChatMessage, type ChatStatus } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import {
   ReasoningLensSelector,
@@ -44,6 +44,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // The message whose claims are still being verified. It is already on
   // screen and already saved; this only drives the "checking claims" note.
   const [validatingId, setValidatingId] = useState<string | null>(null);
+  // What the server last said it was doing. Null falls back to the rotating
+  // verbs in ThinkingIndicator.
+  const [status, setStatus] = useState<ChatStatus | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
@@ -100,6 +103,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setError(null);
     setSending(true);
     setIsTyping(false);
+    setStatus(null);
 
     const lensForSend = sendMode === "thinking" ? reasoningLens : null;
 
@@ -114,6 +118,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       avatar_expression: null,
       avatar_gesture: null,
       created_at: new Date().toISOString(),
+      counterfactual_content: null,
       claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -132,7 +137,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         })),
       },
       {
+        onStatus: setStatus,
         onDelta: (text) => {
+          // The first token is the end of waiting; anything the server says
+          // it is doing after this belongs to the post-answer phase.
+          setStatus(null);
           setStreaming((prev) =>
             prev ? { ...prev, content: prev.content + text } : prev,
           );
@@ -158,6 +167,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             return next;
           });
           setValidatingId(null);
+          setStatus(null);
           setStreaming(null);
           setSending(false);
           if (finalEvent.avatar_cue) {
@@ -174,6 +184,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setStreaming(null);
           setSending(false);
           setValidatingId(null);
+          setStatus(null);
         },
       },
     );
@@ -322,6 +333,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       onEditMessage={handleEditMessage}
       onRegenerate={handleRegenerate}
       busy={sending}
+      statusLabel={status?.label}
       emptyStateAvatar={
         <AvatarPanel
           state={avatarState}
@@ -363,7 +375,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           <ModeCarousel
             tracks={tracks}
             activeIndex={Math.min(activeTrack, tracks.length - 1)}
-            onActiveIndexChange={setActiveTrack}
+            onActiveIndexChange={(index) => {
+              setActiveTrack(index);
+              // Bringing a mode's track into focus is how you say "I want to
+              // continue in this one". Leaving the composer on whatever was
+              // last used meant reading the Knowing track and then, without
+              // any warning, asking your next question in Thinking.
+              const next = tracks[index]?.mode;
+              if (next) setMode(next);
+            }}
             renderMessages={(subset) => messageListFor(subset, null)}
           />
         ) : (

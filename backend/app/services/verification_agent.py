@@ -116,6 +116,7 @@ async def verify_claim(
 
     try:
         raw = await generate_text(
+            fast=True,
             instructions=_build_instructions(bias_category_id), input_text=input_text
         )
         parsed = json.loads(_strip_code_fence(raw))

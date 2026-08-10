@@ -59,7 +59,9 @@ async def optimize_query(history: list[Message], message: str) -> str:
     input_text = f"CONVERSATION:\n{history_text}\n\nLATEST MESSAGE:\n{message}"
 
     try:
-        rewritten = await generate_text(instructions=_INSTRUCTIONS, input_text=input_text)
+        rewritten = await generate_text(
+            instructions=_INSTRUCTIONS, input_text=input_text, fast=True
+        )
     except Exception:
         # Retrieval quality degrades gracefully to the raw message; this must
         # never block sending the chat message itself.

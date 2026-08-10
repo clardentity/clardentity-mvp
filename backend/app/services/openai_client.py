@@ -101,9 +101,11 @@ def _generation_kwargs(
     instructions: str,
     input_text: str,
     input_images: list[str] | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict:
+    resolved = model or settings.openai_model
     kwargs: dict = {
-        "model": model or settings.openai_model,
+        "model": resolved,
         "instructions": instructions,
         "input": _build_input(input_text, input_images),
     }
@@ -111,6 +113,12 @@ def _generation_kwargs(
     # when an admin has explicitly set one (see admin_settings_service).
     if temperature is not None:
         kwargs["temperature"] = temperature
+    # Reasoning effort is what actually governs how long a gpt-5-family model
+    # thinks before it starts writing, and thinking time is dead time in a
+    # streaming UI. Sent only to models that accept it.
+    effort = reasoning_effort or settings.openai_reasoning_effort
+    if effort and resolved.startswith(("gpt-5", "o1", "o3", "o4")):
+        kwargs["reasoning"] = {"effort": effort}
     return kwargs
 
 
@@ -169,15 +177,30 @@ async def stream_generation(
 
 
 async def generate_text(
-    *, instructions: str, input_text: str, model: str | None = None, temperature: float | None = None
+    *,
+    instructions: str,
+    input_text: str,
+    model: str | None = None,
+    temperature: float | None = None,
+    fast: bool = False,
 ) -> str:
     """Single non-streaming Responses API call, for short auxiliary generations
     (query rewriting, memory summarization) that need one final string, not a
     token-by-token stream to a client.
+
+    `fast=True` routes to the small model. These calls are judgements about
+    text, not the text itself - classifying a query, scoring an excerpt,
+    naming a bias - and every one of them sits between the user and something
+    they are waiting for.
     """
     response = await _resilient_call(
         _create_response,
-        **_generation_kwargs(model, temperature, instructions, input_text),
+        **_generation_kwargs(
+            model or (settings.openai_fast_model if fast else None),
+            temperature,
+            instructions,
+            input_text,
+        ),
         stream=False,
     )
     return response.output_text

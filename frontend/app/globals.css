@@ -165,6 +165,17 @@ body {
   border-radius: 4px;
 }
 
+/* Each rotating "thinking" verb fades in rather than snapping, so a change of
+   word reads as the same process continuing, not a new one starting. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Bento row height comes in as a custom property from the component, so the
    breakpoint has to live here rather than in a utility class. */
 @media (min-width: 640px) {
