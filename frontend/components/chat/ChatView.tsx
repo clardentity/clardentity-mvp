@@ -238,50 +238,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       : "neutral";
 
   return (
+    // No page header. The topbar breadcrumb already says which conversation
+    // this is, so a second title bar spent ~90px of a bounded-height column on
+    // repeating it - and that height comes straight out of the message area.
+    // The controls it held now live in the composer, which was already a row.
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-hairline bg-surface px-4 py-3 sm:px-6">
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold text-ink">
-            {conversation?.title || "Conversation"}
-          </h1>
-          {/* The strapline is the first thing to go when space is tight - the
-              title and the export controls both matter more on a phone. */}
-          <p className="hidden text-xs text-ink-muted sm:block">
-            Claims are checked against your documents and screened for cognitive bias.
-          </p>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {messages.length > 0 && (
-            <>
-              <Button
-                size="sm"
-                onClick={() => handleExport("markdown")}
-                disabled={exporting !== null}
-                title="Export as Markdown"
-              >
-                {exporting === "markdown" ? "…" : <>.md</>}
-                <span className="sr-only">Export as Markdown</span>
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => handleExport("pdf")}
-                disabled={exporting !== null}
-                title="Export as PDF"
-              >
-                {exporting === "pdf" ? "…" : <>.pdf</>}
-                <span className="sr-only">Export as PDF</span>
-              </Button>
-            </>
-          )}
-          <AvatarPanel
-            state={avatarState}
-            gesture={avatarGesture}
-            expression={avatarExpression}
-          />
-        </div>
-      </div>
-
       <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col px-4 sm:px-6">
         <MessageList
           messages={messages}
@@ -297,14 +258,50 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         )}
 
         <div className="space-y-3 border-t border-hairline py-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* The companion sits with the controls rather than in a header of
+                its own: it reacts to what you're doing, and this is where you
+                do it. */}
+            <AvatarPanel
+              state={avatarState}
+              gesture={avatarGesture}
+              expression={avatarExpression}
+              className="h-11 w-11 shrink-0"
+            />
+            {/* flex-1 so the unselected state - which renders all four modes
+                as cards - gets the full row instead of shrink-wrapping next
+                to the avatar. */}
+            <div className="min-w-0 flex-1">
+              <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+            </div>
             {mode === "thinking" && (
               <ReasoningLensSelector
                 value={reasoningLens}
                 onChange={setReasoningLens}
                 disabled={sending}
               />
+            )}
+            {messages.length > 0 && (
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() => handleExport("markdown")}
+                  disabled={exporting !== null}
+                  title="Export as Markdown"
+                >
+                  {exporting === "markdown" ? "…" : <>.md</>}
+                  <span className="sr-only">Export as Markdown</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleExport("pdf")}
+                  disabled={exporting !== null}
+                  title="Export as PDF"
+                >
+                  {exporting === "pdf" ? "…" : <>.pdf</>}
+                  <span className="sr-only">Export as PDF</span>
+                </Button>
+              </div>
             )}
           </div>
           <MessageInput

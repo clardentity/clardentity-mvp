@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
+import { COGNITIVE_MODES, type CognitiveMode } from "@/lib/modes";
 import {
   Badge,
   Button,
@@ -33,7 +34,9 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  // Which mode is being started, so only the card you clicked shows a
+  // pending label. `"any"` covers the plain "New conversation" button.
+  const [creating, setCreating] = useState<CognitiveMode | "any" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,18 +59,19 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     };
   }, [workspaceId]);
 
-  async function handleNewConversation() {
-    setCreating(true);
+  async function handleNewConversation(mode?: CognitiveMode) {
+    if (creating) return;
+    setCreating(mode ?? "any");
     setError(null);
     try {
       const conv = await apiFetch<Conversation>("/chat/conversations", {
         method: "POST",
-        body: { workspace_id: workspaceId },
+        body: { workspace_id: workspaceId, default_mode: mode ?? null },
       });
       router.push(`/chat/${conv.id}`);
     } catch (err) {
       setError(authErrorMessage(err));
-      setCreating(false);
+      setCreating(null);
     }
   }
 
@@ -95,13 +99,36 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         title={workspace.name}
         description="Documents uploaded here ground every answer in this workspace."
         actions={
-          <Button variant="primary" onClick={handleNewConversation} disabled={creating}>
-            {creating ? "Creating…" : "New conversation"}
+          <Button
+            variant="primary"
+            onClick={() => handleNewConversation()}
+            disabled={creating !== null}
+          >
+            {creating === "any" ? "Creating…" : "New conversation"}
           </Button>
         }
       />
 
-      <BentoGrid className="mb-5 sm:auto-rows-[14rem] lg:auto-rows-[15rem]">
+      {/* The four modes are the product, so the workspace opens on them rather
+          than on a list of admin links: picking one starts a conversation
+          already set to it, which is one fewer decision after landing here.
+          Knowing takes the wide cell - it's the one most people arrive for. */}
+      <BentoGrid className="mb-5" rowHeight="10.5rem">
+        {COGNITIVE_MODES.map((mode, i) => (
+          <BentoCard
+            key={mode.value}
+            name={mode.label}
+            description={mode.when}
+            className={i === 0 ? "lg:col-span-2" : ""}
+            onClick={() => handleNewConversation(mode.value)}
+            cta={creating === mode.value ? "Starting…" : `Ask in ${mode.label}`}
+            background={
+              <div className="absolute right-0 top-0 p-5 text-right">
+                <span className="text-xs font-medium text-brand">{mode.hint}</span>
+              </div>
+            }
+          />
+        ))}
         <BentoCard
           name="Documents"
           description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."

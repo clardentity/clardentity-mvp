@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 
 import { cx } from "@/components/ui/primitives";
@@ -20,32 +20,45 @@ import { cx } from "@/components/ui/primitives";
 interface BentoGridProps extends ComponentPropsWithoutRef<"div"> {
   children: ReactNode;
   className?: string;
+  /** Row height from `sm` up, as a CSS length. Applied inline rather than as a
+   *  utility class because two `auto-rows-[…]` classes have equal specificity,
+   *  so which one wins comes down to CSS source order, not the order they
+   *  appear in the class string - callers were silently getting the default. */
+  rowHeight?: string;
 }
 
-interface BentoCardProps extends Omit<ComponentPropsWithoutRef<"div">, "title"> {
+interface BentoCardProps extends Omit<ComponentPropsWithoutRef<"div">, "title" | "onClick"> {
   name: string;
   className?: string;
   background?: ReactNode;
   Icon?: React.ElementType;
   description: string;
+  /** Navigation target. Mutually exclusive with onClick. */
   href?: string;
+  /** For cards whose CTA performs an action (creating something) rather than
+   *  going somewhere - it renders a button, so it doesn't lie to the browser
+   *  about being a link. */
+  onClick?: () => void;
   cta?: string;
 }
 
-export function BentoGrid({ children, className, ...props }: BentoGridProps) {
+export function BentoGrid({
+  children,
+  className,
+  rowHeight = "18rem",
+  ...props
+}: BentoGridProps) {
   return (
     <div
       // Fixed row heights only from `sm` up. On a phone every card is full
-      // width and stacked, so a fixed 18rem row just leaves dead space under
-      // short copy - let content size the card instead. (Note that overriding
-      // an arbitrary value like auto-rows-[18rem] from a caller's className is
-      // unreliable: same specificity means CSS source order decides, not the
-      // order in the class string. Hence the breakpoint rather than an
-      // override.)
+      // width and stacked, so a fixed row just leaves dead space under short
+      // copy - let content size the card instead. The media query lives in a
+      // style tag rather than a class because the height is a prop.
       className={cx(
-        "grid w-full grid-cols-1 gap-4 sm:auto-rows-[18rem] sm:grid-cols-2 lg:auto-rows-[20rem] lg:grid-cols-3",
+        "bento-grid grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3",
         className,
       )}
+      style={{ "--bento-row-height": rowHeight } as CSSProperties}
       {...props}
     >
       {children}
@@ -70,6 +83,35 @@ function ArrowRight({ className }: { className?: string }) {
   );
 }
 
+const CTA_CLASS =
+  "inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline";
+
+/** Renders the CTA as whichever element is honest about what it does. */
+function Cta({
+  href,
+  onClick,
+  label,
+}: {
+  href?: string;
+  onClick?: () => void;
+  label: string;
+}) {
+  if (href) {
+    return (
+      <Link href={href} className={CTA_CLASS}>
+        {label}
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={CTA_CLASS}>
+      {label}
+      <ArrowRight className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 export function BentoCard({
   name,
   className,
@@ -77,9 +119,12 @@ export function BentoCard({
   Icon,
   description,
   href,
+  onClick,
   cta,
   ...props
 }: BentoCardProps) {
+  const interactive = Boolean((href || onClick) && cta);
+
   return (
     <div
       className={cx(
@@ -97,7 +142,7 @@ export function BentoCard({
         <div
           className={cx(
             "pointer-events-none flex transform-gpu flex-col gap-1 transition-transform duration-300",
-            href && cta && "lg:group-hover:-translate-y-8",
+            interactive && "lg:group-hover:-translate-y-8",
           )}
         >
           {Icon && (
@@ -109,28 +154,16 @@ export function BentoCard({
           </p>
         </div>
 
-        {href && cta && (
+        {interactive && (
           <div className="mt-3 flex flex-row items-center lg:hidden">
-            <Link
-              href={href}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-brand"
-            >
-              {cta}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+            <Cta href={href} onClick={onClick} label={cta!} />
           </div>
         )}
       </div>
 
-      {href && cta && (
-        <div className="absolute bottom-0 hidden w-full translate-y-8 transform-gpu flex-row items-center p-6 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 lg:flex">
-          <Link
-            href={href}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand"
-          >
-            {cta}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+      {interactive && (
+        <div className="absolute bottom-0 hidden w-full translate-y-8 transform-gpu flex-row items-center p-6 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 lg:flex">
+          <Cta href={href} onClick={onClick} label={cta!} />
         </div>
       )}
     </div>

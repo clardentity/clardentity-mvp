@@ -108,7 +108,11 @@ async def create_conversation(
 ) -> ConversationOut:
     await require_workspace_member(db, payload.workspace_id, current_user.id)
 
-    conversation = Conversation(workspace_id=payload.workspace_id, title=payload.title)
+    conversation = Conversation(
+        workspace_id=payload.workspace_id,
+        title=payload.title,
+        default_mode=payload.default_mode,
+    )
     db.add(conversation)
     await db.commit()
     await db.refresh(conversation)

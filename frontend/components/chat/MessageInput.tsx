@@ -83,7 +83,7 @@ export function MessageInput({
               <img
                 src={img.previewUrl}
                 alt="Attached"
-                className="h-14 w-14 rounded-md border border-slate-300 object-cover dark:border-slate-700"
+                className="h-14 w-14 rounded-md border border-hairline-strong object-cover"
               />
               <button
                 type="button"

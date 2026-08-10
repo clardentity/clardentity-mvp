@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { Claim } from "@/lib/sse";
 import { cx } from "@/components/ui/primitives";
 
@@ -60,26 +59,33 @@ export function EvidencePanel({
   claims,
   band,
   panelId,
+  expanded,
+  onToggle,
 }: {
   claims: Claim[];
   band: string | null;
   panelId?: string;
+  /** Owned by the message so the confidence badge can open this panel; it is
+   *  the natural thing to click when you want to know why a score is low. */
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  // Low-confidence answers open expanded: that is exactly when the reader
-  // most needs to see what the score was based on.
-  const [expanded, setExpanded] = useState(band === "Needs Verification");
-
   if (claims.length === 0) return null;
 
   const flagged = claims.filter((c) => c.distortion_flag).length;
+  const needsVerification = band === "Needs Verification";
 
   return (
-    <div id={panelId} className="mt-3 border-t border-hairline pt-2.5">
+    <div id={panelId} className="mt-2.5">
+      {/* One quiet line, the whole width clickable. Collapsed it reads as a
+          footnote; the summary still says how many claims there are and
+          whether any were flagged, so nothing that would change your mind
+          about trusting the answer is hidden behind the click. */}
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onToggle}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted transition-colors hover:text-ink-secondary"
+        className="group -mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
       >
         <svg
           viewBox="0 0 24 24"
@@ -89,19 +95,28 @@ export function EvidencePanel({
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden="true"
-          className={cx("h-3 w-3 transition-transform", expanded && "rotate-90")}
+          className={cx("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-90")}
         >
           <path d="m9 18 6-6-6-6" />
         </svg>
-        Evidence
-        <span className="font-normal normal-case tracking-normal text-ink-muted">
-          {claims.length} claim{claims.length === 1 ? "" : "s"}
-          {flagged > 0 && ` · ${flagged} flagged`}
+        <span className="truncate">
+          {expanded ? "Hide evidence" : "Evidence"}
+          <span className="ml-1.5 text-ink-muted">
+            {claims.length} claim{claims.length === 1 ? "" : "s"}
+            {flagged > 0 && ` · ${flagged} flagged`}
+          </span>
         </span>
+        {/* A weak answer shouldn't need the panel opened to be recognised as
+            one, so the reason to look is stated on the closed row. */}
+        {!expanded && needsVerification && (
+          <span className="ml-auto shrink-0 text-[11px] font-medium text-band-low">
+            worth checking
+          </span>
+        )}
       </button>
 
       {expanded && (
-        <div className="mt-2.5 space-y-2.5">
+        <div className="mt-2.5 space-y-2.5 border-t border-hairline pt-2.5">
           {claims.map((claim) => (
             <article
               key={claim.claim_index}

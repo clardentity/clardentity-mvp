@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 class ConversationCreate(BaseModel):
     workspace_id: uuid.UUID
     title: str | None = None
+    # Optional, and only ever a starting point: the caller can pick a different
+    # mode on the very first message. Lets a "start in Decision" entry point
+    # carry that choice into the conversation instead of dropping it at the
+    # door. Literal rather than str so a typo is a 422, not a check-constraint
+    # violation at commit time.
+    default_mode: Literal["knowing", "thinking", "decision", "learning"] | None = None
 
 
 class ConversationOut(BaseModel):

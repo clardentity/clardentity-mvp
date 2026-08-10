@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Claim, ChatMessage } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
@@ -120,6 +120,10 @@ function MessageBubble({
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
+  // Lives here rather than inside EvidencePanel so the confidence badge can
+  // open it - clicking a score to find out where it came from should show you
+  // the working, not scroll to a collapsed row.
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -178,11 +182,16 @@ function MessageBubble({
                 <ConfidenceBadge
                   band={confidenceBand}
                   score={confidenceScore}
-                  onClick={() =>
-                    document
-                      .getElementById(panelId)
-                      ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-                  }
+                  onClick={() => {
+                    setEvidenceOpen(true);
+                    // Next frame, so the panel has rendered its content and
+                    // the browser scrolls to its real height.
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById(panelId)
+                        ?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+                    );
+                  }}
                 />
               )}
             </div>
@@ -196,7 +205,13 @@ function MessageBubble({
         </p>
 
         {!isUser && (
-          <EvidencePanel claims={claims} band={confidenceBand} panelId={panelId} />
+          <EvidencePanel
+            claims={claims}
+            band={confidenceBand}
+            panelId={panelId}
+            expanded={evidenceOpen}
+            onToggle={() => setEvidenceOpen((v) => !v)}
+          />
         )}
       </div>
     </div>

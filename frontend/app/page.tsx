@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { COGNITIVE_MODES } from "@/lib/modes";
 import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
+import { ThemeToggle } from "@/components/system/ThemeToggle";
 
 /* Positioning is deliberately indirect: it names the failure modes people
    already recognise in assistants that answer confidently and can't be
@@ -19,6 +20,7 @@ function Nav({ signedIn }: { signedIn: boolean }) {
           Clardentity
         </Link>
         <nav className="flex items-center gap-1 text-[13px]">
+          <ThemeToggle className="mr-1" />
           {signedIn ? (
             <Link
               href="/workspace"
@@ -124,7 +126,7 @@ export default function Home() {
           {/* Knowing spans two columns on desktop: it's the mode most people
               arrive for, and an even 2x2 grid reads as four equal options
               rather than a starting point. */}
-          <BentoGrid className="mt-14 sm:auto-rows-[17rem] lg:auto-rows-[18rem]">
+          <BentoGrid className="mt-14" rowHeight="15rem">
             {COGNITIVE_MODES.map((mode, i) => (
               <BentoCard
                 key={mode.value}

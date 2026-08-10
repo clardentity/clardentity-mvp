@@ -2,10 +2,51 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { cx } from "@/components/ui/primitives";
+
+/* Sidebar collapse lives in a tiny external store read through
+   useSyncExternalStore rather than useState + an effect. Reading localStorage
+   in an effect and calling setState is a cascading render (and the lint rule
+   says so); reading it in a lazy initialiser makes the server and client
+   disagree about a className. This gives React a server snapshot to hydrate
+   against and the real value immediately after. */
+const SIDEBAR_STORAGE_KEY = "clardentity-sidebar-collapsed";
+
+let sidebarSnapshot: boolean | null = null;
+const sidebarListeners = new Set<() => void>();
+
+function subscribeSidebar(onChange: () => void) {
+  sidebarListeners.add(onChange);
+  return () => {
+    sidebarListeners.delete(onChange);
+  };
+}
+
+function getSidebarSnapshot(): boolean {
+  // Cached because getSnapshot must return a referentially stable value; a
+  // fresh read every call is fine for a boolean, but this also avoids hitting
+  // localStorage on every render.
+  if (sidebarSnapshot === null) {
+    sidebarSnapshot = localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+  }
+  return sidebarSnapshot;
+}
+
+function setSidebarCollapsed(next: boolean) {
+  sidebarSnapshot = next;
+  localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? "1" : "0");
+  sidebarListeners.forEach((fn) => fn());
+}
 
 type Workspace = { id: string; name: string; role: string };
 
@@ -39,6 +80,7 @@ const icons = {
   logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></>,
   profile: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
   menu: <><path d="M3 6h18M3 12h18M3 18h18" /></>,
+  panelLeft: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>,
   close: <><path d="M18 6 6 18M6 6l12 12" /></>,
 };
 
@@ -181,6 +223,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Collapsed state is desktop-only and remembered; on mobile the sidebar is
+  // an overlay drawer, which is a different control with different semantics.
+  const collapsed = useSyncExternalStore(
+    subscribeSidebar,
+    getSidebarSnapshot,
+    () => false,
+  );
+
+  const toggleCollapsed = () => setSidebarCollapsed(!collapsed);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,16 +258,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   const conversationId = pathname.match(/^\/chat\/([^/]+)/)?.[1] ?? null;
   // Keyed by conversation so a stale result is ignored by derivation rather
   // than cleared with a setState in the effect body (which cascades renders).
-  const [resolved, setResolved] = useState<{ id: string; workspaceId: string } | null>(
-    null,
-  );
+  const [resolved, setResolved] = useState<{
+    id: string;
+    workspaceId: string;
+    title: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!conversationId) return;
     let cancelled = false;
-    apiFetch<{ workspace_id: string }>(`/chat/conversations/${conversationId}`)
+    apiFetch<{ workspace_id: string; title: string | null }>(
+      `/chat/conversations/${conversationId}`,
+    )
       .then((conv) => {
-        if (!cancelled) setResolved({ id: conversationId, workspaceId: conv.workspace_id });
+        if (!cancelled) {
+          setResolved({
+            id: conversationId,
+            workspaceId: conv.workspace_id,
+            title: conv.title,
+          });
+        }
       })
       .catch(() => {
         // Sidebar just falls back to no active workspace; the page below
@@ -230,6 +291,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chatWorkspaceId =
     conversationId && resolved?.id === conversationId ? resolved.workspaceId : null;
   const activeWorkspaceId = workspaceMatch ? workspaceMatch[1] : chatWorkspaceId;
+  const conversationTitle =
+    conversationId && resolved?.id === conversationId ? resolved.title : null;
   const close = () => setMobileOpen(false);
 
   const nav = (
@@ -336,12 +399,34 @@ export function AppShell({ children }: { children: ReactNode }) {
     // unbounded shell the list's overflow-y-auto never engages and the page
     // grows past the viewport instead.
     <div className="flex h-screen overflow-hidden">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[var(--sidebar-width)] flex-col border-r border-hairline bg-surface-muted lg:flex">
-        <div className="flex h-[var(--topbar-height)] items-center border-b border-hairline px-4">
+      {/* Desktop sidebar. Slides out of view rather than unmounting, so
+          collapsing and re-opening doesn't refetch the workspace list or lose
+          the switcher's open/closed state. */}
+      <aside
+        className={cx(
+          "fixed inset-y-0 left-0 z-20 hidden w-[var(--sidebar-width)] flex-col border-r border-hairline bg-surface-muted transition-transform duration-200 lg:flex",
+          collapsed && "-translate-x-full",
+        )}
+        aria-hidden={collapsed}
+        // Keeps collapsed nav links out of the tab order; visibility:hidden
+        // would kill the slide animation, and `inert` isn't in this React
+        // version's JSX types yet.
+        style={collapsed ? { pointerEvents: "none" } : undefined}
+      >
+        <div className="flex h-[var(--topbar-height)] items-center justify-between border-b border-hairline px-4">
           <Link href="/" className="text-[15px] font-semibold tracking-tight text-ink">
             Clardentity
           </Link>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            tabIndex={collapsed ? -1 : undefined}
+            className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+          >
+            <Icon path={icons.panelLeft} />
+          </button>
         </div>
         {nav}
         {account}
@@ -374,8 +459,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-[var(--sidebar-width)]">
+      <div
+        className={cx(
+          "flex min-w-0 flex-1 flex-col transition-[padding] duration-200",
+          !collapsed && "lg:pl-[var(--sidebar-width)]",
+        )}
+      >
         <header className="z-10 flex h-[var(--topbar-height)] shrink-0 items-center gap-3 border-b border-hairline bg-surface px-4 sm:px-6">
+          {/* Two buttons rather than one that branches on viewport width: the
+              mobile drawer and the desktop collapse are genuinely different
+              controls, and inferring which one to run from a JS media query
+              means the first render can pick wrong. */}
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open navigation"
@@ -383,11 +477,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon path={icons.menu} />
           </button>
+          {collapsed && (
+            <button
+              onClick={toggleCollapsed}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+              className="hidden rounded-md p-1.5 text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink lg:block"
+            >
+              <Icon path={icons.menu} />
+            </button>
+          )}
           <Breadcrumbs
             pathname={pathname}
             workspaces={workspaces}
             activeWorkspaceId={activeWorkspaceId}
+            conversationTitle={conversationTitle}
           />
+          <ThemeToggle className="ml-auto shrink-0" />
         </header>
 
         <main className="scroll-slim flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -402,10 +508,12 @@ function Breadcrumbs({
   pathname,
   workspaces,
   activeWorkspaceId,
+  conversationTitle,
 }: {
   pathname: string;
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
+  conversationTitle: string | null;
 }) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) {
@@ -427,7 +535,10 @@ function Breadcrumbs({
     const ws = workspaces.find((w) => w.id === activeWorkspaceId);
     crumbs.push({ label: "Workspaces", href: "/workspace" });
     if (ws) crumbs.push({ label: ws.name, href: `/workspace/${ws.id}` });
-    crumbs.push({ label: "Conversation" });
+    // The chat page no longer has a title bar of its own, so this crumb is
+    // where the conversation is named. It falls back to the generic label
+    // until the title has been generated from the first exchange.
+    crumbs.push({ label: conversationTitle || "Conversation" });
     return <Crumbs crumbs={crumbs} />;
   }
 

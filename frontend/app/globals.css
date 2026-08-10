@@ -47,47 +47,69 @@
 
   --focus-ring: #9b8afb;
 
+  /* Avatar shading. Three stops per surface (lit / base / shaded) is what
+     gives the flat SVG its rounded look without a 3D renderer. */
+  --avatar-skin-lit: #ffffff;
+  --avatar-skin: #e6e3fb;
+  --avatar-skin-shade: #bdb6ee;
+  --avatar-body-lit: #8778e8;
+  --avatar-face: #2f2a52;
+  --avatar-blush: #f7a8c0;
+  --avatar-shadow: rgb(15 23 42 / 0.16);
+
   --sidebar-width: 264px;
   --topbar-height: 56px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #0b0d12;
-    --surface: #14171f;
-    --surface-muted: #171b24;
-    --surface-hover: #1d222c;
-    --surface-sunken: #10131a;
+/* Keyed off an attribute rather than `prefers-color-scheme` so the in-app
+   toggle can override the OS in both directions. An inline script in <head>
+   stamps data-theme before first paint (from localStorage, falling back to the
+   OS preference), so there is no flash and no duplicated token block. */
+:root[data-theme="dark"] {
+  --canvas: #0b0d12;
+  --surface: #14171f;
+  --surface-muted: #171b24;
+  --surface-hover: #1d222c;
+  --surface-sunken: #10131a;
 
-    --border: #252a35;
-    --border-strong: #333947;
+  --border: #252a35;
+  --border-strong: #333947;
 
-    --text: #f0f2f6;
-    --text-secondary: #a7b0c0;
-    --text-muted: #8b95a7;
-    --text-inverse: #0b0d12;
+  --text: #f0f2f6;
+  --text-secondary: #a7b0c0;
+  --text-muted: #8b95a7;
+  --text-inverse: #0b0d12;
 
-    --brand: #8b7bec;
-    --brand-dark: #a394f5;
-    --brand-soft: #1e1b3a;
-    --brand-border: #38316b;
+  --brand: #8b7bec;
+  --brand-dark: #a394f5;
+  --brand-soft: #1e1b3a;
+  --brand-border: #38316b;
 
-    --band-high: #6ce9a6;
-    --band-high-bg: #0b2a1c;
-    --band-high-border: #1c4a33;
-    --band-mid: #fec84b;
-    --band-mid-bg: #2b1f08;
-    --band-mid-border: #55400f;
-    --band-low: #fda29b;
-    --band-low-bg: #2d1211;
-    --band-low-border: #5a2422;
+  --band-high: #6ce9a6;
+  --band-high-bg: #0b2a1c;
+  --band-high-border: #1c4a33;
+  --band-mid: #fec84b;
+  --band-mid-bg: #2b1f08;
+  --band-mid-border: #55400f;
+  --band-low: #fda29b;
+  --band-low-bg: #2d1211;
+  --band-low-border: #5a2422;
 
-    --caution: #fdba74;
-    --caution-bg: #2a1a0d;
-    --caution-border: #52341a;
+  --caution: #fdba74;
+  --caution-bg: #2a1a0d;
+  --caution-border: #52341a;
 
-    --focus-ring: #7c6ce0;
-  }
+  --focus-ring: #7c6ce0;
+
+  /* The head stays light in dark mode - a dark face on a dark panel loses the
+     eyes entirely - but the shading is pulled down so it doesn't glare. */
+  --avatar-skin-lit: #f3f1ff;
+  --avatar-skin: #cfc9f2;
+  --avatar-skin-shade: #9d94d8;
+  --avatar-body-lit: #a99cf5;
+  --avatar-face: #241f43;
+  --avatar-blush: #e58aa8;
+  --avatar-shadow: rgb(0 0 0 / 0.45);
 }
 
 @theme inline {
@@ -141,6 +163,26 @@ body {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Bento row height comes in as a custom property from the component, so the
+   breakpoint has to live here rather than in a utility class. */
+@media (min-width: 640px) {
+  .bento-grid {
+    grid-auto-rows: var(--bento-row-height, 18rem);
+  }
+}
+
+/* Theme-conditional bits of markup. Used by the light/dark toggle so the
+   correct icon is in the very first paint rather than chosen after hydration. */
+.theme-when-dark {
+  display: none;
+}
+:root[data-theme="dark"] .theme-when-dark {
+  display: initial;
+}
+:root[data-theme="dark"] .theme-when-light {
+  display: none;
 }
 
 /* Restrained scrollbars - the sidebar and evidence panels use these a lot. */
@@ -200,6 +242,18 @@ body {
   }
 }
 
+@keyframes avatar-antenna-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    r: 6;
+  }
+  50% {
+    opacity: 1;
+    r: 8.5;
+  }
+}
+
 @keyframes avatar-react-pulse {
   0% {
     transform: scale(1);
@@ -214,7 +268,14 @@ body {
 
 .avatar-breathe {
   animation: avatar-breathe 3.2s ease-in-out infinite;
-  transform-origin: 100px 150px;
+  transform-origin: 100px 160px;
+}
+
+/* Animating the `r` presentation attribute needs it to be a CSS property,
+   which it is in SVG2 - supported in every browser this app targets, and a
+   no-op (steady circle) anywhere it isn't. */
+.avatar-antenna-pulse {
+  animation: avatar-antenna-pulse 1.6s ease-in-out infinite;
 }
 
 .avatar-blink {
@@ -237,7 +298,7 @@ body {
 
 .avatar-react {
   animation: avatar-react-pulse 0.7s ease-out;
-  transform-origin: 100px 150px;
+  transform-origin: 100px 160px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -246,6 +307,7 @@ body {
   .avatar-talk,
   .avatar-wobble-left,
   .avatar-wobble-right,
+  .avatar-antenna-pulse,
   .avatar-react {
     animation: none;
   }
