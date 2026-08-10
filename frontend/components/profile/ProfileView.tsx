@@ -83,7 +83,7 @@ export function ProfileView() {
     try {
       await apiFetch("/profile/rebuild", { method: "POST" });
       setNotice(
-        "Rebuilding from your history. This runs in the background — use Refresh in a moment to see it.",
+        "Rebuilding from your history. This runs in the background - use Refresh in a moment to see it.",
       );
     } catch (err) {
       setError(authErrorMessage(err));
@@ -154,7 +154,7 @@ export function ProfileView() {
       {!hasProfile ? (
         <EmptyState
           title="Nothing here yet"
-          description="Ask a few questions and this fills in on its own. Nothing is inferred from an onboarding form — it comes from how you actually use the app."
+          description="Ask a few questions and this fills in on its own. Nothing is inferred from an onboarding form - it comes from how you actually use the app."
         />
       ) : (
         <div className="space-y-5">
@@ -234,7 +234,7 @@ export function ProfileView() {
               </ul>
             ) : (
               <p className="text-sm text-ink-muted">
-                No roles inferred yet — nothing in your history clearly indicated one.
+                No roles inferred yet - nothing in your history clearly indicated one.
               </p>
             )}
           </Card>

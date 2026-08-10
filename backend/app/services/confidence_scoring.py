@@ -120,6 +120,30 @@ def build_scored_evidence(
     return result
 
 
+# Support bands, in ascending order of (lower_bound, label).
+#
+# Derived from the score rather than taken from the verification agent's own
+# word for it. Those two used to be able to disagree - a claim could read
+# "Fully supported" next to a score of 41, because the label came from the
+# model's judgement of entailment and the number came from arithmetic over
+# support and relevance. Whichever a reader believed, the other one was
+# lying to them.
+SUPPORT_BANDS: tuple[tuple[float, str], ...] = (
+    (76.0, "full"),
+    (51.0, "moderate"),
+    (26.0, "partial"),
+    (0.0, "unsupported"),
+)
+
+
+def support_band(score: float) -> str:
+    """0-25 unsupported, 26-50 partial, 51-75 moderate, 76-100 full."""
+    for lower, label in SUPPORT_BANDS:
+        if score >= lower:
+            return label
+    return "unsupported"
+
+
 def compute_claim_score(evidence: list[ScoredEvidence]) -> tuple[float, str]:
     """§9.2: claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
     evidence item best supports the claim. No evidence -> 0 / Unsupported.
@@ -131,7 +155,7 @@ def compute_claim_score(evidence: list[ScoredEvidence]) -> tuple[float, str]:
 
     best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
     score = 100 * (0.7 * best.support_score + 0.3 * best.relevance_score)
-    return score, best.entailment_label
+    return score, support_band(score)
 
 
 def compute_message_score(

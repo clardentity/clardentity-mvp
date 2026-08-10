@@ -98,6 +98,9 @@ class MessageOut(BaseModel):
     #: The Devil's Draft, produced alongside the answer. Present on reload too,
     #: so the comparison stays instant after a refresh.
     counterfactual_content: str | None = None
+    #: {"question": str, "options": [str, ...]} when the answer needs something
+    #: from the user before it can be better. Null on most turns.
+    clarifier: dict | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

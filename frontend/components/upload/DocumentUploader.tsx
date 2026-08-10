@@ -48,7 +48,7 @@ export function DocumentUploader({ workspaceId }: { workspaceId: string }) {
       fetchDocuments()
         .then(setDocuments)
         .catch(() => {
-          // transient poll failure — try again next tick
+          // transient poll failure - try again next tick
         });
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);

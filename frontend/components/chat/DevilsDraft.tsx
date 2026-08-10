@@ -126,7 +126,7 @@ export function DevilsDraft({
 
           <p className="text-[11px] leading-relaxed text-ink-muted sm:col-span-2">
             The right-hand version states things flatly, drops the caveats and
-            leads with whatever lands hardest. It is not a second opinion — it
+            leads with whatever lands hardest. It is not a second opinion - it
             is the same answer with the bias screening switched off, shown so
             you can see what the screening was doing.
           </p>

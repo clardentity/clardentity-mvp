@@ -7,6 +7,8 @@ import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
 import { DevilsDraft } from "@/components/chat/DevilsDraft";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
+import { ClarifierCard } from "@/components/chat/ClarifierCard";
+import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
 export type StreamingMessage = {
@@ -26,6 +28,7 @@ export function MessageList({
   onRegenerate,
   busy,
   statusLabel,
+  onClarifierAnswer,
 }: {
   conversationId: string;
   messages: ChatMessage[];
@@ -43,6 +46,8 @@ export function MessageList({
   busy?: boolean;
   /** Shown while a request is in flight and no tokens have arrived yet. */
   statusLabel?: string | null;
+  /** Sends a clarifying-question answer as the next message. */
+  onClarifierAnswer?: (answer: string) => void;
 }) {
   if (messages.length === 0 && !streaming && !busy) {
     return (
@@ -76,6 +81,7 @@ export function MessageList({
           confidenceBand={m.confidence_band}
           claims={m.claims}
           counterfactual={m.counterfactual_content}
+          clarifier={m.clarifier}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -89,6 +95,7 @@ export function MessageList({
           }
           busy={busy}
           conversationId={conversationId}
+          onClarifierAnswer={onClarifierAnswer}
         />
       ))}
       {busy && !streaming && (
@@ -124,7 +131,8 @@ function findEvidenceForMarker(claims: Claim[], marker: number) {
 }
 
 function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
-  const parts = text.split(/(\[\d+\])/g);
+  // Messages written before the backend stripped markup still have it stored.
+  const parts = cleanMessageText(text).split(/(\[\d+\])/g);
   return parts.map((part, i) => {
     const match = part.match(/^\[(\d+)\]$/);
     if (!match) return <span key={i}>{part}</span>;
@@ -145,6 +153,7 @@ function MessageBubble({
   confidenceBand,
   claims,
   counterfactual,
+  clarifier,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -153,6 +162,7 @@ function MessageBubble({
   onRegenerate,
   busy,
   conversationId,
+  onClarifierAnswer,
 }: {
   id: string;
   role: string;
@@ -163,6 +173,7 @@ function MessageBubble({
   confidenceBand: string | null;
   claims: Claim[];
   counterfactual?: string | null;
+  clarifier?: { question: string; options: string[] } | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -171,6 +182,7 @@ function MessageBubble({
   onRegenerate?: () => void;
   busy?: boolean;
   conversationId?: string;
+  onClarifierAnswer?: (answer: string) => void;
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
@@ -275,6 +287,15 @@ function MessageBubble({
             panelId={panelId}
             expanded={evidenceOpen}
             onToggle={() => setEvidenceOpen((v) => !v)}
+          />
+        )}
+
+        {clarifier && !isStreaming && onClarifierAnswer && (
+          <ClarifierCard
+            question={clarifier.question}
+            options={clarifier.options}
+            onAnswer={onClarifierAnswer}
+            disabled={busy}
           />
         )}
 

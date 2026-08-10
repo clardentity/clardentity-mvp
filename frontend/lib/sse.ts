@@ -46,6 +46,8 @@ export type ChatMessage = {
   created_at: string;
   /** The Devil's Draft, generated alongside the answer rather than on click. */
   counterfactual_content: string | null;
+  /** A question the answer wants answered, with options. Null on most turns. */
+  clarifier: { question: string; options: string[] } | null;
   claims: Claim[];
 };
 
@@ -142,7 +144,7 @@ export async function streamChatMessage(
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    // sse-starlette terminates lines/records with \r\n, not \n — normalize
+    // sse-starlette terminates lines/records with \r\n, not \n - normalize
     // before splitting so frame boundaries actually match.
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
 

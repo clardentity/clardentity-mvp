@@ -73,7 +73,7 @@ export default function Home() {
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary sm:text-xl">
           Anything can sound certain. Clardentity gives you the evidence behind
-          every claim — and tells you plainly when there isn&apos;t any.
+          every claim - and tells you plainly when there isn&apos;t any.
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
           <Link
@@ -119,7 +119,7 @@ export default function Home() {
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
               Different questions deserve different treatment. You choose the
-              mode — it never guesses which one you meant.
+              mode - it never guesses which one you meant.
             </p>
           </div>
 
@@ -157,7 +157,7 @@ export default function Home() {
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
               Answers arrive broken into individual claims. Each one is checked
-              against your own documents and scored on its own merits — so a
+              against your own documents and scored on its own merits - so a
               solid answer with one weak link shows you exactly which link.
             </p>
             <p className="mt-4 text-lg leading-relaxed text-ink-secondary">
@@ -220,7 +220,7 @@ export default function Home() {
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-secondary">
             Most conversations start from nothing, every time. This one builds
             an understanding of how you think, what you&apos;re working on, and
-            the roles you actually occupy in your life — and gets more useful
+            the roles you actually occupy in your life - and gets more useful
             the longer you use it.
           </p>
           <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-ink-muted">
@@ -236,7 +236,7 @@ export default function Home() {
           Start with a question.
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-ink-secondary">
-          No setup, no tour. Sign in and ask — your workspace is already there.
+          No setup, no tour. Sign in and ask - your workspace is already there.
         </p>
         <Link
           href={primaryHref}

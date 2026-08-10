@@ -23,7 +23,7 @@ class Conversation(Base):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Convenience pre-fill only (SRS §7.2) — every message still carries its own
+    # Convenience pre-fill only (SRS §7.2) - every message still carries its own
     # explicit `mode_used`; this is never used as an automatic fallback.
     default_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

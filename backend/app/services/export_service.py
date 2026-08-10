@@ -20,7 +20,7 @@ def _message_header(message: MessageOut) -> str:
             header += f" ({message.reasoning_lens.replace('_', '-')})"
         if message.confidence_band is not None:
             score = round(message.confidence_score) if message.confidence_score is not None else "?"
-            header += f" — {message.confidence_band} · {score}"
+            header += f" - {message.confidence_band} · {score}"
     return header
 
 
@@ -45,7 +45,7 @@ def build_markdown_export(conversation_title: str | None, messages: list[Message
             lines.append("**Claims & Evidence**")
             lines.append("")
             for c in m.claims:
-                score_part = f" — score {round(c.claim_score)}" if c.claim_score is not None else ""
+                score_part = f" - score {round(c.claim_score)}" if c.claim_score is not None else ""
                 label_part = f" ({c.entailment_label})" if c.entailment_label else ""
                 lines.append(f"{c.claim_index}. {c.claim_text}{score_part}{label_part}")
                 if c.distortion_flag:
@@ -74,8 +74,8 @@ def build_markdown_export(conversation_title: str | None, messages: list[Message
 
 
 _PDF_TRANSLATIONS = {
-    "—": "-",  # em dash
-    "–": "-",  # en dash
+    "-": "-",  # em dash
+    "-": "-",  # en dash
     "‘": "'",
     "’": "'",
     "“": '"',

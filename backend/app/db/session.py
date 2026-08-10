@@ -18,7 +18,7 @@ engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
-# Celery tasks each run inside their own `asyncio.run()` call — a fresh event
+# Celery tasks each run inside their own `asyncio.run()` call - a fresh event
 # loop every time. A pooled asyncpg connection checked out under one task's
 # loop becomes unusable (and unclosable) once that loop is gone, so Celery
 # workers get a separate NullPool engine: every checkout opens a connection

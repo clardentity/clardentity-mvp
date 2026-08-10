@@ -2,11 +2,18 @@
 
 import type { Claim } from "@/lib/sse";
 import { cx } from "@/components/ui/primitives";
+import { cleanMessageText } from "@/lib/text";
 
+/* Support bands, from the claim's numeric score:
+     0-25 unsupported · 26-50 partial · 51-75 moderate · 76-100 full
+   The label and the number next to it now come from the same place, so a
+   claim can't read "Fully supported" beside a score of 41. */
 const ENTAILMENT_LABELS: Record<string, string> = {
   full: "Fully supported",
+  moderate: "Moderately supported",
   partial: "Partially supported",
-  none: "Not supported",
+  // Written by an older build, before the bands existed.
+  none: "Unsupported",
   unsupported: "Unsupported",
 };
 
@@ -38,6 +45,7 @@ function ExternalLinkIcon() {
 
 const ENTAILMENT_TONES: Record<string, string> = {
   full: "text-band-high",
+  moderate: "text-band-high",
   partial: "text-band-mid",
   none: "text-band-low",
   unsupported: "text-band-low",
@@ -148,7 +156,7 @@ export function EvidencePanel({
               key={claim.claim_index}
               className="rounded-lg border border-hairline bg-surface-muted p-3"
             >
-              <p className="text-xs leading-relaxed text-ink">{claim.claim_text}</p>
+              <p className="text-xs leading-relaxed text-ink">{cleanMessageText(claim.claim_text)}</p>
 
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
                 <span
@@ -163,7 +171,7 @@ export function EvidencePanel({
                 </span>
                 {claim.claim_score !== null && (
                   <span className="tabular-nums text-ink-muted">
-                    score {Math.round(claim.claim_score)}
+                    {Math.round(claim.claim_score)}/100
                   </span>
                 )}
               </div>

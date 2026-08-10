@@ -119,6 +119,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       avatar_gesture: null,
       created_at: new Date().toISOString(),
       counterfactual_content: null,
+      clarifier: null,
       claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -334,6 +335,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       onRegenerate={handleRegenerate}
       busy={sending}
       statusLabel={status?.label}
+      onClarifierAnswer={(answer) => handleSend(answer, [])}
       emptyStateAvatar={
         <AvatarPanel
           state={avatarState}

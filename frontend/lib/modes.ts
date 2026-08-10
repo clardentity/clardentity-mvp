@@ -20,7 +20,7 @@ export const COGNITIVE_MODES = [
     hint: "Reason it through",
     when: "When the answer depends on the reasoning, not just the conclusion.",
     detail:
-      "Works through a problem in visible steps you can follow and challenge. Choose a reasoning lens — critical, creative, step-by-step — to change how it approaches the problem.",
+      "Works through a problem in visible steps you can follow and challenge. Choose a reasoning lens - critical, creative, step-by-step - to change how it approaches the problem.",
   },
   {
     value: "decision",
@@ -28,7 +28,7 @@ export const COGNITIVE_MODES = [
     hint: "Weigh the options",
     when: "When you're choosing between paths and want the trade-offs laid out.",
     detail:
-      "Lays out the real options and what each one costs you, then makes a recommendation. It also flags the cognitive biases that tend to distort this kind of decision — before you commit, not after.",
+      "Lays out the real options and what each one costs you, then makes a recommendation. It also flags the cognitive biases that tend to distort this kind of decision - before you commit, not after.",
   },
   {
     value: "learning",

@@ -25,6 +25,8 @@ from app.services.admin_settings_service import get_all_settings
 from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
+from app.services.clarifier import extract_clarifier
+from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
     ScoredClaim,
     ScoringWeights,
@@ -117,7 +119,7 @@ def _derive_title(first_message: str) -> str:
         lowered = text.lower()
         for prefix in _TITLE_FILLER_PREFIXES:
             if lowered.startswith(prefix):
-                rest = text[len(prefix) :].lstrip(" ,:-–—")
+                rest = text[len(prefix) :].lstrip(" ,:---")
                 # Only if something survives; "Hi" alone is still the title.
                 if rest:
                     text = rest
@@ -133,7 +135,7 @@ def _derive_title(first_message: str) -> str:
         text = text[:_TITLE_MAX_CHARS].rsplit(" ", 1)[0] or text[:_TITLE_MAX_CHARS]
         truncated = True
 
-    text = text.rstrip(" ,;:.-–—")
+    text = text.rstrip(" ,;:.---")
     if not text:
         return "Conversation"
 
@@ -154,6 +156,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         avatar_gesture=message.avatar_gesture,
         created_at=message.created_at,
         counterfactual_content=message.counterfactual_content,
+        clarifier=message.clarifier,
         claims=claims,
     )
 
@@ -376,7 +379,7 @@ async def send_message(
 ) -> EventSourceResponse:
     await check_rate_limit(f"chat:send:{current_user.id}", max_requests=20, window_seconds=60)
 
-    # FR7: mode is mandatory and there is no auto-detection fallback — reject
+    # FR7: mode is mandatory and there is no auto-detection fallback - reject
     # with exactly 400, not Pydantic's default 422 for a missing field.
     try:
         mode = validate_mode(payload.mode)
@@ -418,7 +421,7 @@ async def send_message(
             )
         )
 
-    # Convenience pre-fill only (§7.2) — never read back as an automatic mode choice.
+    # Convenience pre-fill only (§7.2) - never read back as an automatic mode choice.
     conversation.default_mode = mode
 
     # Title the conversation from its opening question. Without this every row
@@ -431,7 +434,7 @@ async def send_message(
 
     flags = admin_settings.get("feature_flags") or {}
 
-    # §5.2 step 3: ambiguity detection/query rewrite for retrieval only —
+    # §5.2 step 3: ambiguity detection/query rewrite for retrieval only -
     # `mode` and the persisted/displayed message are untouched by this.
     # Decision classification picks a *bias domain* only, and never influences
     # which cognitive mode is in play (§7.2).
@@ -545,7 +548,10 @@ async def send_message(
         # window sees this turn in its history, rather than a hole where the
         # assistant's reply should be.
         # ------------------------------------------------------------------
-        draft_display_text = strip_claim_tags(full_text)
+        # The <ask> block comes out before anything else sees the text, so it
+        # can never reach the transcript as raw markup.
+        full_text, clarifier = extract_clarifier(full_text)
+        draft_display_text = clean_output(strip_claim_tags(full_text))
 
         async with AsyncSessionLocal() as answer_db:
             assistant_message = Message(
@@ -554,6 +560,7 @@ async def send_message(
                 content=draft_display_text,
                 mode_used=mode,
                 reasoning_lens=reasoning_lens if mode == "thinking" else None,
+                clarifier=clarifier,
             )
             answer_db.add(assistant_message)
             await answer_db.commit()
@@ -708,7 +715,7 @@ async def send_message(
             scored_claims.append(
                 ScoredClaim(
                     claim_index=claim.claim_index,
-                    claim_text=claim.claim_text,
+                    claim_text=clean_output(claim.claim_text),
                     claim_score=claim_score,
                     entailment_label=entailment_label,
                     distortion_flag=verification.distortion_flag,
@@ -735,10 +742,13 @@ async def send_message(
                 counterfactual_text = None
 
         # strip_claim_tags preserves the model's own formatting/whitespace
-        # between claims exactly, matching what streaming already showed —
+        # between claims exactly, matching what streaming already showed -
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
-        display_text = strip_claim_tags(final_text)
+        final_text, revised_clarifier = extract_clarifier(final_text)
+        if revised_clarifier:
+            clarifier = revised_clarifier
+        display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
         avatar_cue = compute_avatar_cue(
@@ -759,7 +769,10 @@ async def send_message(
             # Written now, not when someone clicks. Producing it on demand
             # meant a five-second wait behind a button whose whole appeal is
             # an instant side-by-side.
-            assistant_message.counterfactual_content = counterfactual_text
+            assistant_message.counterfactual_content = (
+                clean_output(counterfactual_text) if counterfactual_text else None
+            )
+            assistant_message.clarifier = clarifier
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere

@@ -1,3 +1,4 @@
+from app.services.clarifier import INSTRUCTIONS as CLARIFIER_INSTRUCTIONS
 from app.models import Message
 from app.services.retrieval import RetrievedChunk
 
@@ -66,15 +67,13 @@ def build_system_instructions(
         parts.append(bias_guidance)
 
     parts.append(
-        "Ask before assuming. If the request is ambiguous in a way that would materially "
-        "change your answer - a missing timeframe, an unstated goal or constraint, two "
-        "plausible readings of the question - answer as far as you reasonably can, then "
-        "close with a short section headed exactly '**Before I go further:**' containing "
-        "one to three specific questions. Ask only what actually changes the answer; never "
-        "add the section just to seem thorough, and never use it to avoid answering. "
-        "Those questions are the one part of your reply that must sit OUTSIDE any <claim> "
-        "tag - they are requests, not assertions, and tagging them would have them scored "
-        "as unsupported facts.\n\n"
+        CLARIFIER_INSTRUCTIONS + "\n\n"
+        "Write in plain text. No Markdown and no HTML: no **bold**, no #, no "
+        "<strong>, no bullet characters other than a plain hyphen. The reader "
+        "sees your output verbatim, so any markup arrives as literal "
+        "characters in the middle of a sentence. Use short paragraphs and "
+        "sentence structure for emphasis instead.\n"
+        "Use hyphens, never em dashes or en dashes.\n"
         "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"
         "Break your answer into discrete, independently-checkable claims. Tag every claim "
         'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
@@ -85,7 +84,7 @@ def build_system_instructions(
         "Unsupported rather than guessing at a citation.\n"
         "Number claims sequentially starting at 1. Every sentence of your response must be "
         "inside some <claim> tag - do not leave prose outside of one. The single exception "
-        "is the '**Before I go further:**' section described above, which stays untagged."
+        "is the <ask> block described above, which stays untagged."
     )
 
     return "\n\n".join(parts)

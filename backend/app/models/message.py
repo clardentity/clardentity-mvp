@@ -19,7 +19,10 @@ from app.models.base import Base
 from app.models.conversation import COGNITIVE_MODES
 
 CONFIDENCE_BANDS = ("Likely Fact", "Plausible", "Needs Verification")
-ENTAILMENT_LABELS = ("full", "partial", "none", "unsupported")
+# Claim-level support bands, derived from the numeric score by
+# confidence_scoring.support_band(). "none" is retained only so rows written
+# before the bands existed still satisfy the constraint.
+ENTAILMENT_LABELS = ("full", "moderate", "partial", "none", "unsupported")
 EVIDENCE_ENTAILMENT_LABELS = ("full", "partial", "none")
 # The two SRS §9.4 reasoning distortions. These are no longer the whole
 # vocabulary for `message_claims.distortion_flag` - see app/services/taxonomy.py,
@@ -52,10 +55,13 @@ class Message(Base):
     avatar_expression: Mapped[str | None] = mapped_column(String, nullable=True)
     avatar_gesture: Mapped[str | None] = mapped_column(String, nullable=True)
     # The same question answered with the bias guardrails off - the version
-    # that argues its side and leaves out what would weaken it. Generated on
-    # request, not per message: it costs a full second generation, and most
-    # answers are never compared. Cached here once produced.
+    # that argues its side and leaves out what would weaken it. Generated
+    # alongside the answer's own validation, so the comparison is ready by the
+    # time the message lands.
     counterfactual_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A question the answer needs answered before it can be better, with a few
+    # concrete options. {"question": str, "options": [str, ...]} or null.
+    clarifier: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
