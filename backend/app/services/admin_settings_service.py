@@ -32,6 +32,12 @@ DEFAULTS: dict[str, Any] = {
         # Turns off decision-domain classification and scopes bias screening
         # back to the full vocabulary. Screening itself always runs.
         "bias_screening_enabled": True,
+        # Lets the agent search the web when the workspace has nothing to
+        # answer from, and go back out to check a claim nothing supports.
+        # Off means an unsupported claim stays unsupported, which is a
+        # defensible setting for a workspace that should only ever cite its
+        # own documents.
+        "web_search_enabled": True,
     },
 }
 

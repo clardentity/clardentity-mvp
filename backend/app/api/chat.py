@@ -32,6 +32,7 @@ from app.services.confidence_scoring import (
     compute_claim_score,
     compute_message_score,
 )
+from app.services.devils_advocate import generate_counterfactual
 from app.services.decision_classifier import (
     NO_DECISION,
     DecisionClassification,
@@ -61,6 +62,7 @@ from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
 from app.services.taxonomy import describe_bias
 from app.services.verification_agent import verify_claim
+from app.services.web_research import WebSource, gather_context, research_claim
 from app.workers.rebuild_memory import rebuild_memory_task
 from app.workers.rebuild_profile import rebuild_profile_task
 
@@ -69,6 +71,12 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 _TITLE_MAX_CHARS = 38
 _TITLE_MAX_WORDS = 6
+
+# Per-claim web research runs up to three rounds and is serial with the rest
+# of validation, so an answer full of unsupported claims could otherwise spend
+# a minute searching. The first few unsupported claims are the informative
+# ones anyway.
+_MAX_RESEARCHED_CLAIMS = 2
 
 # Openers that carry no information about the subject. Stripped so the title
 # starts on the actual topic - "Hi, what's the difference between X and Y"
@@ -254,6 +262,57 @@ async def export_conversation(
     )
 
 
+@router.post("/{conversation_id}/messages/{message_id}/devils-advocate")
+async def devils_advocate(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """The same answer with the bias guardrails off, for side-by-side reading.
+
+    Generated on demand rather than with every message: it is a second full
+    generation, and most answers are never compared. Cached on the row once
+    produced, so opening the comparison a second time is free.
+    """
+    await check_rate_limit(
+        f"chat:devils-advocate:{current_user.id}", max_requests=20, window_seconds=300
+    )
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+
+    message = await db.get(Message, message_id)
+    if message is None or message.conversation_id != conversation.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    if message.role != "assistant" or not message.content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only an assistant answer can be re-argued",
+        )
+
+    if message.counterfactual_content:
+        return {"counterfactual_content": message.counterfactual_content}
+
+    claim_rows = await db.execute(
+        select(MessageClaim.distortion_flag, MessageClaim.bias_category).where(
+            MessageClaim.message_id == message.id,
+            MessageClaim.distortion_flag.isnot(None),
+        )
+    )
+    flagged = [(row[0], row[1]) for row in claim_rows.all()]
+
+    try:
+        text = await generate_counterfactual(message.content, flagged)
+    except Exception as exc:  # noqa: BLE001 - a comparison failing must not 500 the chat
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Couldn't produce the comparison: {exc}",
+        ) from exc
+
+    message.counterfactual_content = text
+    await db.commit()
+    return {"counterfactual_content": text}
+
+
 @router.delete(
     "/{conversation_id}/messages/{message_id}/onwards",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -385,6 +444,14 @@ async def send_message(
         db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
     )
 
+    # Documents first, always. The web is the fallback for a workspace that has
+    # nothing to say about the question - not a supplement to one that does,
+    # because a user's own documents are the thing they trusted enough to
+    # upload and a search result is not.
+    web_sources: list[WebSource] = []
+    if not chunks and flags.get("web_search_enabled", True):
+        web_sources = await gather_context(retrieval_query)
+
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
     bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
@@ -392,7 +459,7 @@ async def send_message(
     instructions = build_system_instructions(
         mode, reasoning_lens, bias_guidance, profile_block
     )
-    context_block = build_context_block(chunks)
+    context_block = build_context_block(chunks, web_sources)
     input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
     scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
     gesture_map = admin_settings["avatar_gesture_map"]
@@ -475,18 +542,30 @@ async def send_message(
 
         parsed_claims = extract_claims(final_text)
 
+        # Markers 1..len(chunks) are documents; anything above continues into
+        # the web sources, in the order build_context_block numbered them.
+        # `live_sources` grows below as per-claim research finds more, and the
+        # marker arithmetic follows it.
+        live_sources: list[WebSource] = list(web_sources)
+
+        def source_excerpt(marker: int) -> str:
+            if marker <= len(chunks):
+                return chunks[marker - 1].chunk.content
+            return live_sources[marker - len(chunks) - 1].excerpt
+
+        def valid_markers(raw: list[int]) -> list[int]:
+            limit = len(chunks) + len(live_sources)
+            return [m for m in sorted(set(raw)) if 0 < m <= limit]
+
         # §9.1 step 3: per-claim, per-evidence verification + cognitive-bias
         # screening, run concurrently across claims. `bias_category_id` scopes
         # the screening vocabulary to the domain this conversation is about.
-        claim_marker_lists = [
-            [m for m in sorted(set(c.citation_markers)) if 0 < m <= len(chunks)]
-            for c in parsed_claims
-        ]
+        claim_marker_lists = [valid_markers(c.citation_markers) for c in parsed_claims]
         verifications = await asyncio.gather(
             *(
                 verify_claim(
                     claim.claim_text,
-                    [chunks[m - 1].chunk.content for m in markers],
+                    [source_excerpt(m) for m in markers],
                     bias_category_id=bias_category_id,
                 )
                 for claim, markers in zip(parsed_claims, claim_marker_lists)
@@ -494,9 +573,45 @@ async def send_message(
         )
 
         scored_claims: list[ScoredClaim] = []
+        research_notes: list[str] = []
         for claim, markers, verification in zip(parsed_claims, claim_marker_lists, verifications):
-            evidence = build_scored_evidence(markers, chunks, verification.evidence)
+            evidence = build_scored_evidence(markers, chunks, verification.evidence, live_sources)
             claim_score, entailment_label = compute_claim_score(evidence)
+
+            # A claim nothing supports is where the search agent earns its
+            # keep: the answer already exists, so there is a specific
+            # proposition to go and check rather than a vague topic. The
+            # supervisor inside research_claim is what keeps this from
+            # degenerating into "found a URL, therefore true".
+            if (
+                not evidence
+                and flags.get("web_search_enabled", True)
+                and len(research_notes) < _MAX_RESEARCHED_CLAIMS
+            ):
+                research = await research_claim(claim.claim_text)
+                if research.succeeded:
+                    first_marker = len(chunks) + len(live_sources) + 1
+                    live_sources.extend(research.sources)
+                    found_markers = list(
+                        range(first_marker, first_marker + len(research.sources))
+                    )
+                    found_verification = await verify_claim(
+                        claim.claim_text,
+                        [source_excerpt(m) for m in found_markers],
+                        bias_category_id=bias_category_id,
+                    )
+                    evidence = build_scored_evidence(
+                        found_markers, chunks, found_verification.evidence, live_sources
+                    )
+                    claim_score, entailment_label = compute_claim_score(evidence)
+                    markers = found_markers
+                else:
+                    # Say what was tried. "Unsupported" after three rounds of
+                    # searching is a stronger statement than "unsupported"
+                    # because nobody looked, and the reader deserves to know
+                    # which one they're being told.
+                    research_notes.extend(research.trail)
+
             scored_claims.append(
                 ScoredClaim(
                     claim_index=claim.claim_index,
@@ -541,15 +656,28 @@ async def send_message(
             all_markers = sorted({e.citation_marker for c in scored_claims for e in c.evidence})
             marker_to_citation_id: dict[int, uuid.UUID] = {}
             for marker in all_markers:
-                rc = chunks[marker - 1]
-                citation = Citation(
-                    message_id=assistant_message.id,
-                    document_id=rc.document.id,
-                    chunk_id=rc.chunk.id,
-                    source_type="document",
-                    marker=marker,
-                    relevance_score=rc.score,
-                )
+                if marker > len(chunks):
+                    source = live_sources[marker - len(chunks) - 1]
+                    citation = Citation(
+                        message_id=assistant_message.id,
+                        source_type="web",
+                        marker=marker,
+                        url=source.url,
+                        title=source.title,
+                        relevance_score=source.credibility_score,
+                        credibility_score=source.credibility_score,
+                        credibility_note=source.credibility_note,
+                    )
+                else:
+                    rc = chunks[marker - 1]
+                    citation = Citation(
+                        message_id=assistant_message.id,
+                        document_id=rc.document.id,
+                        chunk_id=rc.chunk.id,
+                        source_type="document",
+                        marker=marker,
+                        relevance_score=rc.score,
+                    )
                 gen_db.add(citation)
                 await gen_db.flush()
                 marker_to_citation_id[marker] = citation.id
@@ -617,6 +745,10 @@ async def send_message(
                         support_score=e.support_score,
                         relevance_score=e.relevance_score,
                         entailment_label=e.entailment_label,
+                        source_type=e.source_type,
+                        url=e.url,
+                        credibility_score=e.credibility_score,
+                        credibility_note=e.credibility_note,
                     )
                     for e in c.evidence
                 ],

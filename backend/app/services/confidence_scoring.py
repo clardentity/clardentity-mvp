@@ -29,12 +29,19 @@ class ScoringWeights:
 @dataclass
 class ScoredEvidence:
     citation_marker: int
-    document_id: uuid.UUID
+    # None for a web source: there is no uploaded document behind it. The
+    # filename field carries the page title in that case, so the display path
+    # needs no branch, and `url` is what tells the two apart.
+    document_id: uuid.UUID | None
     document_filename: str
     excerpt: str
     support_score: float
     relevance_score: float
     entailment_label: str
+    source_type: str = "document"
+    url: str | None = None
+    credibility_score: float | None = None
+    credibility_note: str | None = None
 
 
 @dataclass
@@ -57,16 +64,47 @@ class MessageScore:
 
 
 def build_scored_evidence(
-    markers: list[int], chunks: list[RetrievedChunk], verifications: list[EvidenceVerification]
+    markers: list[int],
+    chunks: list[RetrievedChunk],
+    verifications: list[EvidenceVerification],
+    web_sources: list | None = None,
 ) -> list[ScoredEvidence]:
-    """`markers` are the 1-indexed CONTEXT positions a claim cited, `chunks`
-    is the full retrieved-chunk list they index into, `verifications` are
-    the Verification Agent's per-evidence results in the same order.
+    """`markers` are the 1-indexed CONTEXT positions a claim cited. Markers
+    1..len(chunks) index into `chunks`; anything above that continues into
+    `web_sources`, matching how build_context_block numbered them.
+
+    `verifications` are the Verification Agent's per-evidence results in the
+    same order as `markers`.
     """
+    web_sources = web_sources or []
     result = []
     for marker, verification in zip(markers, verifications):
-        if not (0 < marker <= len(chunks)):
+        if not (0 < marker <= len(chunks) + len(web_sources)):
             continue
+
+        if marker > len(chunks):
+            source = web_sources[marker - len(chunks) - 1]
+            result.append(
+                ScoredEvidence(
+                    citation_marker=marker,
+                    document_id=None,
+                    document_filename=source.title,
+                    excerpt=source.excerpt[:300],
+                    support_score=verification.support_score,
+                    # A web source has no embedding-similarity score to report,
+                    # so its relevance is the supervisor's credibility judgement
+                    # - the number that actually governs whether it should have
+                    # been cited at all.
+                    relevance_score=source.credibility_score or 0.0,
+                    entailment_label=verification.entailment_label,
+                    source_type="web",
+                    url=source.url,
+                    credibility_score=source.credibility_score,
+                    credibility_note=source.credibility_note,
+                )
+            )
+            continue
+
         rc = chunks[marker - 1]
         result.append(
             ScoredEvidence(

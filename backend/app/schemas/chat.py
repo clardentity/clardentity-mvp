@@ -51,12 +51,20 @@ class MessageCreate(BaseModel):
 
 class EvidenceOut(BaseModel):
     citation_marker: int
-    document_id: uuid.UUID
+    # Null for a web source. `document_filename` then carries the page title,
+    # so a caller that only wants a label needs no branch, and `url` is the
+    # field that distinguishes the two.
+    document_id: uuid.UUID | None = None
     document_filename: str
     excerpt: str
     support_score: float | None
     relevance_score: float | None
     entailment_label: str | None
+    source_type: str = "document"
+    url: str | None = None
+    #: The supervisor's 0-1 judgement of the source, and one line saying why.
+    credibility_score: float | None = None
+    credibility_note: str | None = None
 
 
 class ClaimOut(BaseModel):

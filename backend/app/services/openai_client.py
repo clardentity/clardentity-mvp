@@ -183,6 +183,25 @@ async def generate_text(
     return response.output_text
 
 
+async def generate_with_web_search(
+    *,
+    instructions: str,
+    input_text: str,
+    model: str | None = None,
+) -> str:
+    """A generation that can search the web before answering.
+
+    The Responses API runs the tool itself and hands back the finished text,
+    so from here it is the same shape as `generate_text` - the difference is
+    that the model can go and look something up first. No temperature: search
+    grounding wants the least creative reading of what it found.
+    """
+    kwargs = _generation_kwargs(model, None, instructions, input_text)
+    kwargs["tools"] = [{"type": "web_search"}]
+    response = await _resilient_call(_create_response, **kwargs, stream=False)
+    return response.output_text
+
+
 _EMBEDDING_BATCH_SIZE = 100
 
 

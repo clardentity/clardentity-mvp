@@ -51,6 +51,11 @@ class Message(Base):
     distortion_penalty_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     avatar_expression: Mapped[str | None] = mapped_column(String, nullable=True)
     avatar_gesture: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The same question answered with the bias guardrails off - the version
+    # that argues its side and leaves out what would weaken it. Generated on
+    # request, not per message: it costs a full second generation, and most
+    # answers are never compared. Cached here once produced.
+    counterfactual_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -141,6 +146,14 @@ class Citation(Base):
     source_type: Mapped[str] = mapped_column(String, nullable=False, default="document")
     marker: Mapped[int | None] = mapped_column(Integer, nullable=True)
     relevance_score: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+
+    # Set only when source_type == 'web'. A web result has no document and no
+    # chunk to point at, so the source is the link itself, and the supervisor's
+    # judgement of it travels with the citation rather than being recomputed.
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    credibility_score: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    credibility_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     message: Mapped["Message"] = relationship(back_populates="citations")
 

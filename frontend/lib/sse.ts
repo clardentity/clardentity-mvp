@@ -3,12 +3,18 @@ import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/auth"
 
 export type Evidence = {
   citation_marker: number;
-  document_id: string;
+  /** Null for a web source; `document_filename` then holds the page title. */
+  document_id: string | null;
   document_filename: string;
   excerpt: string;
   support_score: number | null;
   relevance_score: number | null;
   entailment_label: string | null;
+  source_type: "document" | "web";
+  url: string | null;
+  /** The supervisor's 0-1 verdict on the source, and one line of reasoning. */
+  credibility_score: number | null;
+  credibility_note: string | null;
 };
 
 export type Claim = {

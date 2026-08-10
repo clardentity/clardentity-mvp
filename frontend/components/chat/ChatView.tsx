@@ -10,7 +10,9 @@ import {
   type ReasoningLens,
 } from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
+import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
+import { cx } from "@/components/ui/primitives";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -49,6 +51,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   // The composer's text lives here so editing a sent message can put it back.
   const [draft, setDraft] = useState("");
+  // Carousel view is opt-out, and only offered once a second mode exists.
+  const [carousel, setCarousel] = useState(true);
+  const [activeTrack, setActiveTrack] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -299,31 +304,71 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       ? (avatarCue?.expression ?? "neutral")
       : "neutral";
 
+  // A conversation is only "multi-mode" once a second mode has actually been
+  // used. Until then this is an ordinary chat and any splitting would be
+  // ceremony around a single column.
+  const tracks = groupByMode(messages);
+  const multiMode = tracks.length > 1;
+  const showCarousel = multiMode && carousel && !streaming;
+
+  const messageListFor = (subset: ChatMessage[], streamingHere: StreamingMessage | null) => (
+    <MessageList
+      conversationId={conversationId}
+      messages={subset}
+      streaming={streamingHere}
+      playingMessageId={playingMessageId}
+      onPlayAudio={handlePlayAudio}
+      validatingId={validatingId}
+      onEditMessage={handleEditMessage}
+      onRegenerate={handleRegenerate}
+      busy={sending}
+      emptyStateAvatar={
+        <AvatarPanel
+          state={avatarState}
+          gesture={avatarGesture}
+          expression={avatarExpression}
+          className="h-36 w-36"
+        />
+      }
+    />
+  );
+
   return (
     // No page header. The topbar breadcrumb already says which conversation
     // this is, so a second title bar spent ~90px of a bounded-height column on
     // repeating it - and that height comes straight out of the message area.
     // The controls it held now live in the composer, which was already a row.
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col px-4 sm:px-6">
-        <MessageList
-          messages={messages}
-          streaming={streaming}
-          playingMessageId={playingMessageId}
-          onPlayAudio={handlePlayAudio}
-          validatingId={validatingId}
-          onEditMessage={handleEditMessage}
-          onRegenerate={handleRegenerate}
-          busy={sending}
-          emptyStateAvatar={
-            <AvatarPanel
-              state={avatarState}
-              gesture={avatarGesture}
-              expression={avatarExpression}
-              className="h-36 w-36"
-            />
-          }
-        />
+      <div
+        className={cx(
+          "mx-auto flex w-full min-h-0 flex-1 flex-col px-4 sm:px-6",
+          // The carousel needs the width its neighbours are peeking into; a
+          // 3xl column would clip them off the sides of the screen.
+          showCarousel ? "max-w-6xl" : "max-w-3xl",
+        )}
+      >
+        {multiMode && (
+          <div className="flex shrink-0 items-center justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => setCarousel((v) => !v)}
+              className="rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+            >
+              {carousel ? "Read as one thread" : "Split by mode"}
+            </button>
+          </div>
+        )}
+
+        {showCarousel ? (
+          <ModeCarousel
+            tracks={tracks}
+            activeIndex={Math.min(activeTrack, tracks.length - 1)}
+            onActiveIndexChange={setActiveTrack}
+            renderMessages={(subset) => messageListFor(subset, null)}
+          />
+        ) : (
+          messageListFor(messages, streaming)
+        )}
 
         {error && (
           <div className="mb-3 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">

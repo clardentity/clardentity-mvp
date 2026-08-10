@@ -5,6 +5,7 @@ import type { Claim, ChatMessage } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
+import { DevilsDraft } from "@/components/chat/DevilsDraft";
 import { cx, Spinner } from "@/components/ui/primitives";
 
 export type StreamingMessage = {
@@ -13,6 +14,7 @@ export type StreamingMessage = {
 };
 
 export function MessageList({
+  conversationId,
   messages,
   streaming,
   playingMessageId,
@@ -23,6 +25,7 @@ export function MessageList({
   onRegenerate,
   busy,
 }: {
+  conversationId: string;
   messages: ChatMessage[];
   streaming: StreamingMessage | null;
   playingMessageId?: string | null;
@@ -80,6 +83,7 @@ export function MessageList({
             m.role === "assistant" && onRegenerate ? () => onRegenerate(m.id) : undefined
           }
           busy={busy}
+          conversationId={conversationId}
         />
       ))}
       {streaming && (
@@ -135,6 +139,7 @@ function MessageBubble({
   onEdit,
   onRegenerate,
   busy,
+  conversationId,
 }: {
   id: string;
   role: string;
@@ -151,6 +156,7 @@ function MessageBubble({
   onEdit?: () => void;
   onRegenerate?: () => void;
   busy?: boolean;
+  conversationId?: string;
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
@@ -255,6 +261,14 @@ function MessageBubble({
             panelId={panelId}
             expanded={evidenceOpen}
             onToggle={() => setEvidenceOpen((v) => !v)}
+          />
+        )}
+
+        {!isUser && !isStreaming && conversationId && content && (
+          <DevilsDraft
+            conversationId={conversationId}
+            messageId={id}
+            answer={content}
           />
         )}
 

@@ -10,6 +10,32 @@ const ENTAILMENT_LABELS: Record<string, string> = {
   unsupported: "Unsupported",
 };
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-2.5 w-2.5 shrink-0"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6M10 14 21 3" />
+    </svg>
+  );
+}
+
 const ENTAILMENT_TONES: Record<string, string> = {
   full: "text-band-high",
   partial: "text-band-mid",
@@ -150,25 +176,56 @@ export function EvidencePanel({
                 </p>
               ) : (
                 <ul className="mt-2 space-y-1.5">
-                  {claim.evidence.map((e) => (
-                    <li
-                      key={e.citation_marker}
-                      className="rounded-md border border-hairline bg-surface p-2"
-                    >
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="text-[11px] font-medium text-ink">
-                          [{e.citation_marker}] {e.document_filename}
-                        </span>
-                        <span className="tabular-nums text-[11px] text-ink-muted">
-                          support {e.support_score?.toFixed(2) ?? "?"} · relevance{" "}
-                          {e.relevance_score?.toFixed(2) ?? "?"}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
-                        {e.excerpt}
-                      </p>
-                    </li>
-                  ))}
+                  {claim.evidence.map((e) => {
+                    const isWeb = e.source_type === "web" && e.url;
+                    return (
+                      <li
+                        key={e.citation_marker}
+                        className="rounded-md border border-hairline bg-surface p-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          {isWeb ? (
+                            // A link, because a web citation you can't open is
+                            // not a citation - it's a claim about a citation.
+                            <a
+                              href={e.url!}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-brand hover:underline"
+                            >
+                              [{e.citation_marker}] {e.document_filename}
+                              <ExternalLinkIcon />
+                            </a>
+                          ) : (
+                            <span className="text-[11px] font-medium text-ink">
+                              [{e.citation_marker}] {e.document_filename}
+                            </span>
+                          )}
+                          <span className="tabular-nums text-[11px] text-ink-muted">
+                            support {e.support_score?.toFixed(2) ?? "?"}
+                            {isWeb ? " · credibility " : " · relevance "}
+                            {(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ??
+                              "?"}
+                          </span>
+                        </div>
+                        {isWeb && (
+                          <p className="mt-0.5 truncate text-[10px] text-ink-muted">
+                            {hostOf(e.url!)}
+                          </p>
+                        )}
+                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
+                          {e.excerpt}
+                        </p>
+                        {e.credibility_note && (
+                          // Why the supervisor scored it that way. A number on
+                          // its own is just another thing to take on trust.
+                          <p className="mt-1 text-[10px] italic leading-relaxed text-ink-muted">
+                            {e.credibility_note}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </article>

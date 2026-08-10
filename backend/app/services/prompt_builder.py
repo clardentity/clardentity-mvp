@@ -91,13 +91,28 @@ def build_system_instructions(
     return "\n\n".join(parts)
 
 
-def build_context_block(chunks: list[RetrievedChunk]) -> str:
-    if not chunks:
-        return "(no relevant workspace documents found)"
-    return "\n\n".join(
+def build_context_block(chunks: list[RetrievedChunk], web_sources: list | None = None) -> str:
+    """Numbered context the model cites with [n] markers.
+
+    Documents come first and keep markers 1..N so their numbering is unaffected
+    by whether a web search happened. Web sources continue the sequence, and
+    are labelled with publisher and date because those are what a reader needs
+    to judge a link - a filename means "you uploaded this", a URL means
+    "someone on the internet wrote this", and the two do not deserve the same
+    trust by default.
+    """
+    parts = [
         f"[{i}] (from {rc.document.filename}): {rc.chunk.content}"
         for i, rc in enumerate(chunks, start=1)
-    )
+    ]
+    for i, source in enumerate(web_sources or [], start=len(chunks) + 1):
+        origin = source.publisher or source.url
+        dated = f", {source.date}" if source.date else ""
+        parts.append(f"[{i}] (web - {origin}{dated}): {source.excerpt}")
+
+    if not parts:
+        return "(no relevant workspace documents found)"
+    return "\n\n".join(parts)
 
 
 def build_conversation_input(

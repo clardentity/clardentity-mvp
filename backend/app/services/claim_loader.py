@@ -24,10 +24,13 @@ async def load_claims_for_messages(
         return {}
 
     claim_ids = [c.id for c in claims]
+    # Outer join on Document: a web citation has no document row, and an inner
+    # join silently dropped its evidence on reload - the links were there in
+    # the live stream and gone after a refresh.
     evidence_rows = await db.execute(
         select(ClaimEvidence, Citation, Document.filename)
         .join(Citation, Citation.id == ClaimEvidence.citation_id)
-        .join(Document, Document.id == Citation.document_id)
+        .outerjoin(Document, Document.id == Citation.document_id)
         .where(ClaimEvidence.claim_id.in_(claim_ids))
     )
 
@@ -37,11 +40,15 @@ async def load_claims_for_messages(
             EvidenceOut(
                 citation_marker=citation.marker,
                 document_id=citation.document_id,
-                document_filename=filename,
+                document_filename=filename or citation.title or citation.url or "Source",
                 excerpt=evidence.source_excerpt or "",
                 support_score=evidence.support_score,
                 relevance_score=evidence.relevance_score,
                 entailment_label=evidence.entailment_label,
+                source_type=citation.source_type,
+                url=citation.url,
+                credibility_score=citation.credibility_score,
+                credibility_note=citation.credibility_note,
             )
         )
 
