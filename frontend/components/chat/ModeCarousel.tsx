@@ -22,6 +22,11 @@ import { cx } from "@/components/ui/primitives";
 
 type Track = { mode: CognitiveMode; messages: ChatMessage[] };
 
+// Movement before a press counts as a drag rather than a selection or a click.
+const DRAG_START_PX = 8;
+// Movement before releasing actually changes track.
+const DRAG_COMMIT_PX = 70;
+
 export function groupByMode(messages: ChatMessage[]): Track[] {
   const order: CognitiveMode[] = [];
   const byMode = new Map<CognitiveMode, ChatMessage[]>();
@@ -41,6 +46,51 @@ export function groupByMode(messages: ChatMessage[]): Track[] {
   return order.map((mode) => ({ mode, messages: byMode.get(mode)! }));
 }
 
+function StepButton({
+  direction,
+  disabled,
+  onClick,
+}: {
+  direction: "previous" | "next";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const label = direction === "previous" ? "Previous mode" : "Next mode";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={cx(
+        "rounded-full p-1.5 text-ink-muted transition-colors",
+        "hover:bg-surface-hover hover:text-ink",
+        // Kept in the layout when unavailable rather than removed, so the
+        // pills don't shift sideways as you reach the ends.
+        "disabled:pointer-events-none disabled:opacity-25",
+      )}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="h-3.5 w-3.5"
+      >
+        {direction === "previous" ? (
+          <path d="M15 18l-6-6 6-6" />
+        ) : (
+          <path d="M9 18l6-6-6-6" />
+        )}
+      </svg>
+    </button>
+  );
+}
+
 export function ModeCarousel({
   tracks,
   activeIndex,
@@ -54,10 +104,15 @@ export function ModeCarousel({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragOffset, setDragOffset] = useState(0);
-  // Whether a drag is in progress is *rendered* (it suppresses the transition),
-  // so it has to be state. The starting x is not, so it stays a ref.
+  // Whether a drag is in progress is *rendered* (it suppresses the transition
+  // and the text selection), so it has to be state.
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef<number | null>(null);
+  // The offset is mirrored into a ref because pointerup has to *decide* on it.
+  // Reading the state there means reading whatever the last render captured,
+  // and a fast flick can deliver move and up inside one frame - in which case
+  // the handler sees 0 and the swipe silently does nothing.
+  const dragOffsetRef = useRef(0);
 
   const clamp = (index: number) => Math.max(0, Math.min(tracks.length - 1, index));
 
@@ -88,31 +143,58 @@ export function ModeCarousel({
     // message shouldn't swipe the track out from under the selection.
     if ((event.target as HTMLElement).closest("button, a, textarea, input")) return;
     dragStart.current = event.clientX;
-    setDragging(true);
+    dragOffsetRef.current = 0;
+    // Not `dragging` yet. A press that never moves is a click, and a press
+    // that moves a few pixels is usually the start of a text selection - only
+    // past the threshold below does this become a drag.
+    setDragOffset(0);
   }
 
   function onPointerMove(event: React.PointerEvent) {
     if (dragStart.current === null) return;
-    setDragOffset(event.clientX - dragStart.current);
+    const travelled = event.clientX - dragStart.current;
+
+    if (!dragging) {
+      if (Math.abs(travelled) < DRAG_START_PX) return;
+      setDragging(true);
+      // Whatever the browser started selecting on the way here is collateral
+      // from a gesture the user meant as a swipe. Dropping it is the whole
+      // fix for "dragging highlights text".
+      window.getSelection()?.removeAllRanges();
+    }
+
+    // Suppresses the browser's own drag-select for the rest of the gesture.
+    event.preventDefault();
+    dragOffsetRef.current = travelled;
+    setDragOffset(travelled);
   }
 
   function onPointerUp() {
     if (dragStart.current === null) return;
-    const travelled = dragOffset;
+    const travelled = dragOffsetRef.current;
     dragStart.current = null;
+    dragOffsetRef.current = 0;
     setDragging(false);
     setDragOffset(0);
-    if (Math.abs(travelled) > 70) {
+    if (Math.abs(travelled) > DRAG_COMMIT_PX) {
       onActiveIndexChange(clamp(activeIndex + (travelled < 0 ? 1 : -1)));
     }
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" ref={containerRef}>
+      {/* Arrows either side of the pills. The swipe is the nice way to do
+          this and the pills are the direct way, but neither helps someone on a
+          mouse who wants the next track without aiming at a specific one. */}
       <nav
         aria-label="Modes in this conversation"
         className="flex shrink-0 items-center justify-center gap-1 py-2"
       >
+        <StepButton
+          direction="previous"
+          disabled={activeIndex === 0}
+          onClick={() => onActiveIndexChange(clamp(activeIndex - 1))}
+        />
         {tracks.map((track, index) => (
           <button
             key={track.mode}
@@ -130,10 +212,20 @@ export function ModeCarousel({
             <span className="ml-1.5 opacity-70">{track.messages.length}</span>
           </button>
         ))}
+        <StepButton
+          direction="next"
+          disabled={activeIndex === tracks.length - 1}
+          onClick={() => onActiveIndexChange(clamp(activeIndex + 1))}
+        />
       </nav>
 
       <div
-        className="relative min-h-0 flex-1 overflow-hidden"
+        className={cx(
+          "relative min-h-0 flex-1 overflow-hidden",
+          // Only while a drag is live: killing selection permanently would
+          // make it impossible to copy anything out of a message.
+          dragging && "select-none",
+        )}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -45,8 +45,8 @@ export function HistorySearch({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="space-y-3">
       <CardHeader
-        title="Search history"
-        description="Full-text search across every conversation in this workspace."
+        title="Chats"
+        description="Search everything said across every conversation in this workspace."
       />
 
       <form onSubmit={handleSearch} className="flex gap-2">

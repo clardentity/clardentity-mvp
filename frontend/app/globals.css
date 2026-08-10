@@ -3,24 +3,30 @@
 /* ---------------------------------------------------------------------------
    Design tokens
 
-   Enterprise-console palette: a near-white canvas with white surfaces raised
-   onto it, hairline borders instead of shadows for structure, and colour used
-   sparingly so the confidence bands stay the loudest thing on screen.
+   Two true-neutral themes: pure white and pure black, with structure carried
+   by hairline borders rather than by tinting the backgrounds. The greys are
+   deliberately neutral (equal R/G/B) - the previous palette leaned blue,
+   which reads as "dark blue theme" rather than dark, and stops true black
+   from ever looking black next to it.
+
    Light is the primary theme; every token has a dark counterpart below.
 --------------------------------------------------------------------------- */
 :root {
-  --canvas: #f6f7f9;
+  /* True white. Cards sit on it at the same colour and are separated by the
+     hairline alone; only the chrome (sidebar, sunken wells) is tinted, and
+     barely. */
+  --canvas: #ffffff;
   --surface: #ffffff;
-  --surface-muted: #f9fafb;
-  --surface-hover: #f2f4f7;
-  --surface-sunken: #eef1f4;
+  --surface-muted: #fafafa;
+  --surface-hover: #f4f4f4;
+  --surface-sunken: #f0f0f0;
 
-  --border: #e4e7ec;
-  --border-strong: #d0d5dd;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
 
-  --text: #101828;
-  --text-secondary: #475467;
-  --text-muted: #667085;
+  --text: #0a0a0a;
+  --text-secondary: #525252;
+  --text-muted: #737373;
   --text-inverse: #ffffff;
 
   /* Brand violet, carried over from the original palette and given a ramp. */
@@ -29,7 +35,11 @@
   --brand-soft: #eeecfb;
   --brand-border: #cfc9f2;
 
-  /* Confidence bands (SRS §9.3) - the one place saturated colour is welcome. */
+  /* Confidence bands (SRS §9.3) - the one place saturated colour is welcome.
+     Four claim-support bands need four steps, so there is a lime between the
+     green and the amber: "Fully supported" and "Moderately supported" sharing
+     a colour makes the distinction the label's job alone. */
+  --band-moderate: #4d7c0f;
   --band-high: #067647;
   --band-high-bg: #ecfdf3;
   --band-high-border: #abefc6;
@@ -66,38 +76,46 @@
    stamps data-theme before first paint (from localStorage, falling back to the
    OS preference), so there is no flash and no duplicated token block. */
 :root[data-theme="dark"] {
-  --canvas: #0b0d12;
-  --surface: #14171f;
-  --surface-muted: #171b24;
-  --surface-hover: #1d222c;
-  --surface-sunken: #10131a;
+  /* True black behind everything, with surfaces raised in small neutral
+     steps. #000 for the canvas rather than a near-black: on an OLED display
+     the difference is the pixels being off, and next to a lit surface it is
+     what makes the surface read as raised. */
+  --canvas: #000000;
+  --surface: #0d0d0d;
+  --surface-muted: #0a0a0a;
+  --surface-hover: #1c1c1c;
+  --surface-sunken: #050505;
 
-  --border: #252a35;
-  --border-strong: #333947;
+  --border: #262626;
+  --border-strong: #3a3a3a;
 
-  --text: #f0f2f6;
-  --text-secondary: #a7b0c0;
-  --text-muted: #8b95a7;
-  --text-inverse: #0b0d12;
+  --text: #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted: #808080;
+  --text-inverse: #000000;
 
   --brand: #8b7bec;
   --brand-dark: #a394f5;
-  --brand-soft: #1e1b3a;
-  --brand-border: #38316b;
+  /* Tinted backgrounds are darker here than they were against the old
+     blue-grey canvas: on true black, the same values read as raised panels
+     rather than as a tint. */
+  --brand-soft: #17142b;
+  --brand-border: #322b5e;
 
+  --band-moderate: #a3e635;
   --band-high: #6ce9a6;
-  --band-high-bg: #0b2a1c;
-  --band-high-border: #1c4a33;
+  --band-high-bg: #07200f;
+  --band-high-border: #17402a;
   --band-mid: #fec84b;
-  --band-mid-bg: #2b1f08;
-  --band-mid-border: #55400f;
+  --band-mid-bg: #211705;
+  --band-mid-border: #4a370c;
   --band-low: #fda29b;
-  --band-low-bg: #2d1211;
-  --band-low-border: #5a2422;
+  --band-low-bg: #240d0c;
+  --band-low-border: #4f1e1c;
 
   --caution: #fdba74;
-  --caution-bg: #2a1a0d;
-  --caution-border: #52341a;
+  --caution-bg: #21140a;
+  --caution-border: #482d16;
 
   --focus-ring: #7c6ce0;
 
@@ -109,7 +127,9 @@
   --avatar-body-lit: #a99cf5;
   --avatar-face: #241f43;
   --avatar-blush: #e58aa8;
-  --avatar-shadow: rgb(0 0 0 / 0.45);
+  /* A black shadow is invisible on a black canvas; the companion needs a
+     light contact shadow here to sit on anything at all. */
+  --avatar-shadow: rgb(255 255 255 / 0.10);
 }
 
 @theme inline {
@@ -132,6 +152,7 @@
   --color-brand-soft: var(--brand-soft);
   --color-brand-border: var(--brand-border);
 
+  --color-band-moderate: var(--band-moderate);
   --color-band-high: var(--band-high);
   --color-band-high-bg: var(--band-high-bg);
   --color-band-high-border: var(--band-high-border);

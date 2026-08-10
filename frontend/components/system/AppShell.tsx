@@ -251,7 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // /workspace/<id> carries the workspace in the URL; /chat/<id> doesn't, so
   // it's resolved from the conversation. Without this the sidebar reads
   // "Select workspace" while you are inside one of its conversations, and the
-  // Documents/Search links point at the workspace *list* - which makes it easy
+  // Artifacts/Chats links point at the workspace *list* - which makes it easy
   // to upload a document into one workspace and then ask questions in another,
   // and conclude that grounding is broken.
   const workspaceMatch = pathname.match(/^\/workspace\/([^/]+)/);
@@ -329,7 +329,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         active={pathname.endsWith("/documents")}
         onNavigate={close}
       >
-        Documents
+        Artifacts
       </NavItem>
       <NavItem
         href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}/search` : "/workspace"}
@@ -337,7 +337,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         active={pathname.endsWith("/search")}
         onNavigate={close}
       >
-        Search history
+        Chats
       </NavItem>
 
       <p className="px-2.5 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
@@ -554,7 +554,7 @@ function Breadcrumbs({
         // Keep the workspace clickable when we're a level deeper.
         crumbs.push({ label: name, href: `/workspace/${id}` });
         crumbs.push({
-          label: sub === "documents" ? "Documents" : sub === "search" ? "Search history" : sub,
+          label: sub === "documents" ? "Artifacts" : sub === "search" ? "Chats" : sub,
         });
       } else {
         crumbs.push({ label: name });

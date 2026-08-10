@@ -45,7 +45,7 @@ function ExternalLinkIcon() {
 
 const ENTAILMENT_TONES: Record<string, string> = {
   full: "text-band-high",
-  moderate: "text-band-high",
+  moderate: "text-band-moderate",
   partial: "text-band-mid",
   none: "text-band-low",
   unsupported: "text-band-low",

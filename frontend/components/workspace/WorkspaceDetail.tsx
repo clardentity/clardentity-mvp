@@ -97,7 +97,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
         title={workspace.name}
-        description="Documents uploaded here ground every answer in this workspace."
+        description="Artifacts uploaded here ground every answer in this workspace."
         actions={
           <Button
             variant="primary"
@@ -130,15 +130,15 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           />
         ))}
         <BentoCard
-          name="Documents"
+          name="Artifacts"
           description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."
           Icon={DocIcon}
           href={`/workspace/${workspaceId}/documents`}
-          cta="Manage documents"
+          cta="Manage artifacts"
         />
         <BentoCard
-          name="Search history"
-          description="Full-text search across every conversation in this workspace."
+          name="Chats"
+          description="Search everything said across every conversation in this workspace."
           Icon={SearchIcon}
           href={`/workspace/${workspaceId}/search`}
           cta="Search"

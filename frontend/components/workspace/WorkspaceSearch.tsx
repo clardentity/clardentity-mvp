@@ -47,8 +47,8 @@ export function WorkspaceSearch({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
       <PageHeader
-        title="Search history"
-        description={`Full-text search across every conversation in ${workspace.name}.`}
+        title="Chats"
+        description={`Search everything said across every conversation in ${workspace.name}.`}
       />
       <Card>
         <HistorySearch workspaceId={workspaceId} />
