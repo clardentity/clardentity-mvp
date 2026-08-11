@@ -3,15 +3,14 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import { AspectList, type Aspect } from "@/components/profile/AspectList";
 import {
   Badge,
   Button,
   Card,
   CardHeader,
-  EmptyState,
   PageHeader,
   Spinner,
-  Textarea,
 } from "@/components/ui/primitives";
 
 type ProfileRole = {
@@ -23,6 +22,7 @@ type ProfileRole = {
 
 type Profile = {
   personality_md: string | null;
+  aspects: Aspect[];
   roles: ProfileRole[];
   user_edited: boolean;
   updated_at: string | null;
@@ -30,9 +30,7 @@ type Profile = {
 
 export function ProfileView() {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState<"save" | "rebuild" | "clear" | null>(null);
+  const [busy, setBusy] = useState<"rebuild" | "clear" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -47,7 +45,6 @@ export function ProfileView() {
       .then((p) => {
         if (cancelled) return;
         setProfile(p);
-        setDraft(p.personality_md ?? "");
         setError(null);
       })
       .catch((err) => {
@@ -58,21 +55,29 @@ export function ProfileView() {
     };
   }, [reloadKey]);
 
-  async function handleSave() {
-    setBusy("save");
+
+  async function handleAddAspect(label: string, value: string) {
     setError(null);
     try {
-      const p = await apiFetch<Profile>("/profile", {
-        method: "PUT",
-        body: { personality_md: draft },
-      });
-      setProfile(p);
-      setEditing(false);
-      setNotice("Saved. This won't be overwritten automatically any more.");
+      setProfile(
+        await apiFetch<Profile>("/profile/aspects", {
+          method: "POST",
+          body: { label, value },
+        }),
+      );
     } catch (err) {
       setError(authErrorMessage(err));
-    } finally {
-      setBusy(null);
+    }
+  }
+
+  async function handleRemoveAspect(id: string) {
+    setError(null);
+    try {
+      setProfile(
+        await apiFetch<Profile>(`/profile/aspects/${id}`, { method: "DELETE" }),
+      );
+    } catch (err) {
+      setError(authErrorMessage(err));
     }
   }
 
@@ -97,9 +102,13 @@ export function ProfileView() {
     setError(null);
     try {
       await apiFetch("/profile", { method: "DELETE" });
-      setProfile({ personality_md: null, roles: [], user_edited: false, updated_at: null });
-      setDraft("");
-      setEditing(false);
+      setProfile({
+        personality_md: null,
+        aspects: [],
+        roles: [],
+        user_edited: false,
+        updated_at: null,
+      });
       setNotice("Profile deleted. It will start building again as you use the app.");
     } catch (err) {
       setError(authErrorMessage(err));
@@ -116,7 +125,12 @@ export function ProfileView() {
     );
   }
 
-  const hasProfile = !!profile?.personality_md;
+  // A profile now exists as soon as there is anything in it, inferred or
+  // written by hand. Gating on personality_md hid the add form from exactly
+  // the people who had nothing yet and most wanted to write something.
+  const hasProfile = Boolean(
+    profile && (profile.aspects.length > 0 || profile.roles.length > 0),
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -151,58 +165,19 @@ export function ProfileView() {
         </div>
       )}
 
-      {!hasProfile ? (
-        <EmptyState
-          title="Nothing here yet"
-          description="Ask a few questions and this fills in on its own. Nothing is inferred from an onboarding form - it comes from how you actually use the app."
-        />
-      ) : (
+      {(
         <div className="space-y-5">
           <Card>
             <CardHeader
-              title="personality.md"
-              description={
-                profile?.user_edited
-                  ? "You've edited this, so it won't be regenerated automatically."
-                  : "Generated from your history and kept up to date as you use the app."
-              }
-              action={
-                !editing && (
-                  <Button size="sm" onClick={() => setEditing(true)}>
-                    Edit
-                  </Button>
-                )
-              }
+              title="What it knows about you"
+              description="Each line is a separate fact you can remove on its own. Anything you add yourself survives the next rebuild."
             />
-
-            {editing ? (
-              <div className="space-y-3">
-                <Textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  rows={16}
-                  className="font-mono text-xs"
-                  aria-label="Profile markdown"
-                />
-                <div className="flex items-center gap-2">
-                  <Button variant="primary" onClick={handleSave} disabled={busy !== null}>
-                    {busy === "save" ? "Saving…" : "Save"}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setDraft(profile?.personality_md ?? "");
-                      setEditing(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-ink-secondary">
-                {profile?.personality_md}
-              </pre>
-            )}
+            <AspectList
+              aspects={profile?.aspects ?? []}
+              busy={busy !== null}
+              onAdd={handleAddAspect}
+              onRemove={handleRemoveAspect}
+            />
           </Card>
 
           <Card>

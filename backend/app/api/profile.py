@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, status
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import User, UserProfile
 from app.schemas.profile import (
+    ProfileAspectIn,
+    ProfileAspectOut,
     ProfileOut,
     ProfileRoleOut,
     ProfileUpdate,
@@ -12,6 +16,7 @@ from app.schemas.profile import (
     RoleQualifierOut,
 )
 from app.services import taxonomy
+from app.services.output_cleanup import clean_output
 from app.services.profile_service import get_profile
 from app.workers.rebuild_profile import rebuild_profile_task
 
@@ -20,7 +25,7 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 
 def _serialize(profile: UserProfile | None) -> ProfileOut:
     if profile is None:
-        return ProfileOut(personality_md=None, roles=[], user_edited=False)
+        return ProfileOut(personality_md=None, aspects=[], roles=[], user_edited=False)
 
     roles = []
     for entry in profile.roles or []:
@@ -40,6 +45,16 @@ def _serialize(profile: UserProfile | None) -> ProfileOut:
 
     return ProfileOut(
         personality_md=profile.personality_md,
+        aspects=[
+            ProfileAspectOut(
+                id=str(a.get("id") or ""),
+                label=a.get("label") or "",
+                value=a.get("value") or "",
+                source=a.get("source") or "inferred",
+            )
+            for a in (profile.aspects or [])
+            if a.get("label") and a.get("value")
+        ],
         roles=roles,
         user_edited=profile.user_edited,
         updated_at=profile.updated_at,
@@ -104,6 +119,70 @@ async def update_profile(
         ]
 
     profile.user_edited = True
+    await db.commit()
+    await db.refresh(profile)
+    return _serialize(profile)
+
+
+_MAX_ASPECTS = 40
+
+
+@router.post("/aspects", response_model=ProfileOut, status_code=status.HTTP_201_CREATED)
+async def add_aspect(
+    payload: ProfileAspectIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProfileOut:
+    """Add one fact about yourself.
+
+    Marked `source: "user"`, which is what protects it from being replaced the
+    next time inference runs. Unlike the old whole-document edit, adding one
+    aspect does not freeze the rest of the profile.
+    """
+    label = clean_output(payload.label)[:40].strip()
+    value = clean_output(payload.value)[:400].strip()
+    if not label or not value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An aspect needs both a label and a value",
+        )
+
+    profile = await get_profile(db, current_user.id)
+    if profile is None:
+        profile = UserProfile(user_id=current_user.id)
+        db.add(profile)
+
+    aspects = list(profile.aspects or [])
+    if len(aspects) >= _MAX_ASPECTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A profile holds at most {_MAX_ASPECTS} aspects",
+        )
+    # Same label twice is a correction, not a second fact.
+    aspects = [a for a in aspects if a.get("label", "").lower() != label.lower()]
+    aspects.append(
+        {"id": str(uuid.uuid4()), "label": label, "value": value, "source": "user"}
+    )
+    profile.aspects = aspects
+
+    await db.commit()
+    await db.refresh(profile)
+    return _serialize(profile)
+
+
+@router.delete("/aspects/{aspect_id}", response_model=ProfileOut)
+async def remove_aspect(
+    aspect_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProfileOut:
+    """Drop one aspect. Deleting a wrong inferred fact no longer means
+    discarding the whole profile to get rid of it."""
+    profile = await get_profile(db, current_user.id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No profile yet")
+
+    profile.aspects = [a for a in (profile.aspects or []) if a.get("id") != aspect_id]
     await db.commit()
     await db.refresh(profile)
     return _serialize(profile)

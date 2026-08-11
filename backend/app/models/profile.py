@@ -22,9 +22,19 @@ class UserProfile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    # The generated profile document. Markdown so it stays legible and
-    # directly editable by the person it describes.
+    # The generated profile document. Kept because it is what inference
+    # produces and what the prompt reads, but no longer the editing surface -
+    # see `aspects`.
     personality_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The same picture as a list of separate, editable facts:
+    #   [{"id": "...", "label": "Work", "value": "...", "source": "inferred"}]
+    #
+    # A single Markdown blob was readable but not *correctable*: fixing one
+    # wrong sentence meant editing a document, and once edited by hand the
+    # whole thing froze against future inference. Aspects are individually
+    # removable and individually add-able, so a wrong one can be deleted
+    # without discarding the rest.
+    aspects: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # [{"role_id": "sibling", "qualifiers": {"gender": ["brother"]}, "evidence": "..."}]
     roles: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # Set when the user edits the profile by hand: inference then stops

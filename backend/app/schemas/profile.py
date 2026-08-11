@@ -26,8 +26,22 @@ class ProfileRoleOut(BaseModel):
     evidence: str = ""
 
 
+class ProfileAspectOut(BaseModel):
+    id: str
+    label: str
+    value: str
+    #: "inferred" or "user". Only inferred entries are replaced on a rebuild.
+    source: str = "inferred"
+
+
+class ProfileAspectIn(BaseModel):
+    label: str
+    value: str
+
+
 class ProfileOut(BaseModel):
     personality_md: str | None
+    aspects: list[ProfileAspectOut] = []
     roles: list[ProfileRoleOut] = []
     # True once the user has edited it: inference stops overwriting from then on.
     user_edited: bool = False

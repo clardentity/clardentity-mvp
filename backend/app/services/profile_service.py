@@ -1,3 +1,4 @@
+import uuid
 """Long-lived user profile: an evolving personality.md plus the 25-role
 classification behind it.
 
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Conversation, Document, Message, UserProfile, WorkspaceMember
 from app.services import taxonomy
 from app.services.openai_client import generate_structured
+from app.services.output_cleanup import clean_output
 
 # Enough of the user's own words to characterise them without sending an
 # unbounded history to the model on every rebuild.
@@ -38,6 +40,7 @@ REBUILD_EVERY_N_MESSAGES = 8
 @dataclass
 class InferredProfile:
     personality_md: str
+    aspects: list[dict]
     roles: list[dict]
 
 
@@ -118,6 +121,25 @@ _SCHEMA = {
             "type": "string",
             "description": "The profile itself, as plain prose.",
         },
+        "aspects": {
+            "type": "array",
+            "description": (
+                "The same picture broken into separate, individually correctable "
+                "facts. One short label and one short value each."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "description": "Two or three words, e.g. 'Work', 'How they read', 'Current focus'.",
+                    },
+                    "value": {"type": "string", "description": "One sentence."},
+                },
+                "required": ["label", "value"],
+                "additionalProperties": False,
+            },
+        },
         "roles": {
             "type": "array",
             "description": "Roles from the 25-role taxonomy that this person occupies.",
@@ -134,7 +156,7 @@ _SCHEMA = {
             },
         },
     },
-    "required": ["personality_md", "roles"],
+    "required": ["personality_md", "aspects", "roles"],
     "additionalProperties": False,
 }
 
@@ -179,7 +201,24 @@ async def infer_profile(evidence: str) -> InferredProfile | None:
             }
         )
 
-    return InferredProfile(personality_md=personality.strip(), roles=roles)
+    aspects: list[dict] = []
+    seen_labels: set[str] = set()
+    for entry in parsed.get("aspects") or []:
+        if not isinstance(entry, dict):
+            continue
+        label = clean_output(str(entry.get("label") or ""))[:40]
+        value = clean_output(str(entry.get("value") or ""))[:400]
+        key = label.lower()
+        if not label or not value or key in seen_labels:
+            continue
+        seen_labels.add(key)
+        aspects.append(
+            {"id": str(uuid.uuid4()), "label": label, "value": value, "source": "inferred"}
+        )
+
+    return InferredProfile(
+        personality_md=personality.strip(), aspects=aspects, roles=roles
+    )
 
 
 async def get_profile(db: AsyncSession, user_id: uuid.UUID) -> UserProfile | None:
@@ -213,6 +252,12 @@ async def rebuild_profile(db: AsyncSession, user_id: uuid.UUID) -> UserProfile |
         db.add(profile)
 
     profile.personality_md = inferred.personality_md
+    # Anything the user added or edited themselves survives a rebuild -
+    # inference replaces only what inference produced. That is the whole
+    # reason aspects exist: the old all-or-nothing `user_edited` latch meant
+    # one correction froze the entire profile forever.
+    kept = [a for a in (profile.aspects or []) if a.get("source") == "user"]
+    profile.aspects = kept + inferred.aspects
     profile.roles = inferred.roles
     profile.messages_at_last_build = total
     await db.commit()
