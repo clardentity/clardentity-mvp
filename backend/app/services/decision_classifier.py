@@ -12,13 +12,12 @@ degrades to the unscoped vocabulary - it never changes the user's mode.
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.openai_client import generate_text
+from app.services.openai_client import generate_structured
 
 _INSTRUCTIONS = (
     "Classify the kind of real-world decision a user's message is about.\n\n"
-    "Reply with ONLY the exact id of the single best-matching category from the list "
-    "below, and nothing else. If the message is not about making a decision, or no "
-    "category clearly fits, reply exactly: none\n\n"
+    "Pick the id of the single best-matching category below. If the message is "
+    "not about making a decision, or no category clearly fits, use null.\n\n"
     "CATEGORIES:\n"
 )
 
@@ -36,6 +35,21 @@ class DecisionClassification:
 NO_DECISION = DecisionClassification(None, None)
 
 
+def _schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "category_id": {
+                "type": ["string", "null"],
+                "enum": [c.id for c in taxonomy.decision_categories()] + [None],
+                "description": "Id of the best-matching decision category, or null if none fits.",
+            }
+        },
+        "required": ["category_id"],
+        "additionalProperties": False,
+    }
+
+
 def _build_instructions() -> str:
     lines = []
     for c in taxonomy.decision_categories():
@@ -49,15 +63,20 @@ async def classify_decision(message: str) -> DecisionClassification:
     leaves bias screening unscoped.
     """
     try:
-        raw = await generate_text(
-            fast=True,
-            instructions=_build_instructions(), input_text=message.strip()[:2000]
+        # An enum in the schema rather than "reply with only the id": the
+        # previous version had to strip backticks, quotes, trailing periods
+        # and casing off the answer, and anything it missed silently became
+        # "no domain", which is indistinguishable from a real "none".
+        parsed = await generate_structured(
+            instructions=_build_instructions(),
+            input_text=message.strip()[:2000],
+            schema=_schema(),
+            schema_name="decision_category",
         )
     except Exception:
         return NO_DECISION
 
-    answer = (raw or "").strip().strip("`\"' .").lower()
-    category = taxonomy.get_decision_category(answer)
+    category = taxonomy.get_decision_category(parsed.get("category_id") or "")
     if category is None:
         return NO_DECISION
 

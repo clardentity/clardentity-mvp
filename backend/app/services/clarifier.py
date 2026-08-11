@@ -1,87 +1,109 @@
 """One question the answer needs answered, with options you can click.
 
-The previous version asked for a free-text section headed "Before I go
-further:". It worked, in the sense that the model asked - but the questions
-arrived as prose at the bottom of a wall of prose, which is exactly where a
-reader who has just got their answer stops reading. And answering one meant
-retyping the context by hand.
+Two design decisions, both learned the hard way.
 
-A structured block instead: one question, a handful of concrete options. The
-UI can then render it as something you click, and clicking sends the answer as
-your next message. The options matter more than the question does - "what's
-your timeframe?" is work, four timeframes to pick from is a decision.
+**It is a separate call.** The clarifier used to be an <ask> block the answer
+generation appended to its own prose, parsed back out with a regex. That gave
+one generation two jobs, and it did both: it asked in the block *and* in the
+prose ("Quick check: can you say...", "If you want, I can build you a plan").
+The interface renders one as buttons and the other as flat text, so the user
+got the same question twice, the worse version first. Asking a model not to do
+that is an instruction it can drop. Not asking it to ask at all is structural.
+
+**The shape is enforced by the API, not by the prompt.** A json_schema
+response can't come back as prose, half-JSON, or JSON in a code fence, so
+there is no fence-stripping, no brace-hunting, and no silent fall back to "no
+question" when the parse fails - three things the regex version did.
+
+It runs concurrently with the rest of the post-answer analysis, so its cost is
+absorbed rather than added.
 """
 
-import json
-import re
+import logging
 
-_BLOCK = re.compile(r"<ask>\s*(\{.*?\})\s*</ask>", re.S | re.I)
+from app.services.openai_client import generate_structured
+from app.services.output_cleanup import clean_output
+
+logger = logging.getLogger("clardentity.clarifier")
 
 MAX_OPTIONS = 4
 _MAX_QUESTION_CHARS = 160
 _MAX_OPTION_CHARS = 80
 
-INSTRUCTIONS = (
-    "Ask before assuming. If the request is ambiguous in a way that would "
-    "materially change your answer - a missing timeframe, an unstated goal or "
-    "constraint, two plausible readings of the question - answer as far as you "
-    "reasonably can, then append ONE question block in exactly this form, at "
-    "the very end, outside every <claim> tag:\n"
-    '<ask>{"question": "...", "options": ["...", "...", "..."]}</ask>\n'
-    f"Two to {MAX_OPTIONS} options, each a short concrete answer the user can "
-    "pick, not a category. Ask only what actually changes the answer. Never "
-    "add the block to seem thorough, never use it to avoid answering, and "
-    "never ask something the user already told you. Most turns should not "
-    "have one.\n\n"
-    "THE BLOCK IS THE ONLY PLACE YOU ASK. The prose must contain no questions "
-    "to the user and no offers - no 'Quick check: can you...', no 'Would you "
-    "like me to...', no 'If you want, I can do A, B or C'. Those are "
-    "questions written as sentences, and the interface renders them as flat "
-    "text while rendering the block as something the user can click. Asking in "
-    "both places asks twice and makes the clickable version look redundant. If "
-    "you catch yourself about to offer choices at the end of a paragraph, "
-    "those choices are the block's options - move them there and stop the "
-    "prose at the last thing you actually told the user."
+_INSTRUCTIONS = (
+    "An answer has just been written for a user. Decide whether one short "
+    "question back to them would materially improve what comes next.\n\n"
+    "Set needed=true only when something genuinely unstated would change the "
+    "advice: a missing goal, timeframe, constraint or level, or two plausible "
+    "readings of the request. Set needed=false when the answer already stands "
+    "on its own, when the user already told you the missing piece, or when a "
+    "question would only be there to look thorough. Most turns are false.\n\n"
+    "When true, write one question and two to four options. Each option is a "
+    "short concrete answer the user could pick - 'Travel conversation', not "
+    "'Your goal'. Options must be distinct from each other and must not "
+    "restate the question. Plain text only: no markdown, no em dashes."
 )
 
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "needed": {
+            "type": "boolean",
+            "description": "Whether a clarifying question would materially improve the next answer.",
+        },
+        "question": {
+            "type": ["string", "null"],
+            "description": "The question, or null when needed is false.",
+        },
+        "options": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Two to four concrete answers the user can pick. Empty when needed is false.",
+        },
+    },
+    "required": ["needed", "question", "options"],
+    "additionalProperties": False,
+}
 
-def extract_clarifier(text: str) -> tuple[str, dict | None]:
-    """Pull the <ask> block out of a draft.
 
-    Returns the text without it, and the parsed question, so the block never
-    reaches the transcript as raw markup even when it's malformed.
+async def propose_clarifier(user_message: str, answer: str) -> dict | None:
+    """`{"question": str, "options": [str, ...]}`, or None when nothing is worth asking.
+
+    Never raises: a missing clarifying question is a smaller loss than a
+    failed turn, so any error here degrades to "no question".
     """
-    match = _BLOCK.search(text or "")
-    if not match:
-        return text, None
-
-    stripped = (text[: match.start()] + text[match.end() :]).strip()
-
     try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return stripped, None
-    if not isinstance(payload, dict):
-        return stripped, None
+        result = await generate_structured(
+            instructions=_INSTRUCTIONS,
+            input_text=f"USER ASKED:\n{user_message}\n\nANSWER GIVEN:\n{answer[:4000]}",
+            schema=_SCHEMA,
+            schema_name="clarifier",
+        )
+    except Exception:  # noqa: BLE001 - degrade to no question
+        logger.exception("clarifier proposal failed")
+        return None
 
-    question = str(payload.get("question") or "").strip()[:_MAX_QUESTION_CHARS]
-    raw_options = payload.get("options")
-    if not question or not isinstance(raw_options, list):
-        return stripped, None
+    if not result.get("needed"):
+        return None
+
+    question = clean_output(str(result.get("question") or ""))[:_MAX_QUESTION_CHARS]
+    if not question:
+        return None
 
     options: list[str] = []
-    for option in raw_options:
-        cleaned = str(option or "").strip()[:_MAX_OPTION_CHARS]
+    for raw in result.get("options") or []:
+        option = clean_output(str(raw or ""))[:_MAX_OPTION_CHARS]
         # Duplicates come back more often than you'd think, and two identical
         # buttons is a worse experience than one.
-        if cleaned and cleaned not in options:
-            options.append(cleaned)
+        if option and option not in options:
+            options.append(option)
         if len(options) == MAX_OPTIONS:
             break
 
     # A single option isn't a question, it's a suggestion - and a suggestion
-    # dressed as a choice is worse than no choice.
+    # dressed as a choice is worse than no choice. The schema can guarantee
+    # the array exists; only this can guarantee it's a real choice.
     if len(options) < 2:
-        return stripped, None
+        return None
 
-    return stripped, {"question": question, "options": options}
+    return {"question": question, "options": options}

@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -206,23 +207,59 @@ async def generate_text(
     return response.output_text
 
 
-async def generate_with_web_search(
+class StructuredOutputError(RuntimeError):
+    """The model returned something that isn't the requested object."""
+
+
+async def generate_structured(
     *,
     instructions: str,
     input_text: str,
+    schema: dict,
+    schema_name: str,
     model: str | None = None,
-) -> str:
-    """A generation that can search the web before answering.
+    fast: bool = True,
+    tools: list[dict] | None = None,
+) -> dict:
+    """A call whose answer is an object, not prose.
 
-    The Responses API runs the tool itself and hands back the finished text,
-    so from here it is the same shape as `generate_text` - the difference is
-    that the model can go and look something up first. No temperature: search
-    grounding wants the least creative reading of what it found.
+    Every internal step that needs a *decision* rather than a paragraph -
+    classify this, score that, is a question needed - used to ask for JSON in
+    the prompt and parse it back out with a regex, complete with a
+    strip-the-code-fence step and a silent fallback to `{}` when the model
+    wrapped it in a sentence. The API can enforce the shape instead, so a
+    malformed response stops being a thing that happens.
+
+    `strict` requires the schema to name every property in `required` and set
+    additionalProperties: false, so optional fields are modelled as nullable
+    types rather than omitted keys.
     """
-    kwargs = _generation_kwargs(model, None, instructions, input_text)
-    kwargs["tools"] = [{"type": "web_search"}]
+    kwargs = _generation_kwargs(
+        model or (settings.openai_fast_model if fast else None),
+        None,
+        instructions,
+        input_text,
+    )
+    kwargs["text"] = {
+        "format": {
+            "type": "json_schema",
+            "name": schema_name,
+            "schema": schema,
+            "strict": True,
+        }
+    }
+    if tools:
+        kwargs["tools"] = tools
+
     response = await _resilient_call(_create_response, **kwargs, stream=False)
-    return response.output_text
+    raw = response.output_text
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise StructuredOutputError(f"not JSON: {raw[:200]}") from exc
+    if not isinstance(parsed, dict):
+        raise StructuredOutputError(f"not an object: {raw[:200]}")
+    return parsed
 
 
 _EMBEDDING_BATCH_SIZE = 100

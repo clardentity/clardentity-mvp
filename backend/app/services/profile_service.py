@@ -14,7 +14,6 @@ Two rules the rest of the code depends on:
     reach the profile.
 """
 
-import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -24,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, Document, Message, UserProfile, WorkspaceMember
 from app.services import taxonomy
-from app.services.openai_client import generate_text
+from app.services.openai_client import generate_structured
 
 # Enough of the user's own words to characterise them without sending an
 # unbounded history to the model on every rebuild.
@@ -65,14 +64,6 @@ _INSTRUCTIONS = (
     '"qualifiers": {"qualifier_id": ["value"]}, "evidence": "..."}]}\n\n'
     "ROLES:\n"
 )
-
-
-def _strip_fence(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return text.strip()
 
 
 async def gather_evidence(db: AsyncSession, user_id: uuid.UUID) -> tuple[str, int]:
@@ -120,18 +111,46 @@ async def gather_evidence(db: AsyncSession, user_id: uuid.UUID) -> tuple[str, in
     return ("\n\n".join(parts), total or 0)
 
 
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "personality_md": {
+            "type": "string",
+            "description": "The profile itself, as plain prose.",
+        },
+        "roles": {
+            "type": "array",
+            "description": "Roles from the 25-role taxonomy that this person occupies.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "role_id": {"type": "string"},
+                    "qualifier": {"type": ["string", "null"]},
+                    "confidence": {"type": ["number", "null"], "description": "0.0-1.0."},
+                    "evidence": {"type": ["string", "null"]},
+                },
+                "required": ["role_id", "qualifier", "confidence", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["personality_md", "roles"],
+    "additionalProperties": False,
+}
+
+
 async def infer_profile(evidence: str) -> InferredProfile | None:
     """Never raises - a failed inference simply leaves the existing profile alone."""
     if not evidence.strip():
         return None
 
     try:
-        raw = await generate_text(
-            fast=True,
+        parsed = await generate_structured(
             instructions=_INSTRUCTIONS + taxonomy.role_vocabulary(),
             input_text=evidence,
+            schema=_SCHEMA,
+            schema_name="user_profile",
         )
-        parsed = json.loads(_strip_fence(raw))
     except Exception:
         return None
 

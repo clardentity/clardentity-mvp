@@ -1,9 +1,8 @@
-import json
 import re
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.openai_client import generate_text
+from app.services.openai_client import generate_structured
 
 # Listing every screenable bias inline would dominate the prompt, so the model
 # is given a domain-scoped shortlist by name. It resolves the name back to a
@@ -62,14 +61,6 @@ class ClaimVerification:
     bias_category: str | None = None
 
 
-def _strip_code_fence(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return text.strip()
-
-
 def _build_instructions(bias_category_id: str | None) -> str:
     """Domain-scoped vocabulary: the biases most likely to apply come first,
     and the two SRS distortions are always available as a general fallback.
@@ -85,6 +76,43 @@ def _build_instructions(bias_category_id: str | None) -> str:
         header += f" (this conversation looks like: {scope.name})"
 
     return f"{_BASE_INSTRUCTIONS}\n\n{header}:\n" + "\n".join(lines)
+
+
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "evidence": {
+            "type": "array",
+            "description": "One entry per cited evidence item, in the order given.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "entailment_label": {
+                        "type": "string",
+                        "enum": list(_ENTAILMENT_LABELS),
+                        "description": "Does the evidence support the claim fully, partly, or not at all.",
+                    },
+                    "support_score": {
+                        "type": "number",
+                        "description": "0.0-1.0, how strongly this evidence supports the claim.",
+                    },
+                },
+                "required": ["entailment_label", "support_score"],
+                "additionalProperties": False,
+            },
+        },
+        "bias": {
+            "type": ["string", "null"],
+            "description": "Id of a cognitive bias detected in the claim's reasoning, or null.",
+        },
+        "bias_explanation": {
+            "type": ["string", "null"],
+            "description": "One sentence on how the bias shows up in this claim, or null.",
+        },
+    },
+    "required": ["evidence", "bias", "bias_explanation"],
+    "additionalProperties": False,
+}
 
 
 async def verify_claim(
@@ -115,11 +143,16 @@ async def verify_claim(
     )
 
     try:
-        raw = await generate_text(
-            fast=True,
-            instructions=_build_instructions(bias_category_id), input_text=input_text
+        # Schema-enforced rather than "please reply in JSON". This runs once
+        # per claim, so a parse failure that fell back to a flat
+        # "partial / 0.5" verdict used to quietly flatten a whole message's
+        # scoring, and looked identical to genuine uncertainty.
+        parsed = await generate_structured(
+            instructions=_build_instructions(bias_category_id),
+            input_text=input_text,
+            schema=_SCHEMA,
+            schema_name="claim_verification",
         )
-        parsed = json.loads(_strip_code_fence(raw))
     except Exception:
         return fallback
 

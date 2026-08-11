@@ -1,4 +1,3 @@
-from app.services.clarifier import INSTRUCTIONS as CLARIFIER_INSTRUCTIONS
 from app.models import Message
 from app.services.retrieval import RetrievedChunk
 
@@ -19,9 +18,9 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     ),
     "learning": (
         "Purpose: teach and transform knowledge for the user. Adapt your explanation to "
-        "the user's apparent level and use analogies where helpful. To check "
-        "understanding, use the question block described below - never a quiz "
-        "question written into the prose."
+        "the user's apparent level and use analogies where helpful. Do not end "
+        "with a quiz question - checking understanding is handled outside your "
+        "answer."
     ),
 }
 
@@ -68,7 +67,14 @@ def build_system_instructions(
         parts.append(bias_guidance)
 
     parts.append(
-        CLARIFIER_INSTRUCTIONS + "\n\n"
+        # No instruction to ask anything. Clarifying questions are a separate
+        # structured call (services/clarifier.py) precisely because a single
+        # generation told to answer *and* to ask ends up doing both in prose.
+        "Answer what was asked. Do not end with questions or offers to the "
+        "user - no 'Quick check: can you...', no 'Would you like me to...', "
+        "no 'If you want, I can do A, B or C'. If something genuinely "
+        "unstated would change your answer, say what you assumed and carry "
+        "on.\n\n"
         "Write in plain text. No Markdown and no HTML: no **bold**, no #, no "
         "<strong>, no bullet characters other than a plain hyphen. The reader "
         "sees your output verbatim, so any markup arrives as literal "
@@ -84,8 +90,7 @@ def build_system_instructions(
         "inventing a source, and leave that claim uncited so it is correctly marked "
         "Unsupported rather than guessing at a citation.\n"
         "Number claims sequentially starting at 1. Every sentence of your response must be "
-        "inside some <claim> tag - do not leave prose outside of one. The single exception "
-        "is the <ask> block described above, which stays untagged."
+        "inside some <claim> tag - do not leave prose outside of one."
     )
 
     return "\n\n".join(parts)

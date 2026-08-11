@@ -25,7 +25,7 @@ from app.services.admin_settings_service import get_all_settings
 from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
-from app.services.clarifier import extract_clarifier
+from app.services.clarifier import propose_clarifier
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
     ScoredClaim,
@@ -119,7 +119,7 @@ def _derive_title(first_message: str) -> str:
         lowered = text.lower()
         for prefix in _TITLE_FILLER_PREFIXES:
             if lowered.startswith(prefix):
-                rest = text[len(prefix) :].lstrip(" ,:---")
+                rest = text[len(prefix) :].lstrip(" ,:-\u2013\u2014")
                 # Only if something survives; "Hi" alone is still the title.
                 if rest:
                     text = rest
@@ -135,7 +135,7 @@ def _derive_title(first_message: str) -> str:
         text = text[:_TITLE_MAX_CHARS].rsplit(" ", 1)[0] or text[:_TITLE_MAX_CHARS]
         truncated = True
 
-    text = text.rstrip(" ,;:.---")
+    text = text.rstrip(" ,;:.-\u2013\u2014")
     if not text:
         return "Conversation"
 
@@ -548,9 +548,6 @@ async def send_message(
         # window sees this turn in its history, rather than a hole where the
         # assistant's reply should be.
         # ------------------------------------------------------------------
-        # The <ask> block comes out before anything else sees the text, so it
-        # can never reach the transcript as raw markup.
-        full_text, clarifier = extract_clarifier(full_text)
         draft_display_text = clean_output(strip_claim_tags(full_text))
 
         async with AsyncSessionLocal() as answer_db:
@@ -560,7 +557,6 @@ async def send_message(
                 content=draft_display_text,
                 mode_used=mode,
                 reasoning_lens=reasoning_lens if mode == "thinking" else None,
-                clarifier=clarifier,
             )
             answer_db.add(assistant_message)
             await answer_db.commit()
@@ -590,6 +586,12 @@ async def send_message(
         parsed_claims = extract_claims(full_text)
 
         reflection_task = asyncio.create_task(reflect_and_revise(mode, full_text))
+        # Its own call, with its own schema, run alongside everything else.
+        # Folding it into the answer generation is what made the model ask in
+        # prose as well as in the block.
+        clarifier_task = asyncio.create_task(
+            propose_clarifier(payload.content, draft_display_text)
+        )
         counterfactual_task = (
             asyncio.create_task(generate_counterfactual(draft_display_text))
             if draft_display_text
@@ -745,9 +747,7 @@ async def send_message(
         # between claims exactly, matching what streaming already showed -
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
-        final_text, revised_clarifier = extract_clarifier(final_text)
-        if revised_clarifier:
-            clarifier = revised_clarifier
+        clarifier = await clarifier_task
         display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
@@ -885,6 +885,7 @@ async def send_message(
             "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
             # Ships with the answer so the Devil's Draft opens instantly.
             "counterfactual_content": counterfactual_text,
+            "clarifier": clarifier,
             # Only present when the search agent came back empty-handed; it is
             # the difference between "nothing supports this" and "nothing was
             # looked for".

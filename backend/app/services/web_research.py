@@ -26,11 +26,10 @@ searched for and why it wasn't good enough, not a confident answer with a
 decorative link under it.
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 
-from app.services.openai_client import generate_text, generate_with_web_search
+from app.services.openai_client import generate_structured
 
 logger = logging.getLogger("clardentity.web_research")
 
@@ -51,13 +50,10 @@ _SEARCH_INSTRUCTIONS = (
     "organisation, author, dataset or filing that the fact originates from) "
     "over reporting about them, and reporting from an outlet with a masthead "
     "over aggregators, content farms and SEO pages.\n\n"
-    "Return STRICT JSON, no prose, no code fences:\n"
-    '{"sources": [{"url": "...", "title": "...", "excerpt": "the passage '
-    'that bears on the claim, quoted, max 400 chars", "publisher": "...", '
-    '"date": "YYYY-MM-DD or null"}]}\n\n'
     "At most 4 sources. If the search turns up nothing that actually "
-    'addresses the claim, return {"sources": []} rather than padding it with '
-    "near-misses."
+    "addresses the claim, return an empty list rather than padding it with "
+    "near-misses. Quote the passage that bears on the claim, at most 400 "
+    "characters."
 )
 
 _SUPERVISOR_INSTRUCTIONS = (
@@ -84,11 +80,56 @@ _SUPERVISOR_INSTRUCTIONS = (
     "  verdict 'revise'  - the sources are fine but the claim overstates "
     "them. Give the narrower claim they do support.\n"
     "  verdict 'abandon' - this isn't going to be verifiable by search.\n\n"
-    "Return STRICT JSON, no prose, no code fences:\n"
-    '{"verdict": "accept|retry|revise|abandon", "sources": [{"url": "...", '
-    '"score": 0.0, "note": "one sentence on why"}], "next_query": "what to '
-    'search instead, or null", "revised_claim": "narrower claim, or null"}'
+    "Score every source you were given, keyed by its url."
 )
+
+
+_SEARCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                    "excerpt": {"type": "string", "description": "Quoted passage bearing on the claim."},
+                    "publisher": {"type": ["string", "null"]},
+                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD or null."},
+                },
+                "required": ["url", "title", "excerpt", "publisher", "date"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["sources"],
+    "additionalProperties": False,
+}
+
+_SUPERVISOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["accept", "retry", "revise", "abandon"]},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "score": {"type": "number", "description": "0.0-1.0 credibility for this claim."},
+                    "note": {"type": "string", "description": "One sentence on why."},
+                },
+                "required": ["url", "score", "note"],
+                "additionalProperties": False,
+            },
+        },
+        "next_query": {"type": ["string", "null"], "description": "What to search instead, or null."},
+        "revised_claim": {"type": ["string", "null"], "description": "Narrower claim, or null."},
+    },
+    "required": ["verdict", "sources", "next_query", "revised_claim"],
+    "additionalProperties": False,
+}
 
 
 @dataclass
@@ -119,26 +160,6 @@ class ResearchResult:
         return self.verdict == "accept" and bool(self.sources)
 
 
-def _parse_json(raw: str) -> dict:
-    """Models wrap JSON in fences even when told not to."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        text = text.rsplit("```", 1)[0]
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        # Last resort: the outermost braces.
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end <= start:
-            return {}
-        try:
-            parsed = json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
 async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
     prompt = f"CLAIM:\n{claim}"
     if guidance:
@@ -147,14 +168,17 @@ async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
             f"differently:\n{guidance}"
         )
     try:
-        raw = await generate_with_web_search(
-            instructions=_SEARCH_INSTRUCTIONS, input_text=prompt
+        payload = await generate_structured(
+            instructions=_SEARCH_INSTRUCTIONS,
+            input_text=prompt,
+            schema=_SEARCH_SCHEMA,
+            schema_name="web_sources",
+            tools=[{"type": "web_search"}],
         )
     except Exception:
         logger.exception("web search round failed")
         return []
 
-    payload = _parse_json(raw)
     sources: list[WebSource] = []
     for item in payload.get("sources", [])[:4]:
         url = (item or {}).get("url")
@@ -179,15 +203,15 @@ async def _supervise(claim: str, sources: list[WebSource]) -> dict:
         for i, s in enumerate(sources)
     )
     try:
-        raw = await generate_text(
-            fast=True,
+        return await generate_structured(
             instructions=_SUPERVISOR_INSTRUCTIONS,
             input_text=f"CLAIM:\n{claim}\n\nSOURCES:\n{listing}",
+            schema=_SUPERVISOR_SCHEMA,
+            schema_name="source_audit",
         )
     except Exception:
         logger.exception("supervisor round failed")
         return {}
-    return _parse_json(raw)
 
 
 async def gather_context(query: str) -> list[WebSource]:
