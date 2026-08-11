@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { COGNITIVE_MODES } from "@/lib/modes";
 import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
+import { WordRotator } from "@/components/marketing/WordRotator";
 
 /* Positioning is deliberately indirect: it names the failure modes people
    already recognise in assistants that answer confidently and can't be
@@ -66,10 +67,21 @@ export default function Home() {
 
       {/* Hero ------------------------------------------------------------ */}
       <section className="px-6 pb-20 pt-24 text-center sm:pt-32">
-        <h1 className="mx-auto max-w-4xl text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink sm:text-7xl">
-          A companion that
+        {/* The name is three words folded together, which nobody gets from
+            reading it once. Rotating them in the eyebrow slot says so without
+            a sentence explaining the pun. */}
+        <p className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-widest text-ink-muted">
+          <span>Clardentity is</span>
+          <WordRotator
+            words={["clarity", "identity", "entity"]}
+            className="text-brand"
+          />
+        </p>
+
+        <h1 className="mx-auto mt-4 max-w-4xl text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink sm:text-7xl">
+          Your lifelong
           <br />
-          shows its work.
+          thinking companion.
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary sm:text-xl">
           Anything can sound certain. Clardentity gives you the evidence behind
