@@ -97,7 +97,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
         title={workspace.name}
-        description="Artifacts uploaded here ground every answer in this workspace."
+        description="Attachments added here ground every answer in this room."
         actions={
           <Button
             variant="primary"
@@ -130,15 +130,15 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           />
         ))}
         <BentoCard
-          name="Artifacts"
+          name="Attachments"
           description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."
           Icon={DocIcon}
           href={`/workspace/${workspaceId}/documents`}
-          cta="Manage artifacts"
+          cta="Manage attachments"
         />
         <BentoCard
           name="Chats"
-          description="Search everything said across every conversation in this workspace."
+          description="Search everything said across every conversation in this room."
           Icon={SearchIcon}
           href={`/workspace/${workspaceId}/search`}
           cta="Search"
@@ -158,7 +158,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           <div className="px-5 py-10 text-center">
             <p className="text-sm font-medium text-ink">No conversations yet</p>
             <p className="mt-1 text-sm text-ink-muted">
-              Start one to ask questions against this workspace.
+              Start one to ask questions against this room.
             </p>
           </div>
         ) : (

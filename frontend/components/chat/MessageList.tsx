@@ -24,11 +24,12 @@ export function MessageList({
   onPlayAudio,
   emptyStateAvatar,
   validatingId,
-  onEditMessage,
   onRegenerate,
   busy,
   statusLabel,
   onClarifierAnswer,
+  loading,
+  onSubmitEdit,
 }: {
   conversationId: string;
   messages: ChatMessage[];
@@ -41,14 +42,29 @@ export function MessageList({
   emptyStateAvatar?: ReactNode;
   /** Answer shown and saved, claims still being checked. */
   validatingId?: string | null;
-  onEditMessage?: (messageId: string, content: string) => void;
   onRegenerate?: (messageId: string) => void;
   busy?: boolean;
   /** Shown while a request is in flight and no tokens have arrived yet. */
   statusLabel?: string | null;
   /** Sends a clarifying-question answer as the next message. */
   onClarifierAnswer?: (answer: string) => void;
+  /** History is still being fetched. Distinct from "there is nothing here" -
+   *  showing the empty state first made every reopened chat flash
+   *  "Start a conversation" before its messages arrived. */
+  loading?: boolean;
+  onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
+  if (loading) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
+        {emptyStateAvatar}
+        <div className="mt-4">
+          <ThinkingIndicator label="Opening the conversation" />
+        </div>
+      </div>
+    );
+  }
+
   if (messages.length === 0 && !streaming && !busy) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
@@ -57,7 +73,7 @@ export function MessageList({
           <p className="text-sm font-medium text-ink">Start a conversation</p>
           <p className="mt-1 text-sm text-ink-muted">
             Pick a cognitive mode below, then ask your question. Every answer is
-            broken into claims, checked against your documents, and screened for
+            broken into claims, checked against your attachments, and screened for
             cognitive bias.
           </p>
         </div>
@@ -68,7 +84,7 @@ export function MessageList({
   return (
     // min-h-0 is required for overflow-y-auto to engage: a flex item defaults
     // to min-height:auto, which sizes it to its content and defeats scrolling.
-    <div className="scroll-slim min-h-0 flex-1 space-y-5 overflow-y-auto px-1 py-5">
+    <div className="scroll-slim min-h-0 flex-1 animate-[fade-in_0.35s_ease] space-y-5 overflow-y-auto px-1 py-5">
       {messages.map((m) => (
         <MessageBubble
           key={m.id}
@@ -85,27 +101,28 @@ export function MessageList({
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
-          onEdit={
-            m.role === "user" && onEditMessage
-              ? () => onEditMessage(m.id, m.content ?? "")
-              : undefined
-          }
+          canEdit={m.role === "user" && Boolean(onSubmitEdit)}
           onRegenerate={
             m.role === "assistant" && onRegenerate ? () => onRegenerate(m.id) : undefined
           }
           busy={busy}
           conversationId={conversationId}
           onClarifierAnswer={onClarifierAnswer}
+          onSubmitEdit={onSubmitEdit}
         />
       ))}
-      {busy && !streaming && (
+      {/* `streaming` is set the instant a send starts, with empty content, so
+          the old `!streaming` here was never true and this never rendered -
+          you got an empty bubble for the whole wait instead. What matters is
+          whether any text has arrived, not whether a stream object exists. */}
+      {busy && !streaming?.content && (
         <div className="flex justify-start">
           <div className="rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3">
             <ThinkingIndicator label={statusLabel} />
           </div>
         </div>
       )}
-      {streaming && (
+      {streaming?.content && (
         <MessageBubble
           id="streaming"
           role="assistant"
@@ -158,11 +175,12 @@ function MessageBubble({
   isPlaying,
   onPlayAudio,
   isValidating,
-  onEdit,
+  canEdit,
   onRegenerate,
   busy,
   conversationId,
   onClarifierAnswer,
+  onSubmitEdit,
 }: {
   id: string;
   role: string;
@@ -178,11 +196,12 @@ function MessageBubble({
   isPlaying?: boolean;
   onPlayAudio?: () => void;
   isValidating?: boolean;
-  onEdit?: () => void;
+  canEdit?: boolean;
   onRegenerate?: () => void;
   busy?: boolean;
   conversationId?: string;
   onClarifierAnswer?: (answer: string) => void;
+  onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
@@ -190,6 +209,13 @@ function MessageBubble({
   // open it - clicking a score to find out where it came from should show you
   // the working, not scroll to a collapsed row.
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  // Editing happens inside the bubble. The previous version rewound the
+  // conversation the moment you clicked edit and dropped the text into the
+  // composer - so the rest of the chat disappeared before you had typed
+  // anything, and cancelling was impossible because it was already gone.
+  // Nothing is destroyed now until you actually submit.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content);
 
   return (
     <div className={`group/msg flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -263,12 +289,64 @@ function MessageBubble({
             </div>
           </div>
         )}
-        <p className="whitespace-pre-wrap leading-relaxed">
-          {isUser ? content : renderTextWithCitations(content, claims)}
-          {isStreaming && (
-            <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
-          )}
-        </p>
+        {editing ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const trimmed = draft.trim();
+              if (!trimmed || trimmed === content) {
+                setEditing(false);
+                return;
+              }
+              setEditing(false);
+              onSubmitEdit?.(id, trimmed);
+            }}
+          >
+            <textarea
+              value={draft}
+              autoFocus
+              rows={Math.min(8, draft.split("\n").length + 1)}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setDraft(content);
+                  setEditing(false);
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              className="w-full resize-none rounded-lg bg-black/15 px-2 py-1.5 text-sm leading-relaxed text-white outline-none ring-1 ring-white/25 focus:ring-white/50"
+            />
+            <div className="mt-1.5 flex items-center justify-end gap-2 text-[11px]">
+              <span className="mr-auto text-white/60">Enter to resend, Esc to cancel</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(content);
+                  setEditing(false);
+                }}
+                className="rounded-md px-2 py-0.5 text-white/80 transition-colors hover:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="rounded-md bg-white/20 px-2 py-0.5 font-medium text-white transition-colors hover:bg-white/30"
+              >
+                Resend
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="whitespace-pre-wrap leading-relaxed">
+            {isUser ? content : renderTextWithCitations(content, claims)}
+            {isStreaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
+            )}
+          </p>
+        )}
 
         {isValidating && (
           // The answer above is complete and saved. This says what is still
@@ -276,7 +354,7 @@ function MessageBubble({
           // doesn't look like it changed on its own.
           <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-muted">
             <Spinner className="h-3 w-3" />
-            Checking claims against your documents…
+            Checking claims against your attachments…
           </p>
         )}
 
@@ -308,10 +386,17 @@ function MessageBubble({
           />
         )}
 
-        {!isStreaming && (
+        {!isStreaming && !editing && (
           <MessageActions
             content={content}
-            onEdit={onEdit}
+            onEdit={
+              canEdit
+                ? () => {
+                    setDraft(content);
+                    setEditing(true);
+                  }
+                : undefined
+            }
             onRegenerate={onRegenerate}
             busy={busy}
             tone={isUser ? "onBrand" : "default"}

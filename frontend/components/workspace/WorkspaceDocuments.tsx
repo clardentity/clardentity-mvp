@@ -47,8 +47,8 @@ export function WorkspaceDocuments({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
       <PageHeader
-        title="Artifacts"
-        description={`Uploaded to ${workspace.name}. Answers in this workspace cite these directly.`}
+        title="Attachments"
+        description={`Added to ${workspace.name}. Answers in this room cite these directly.`}
       />
       <Card>
         <DocumentUploader workspaceId={workspaceId} />

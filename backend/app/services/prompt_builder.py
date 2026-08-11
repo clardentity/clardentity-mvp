@@ -57,10 +57,25 @@ def build_system_instructions(
     if profile_block:
         parts.append(profile_block)
 
-    if mode == "thinking" and reasoning_lens:
-        lens_instruction = REASONING_LENS_INSTRUCTIONS.get(reasoning_lens)
-        if lens_instruction:
-            parts.append(f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): {lens_instruction}")
+    if mode == "thinking":
+        if reasoning_lens and REASONING_LENS_INSTRUCTIONS.get(reasoning_lens):
+            parts.append(
+                f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): "
+                f"{REASONING_LENS_INSTRUCTIONS[reasoning_lens]}"
+            )
+        else:
+            # Nobody is asked to pick one any more. Choosing well is part of
+            # thinking well, and a dropdown of eleven epistemic stances is a
+            # question most people can't answer about a problem they haven't
+            # worked through yet.
+            menu = "\n".join(
+                f"- {name}: {text}" for name, text in REASONING_LENS_INSTRUCTIONS.items()
+            )
+            parts.append(
+                "Choose the reasoning approach that actually fits this problem, "
+                "and apply it. Do not name it or announce the choice - just "
+                "reason that way.\n" + menu
+            )
 
     # Decision mode only: the domain-specific bias watch-list (§ bias taxonomy).
     if bias_guidance:

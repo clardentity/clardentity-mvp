@@ -160,7 +160,7 @@ function WorkspaceSwitcher({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">
-            {active?.name ?? "Select workspace"}
+            {active?.name ?? "Select a room"}
           </span>
         </span>
         <Icon path={icons.chevron} className="h-3.5 w-3.5 text-ink-muted" />
@@ -172,7 +172,7 @@ function WorkspaceSwitcher({
           className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-hairline bg-surface p-1 shadow-lg scroll-slim"
         >
           {workspaces.length === 0 && (
-            <p className="px-2.5 py-2 text-xs text-ink-muted">No workspaces yet</p>
+            <p className="px-2.5 py-2 text-xs text-ink-muted">No rooms yet</p>
           )}
           {workspaces.map((w) => (
             <Link
@@ -207,7 +207,7 @@ function WorkspaceSwitcher({
             className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink"
           >
             <Icon path={icons.plus} />
-            All workspaces
+            All rooms
           </Link>
         </div>
       )}
@@ -250,7 +250,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // /workspace/<id> carries the workspace in the URL; /chat/<id> doesn't, so
   // it's resolved from the conversation. Without this the sidebar reads
-  // "Select workspace" while you are inside one of its conversations, and the
+  // "Select a room" while you are inside one of its conversations, and the
   // Artifacts/Chats links point at the workspace *list* - which makes it easy
   // to upload a document into one workspace and then ask questions in another,
   // and conclude that grounding is broken.
@@ -304,7 +304,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
 
       <p className="px-2.5 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
-        Workspace
+        Room
       </p>
       {/* Real routes, not `#documents` anchors. As anchors these silently did
           nothing: a same-route hash is not re-scrolled by the App Router, the
@@ -329,7 +329,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         active={pathname.endsWith("/documents")}
         onNavigate={close}
       >
-        Artifacts
+        Attachments
       </NavItem>
       <NavItem
         href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}/search` : "/workspace"}
@@ -352,14 +352,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         onNavigate={close}
       >
         Your profile
-      </NavItem>
-      <NavItem
-        href="/admin"
-        icon={icons.settings}
-        active={pathname.startsWith("/admin")}
-        onNavigate={close}
-      >
-        Admin settings
       </NavItem>
     </nav>
   );
@@ -521,9 +513,8 @@ function Breadcrumbs({
   }
 
   const LABELS: Record<string, string> = {
-    workspace: "Workspaces",
+    workspace: "Rooms",
     chat: "Conversation",
-    admin: "Admin settings",
   };
 
   const crumbs: Array<{ label: string; href?: string }> = [];
@@ -533,7 +524,7 @@ function Breadcrumbs({
   // bare "Conversation" with no way back to the documents it is grounded in.
   if (root === "chat") {
     const ws = workspaces.find((w) => w.id === activeWorkspaceId);
-    crumbs.push({ label: "Workspaces", href: "/workspace" });
+    crumbs.push({ label: "Rooms", href: "/workspace" });
     if (ws) crumbs.push({ label: ws.name, href: `/workspace/${ws.id}` });
     // The chat page no longer has a title bar of its own, so this crumb is
     // where the conversation is named. It falls back to the generic label
@@ -548,13 +539,13 @@ function Breadcrumbs({
     const id = segments[1];
     if (root === "workspace") {
       const ws = workspaces.find((w) => w.id === id);
-      const name = ws?.name ?? "Workspace";
+      const name = ws?.name ?? "Room";
       const sub = segments[2];
       if (sub) {
         // Keep the workspace clickable when we're a level deeper.
         crumbs.push({ label: name, href: `/workspace/${id}` });
         crumbs.push({
-          label: sub === "documents" ? "Artifacts" : sub === "search" ? "Chats" : sub,
+          label: sub === "documents" ? "Attachments" : sub === "search" ? "Chats" : sub,
         });
       } else {
         crumbs.push({ label: name });

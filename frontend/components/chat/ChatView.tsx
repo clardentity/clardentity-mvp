@@ -5,10 +5,6 @@ import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import { streamChatMessage, type ChatMessage, type ChatStatus } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
-import {
-  ReasoningLensSelector,
-  type ReasoningLens,
-} from "@/components/chat/ReasoningLensSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
@@ -37,8 +33,10 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
 
 export function ChatView({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Distinct from "no messages". Without it, reopening a chat rendered the
+  // "Start a conversation" empty state for the second or two the fetch took.
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
-  const [reasoningLens, setReasoningLens] = useState<ReasoningLens | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
   // The message whose claims are still being verified. It is already on
@@ -70,6 +68,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       .then(([conv, msgs]) => {
         if (cancelled) return;
         setMessages(msgs);
+        setLoadingHistory(false);
         if (conv.default_mode) setMode(conv.default_mode);
 
         const lastCued = [...msgs].reverse().find((m) => m.avatar_expression && m.avatar_gesture);
@@ -81,7 +80,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         }
       })
       .catch((err) => {
-        if (!cancelled) setError(authErrorMessage(err));
+        if (cancelled) return;
+        setError(authErrorMessage(err));
+        setLoadingHistory(false);
       });
 
     return () => {
@@ -105,14 +106,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setIsTyping(false);
     setStatus(null);
 
-    const lensForSend = sendMode === "thinking" ? reasoningLens : null;
-
     const userMessage: ChatMessage = {
       id: `local-${Date.now()}`,
       role: "user",
       content,
       mode_used: sendMode,
-      reasoning_lens: lensForSend,
+      reasoning_lens: null,
       confidence_score: null,
       confidence_band: null,
       avatar_expression: null,
@@ -130,7 +129,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       {
         content,
         mode: sendMode,
-        reasoning_lens: lensForSend,
         attachments: images.map((img) => ({
           type: "image",
           data: img.data,
@@ -227,20 +225,18 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     }
   }
 
-  /** Edit: rewind to the message and drop its text back into the composer. */
-  async function handleEditMessage(messageId: string, content: string) {
+  /** Edit: rewind and resend, but only once the new text is submitted.
+   *
+   *  The rewind has to happen - the turns after this one were answers to the
+   *  old wording - but doing it on *click*, as this used to, wiped the
+   *  conversation before the user had typed anything and made cancelling
+   *  impossible. The bubble holds the draft until then. */
+  async function handleSubmitEdit(messageId: string, content: string) {
     setError(null);
     try {
       const modeUsed = await rewindTo(messageId);
       if (modeUsed) setMode(modeUsed);
-      setDraft(content);
-      const el = composerRef.current;
-      if (el) {
-        el.focus();
-        // Caret at the end, so you carry on typing rather than having to click
-        // past the text you came here to change.
-        el.setSelectionRange(content.length, content.length);
-      }
+      await handleSend(content, [], modeUsed ?? undefined);
     } catch (err) {
       setError(authErrorMessage(err));
       await reloadMessages();
@@ -331,7 +327,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       playingMessageId={playingMessageId}
       onPlayAudio={handlePlayAudio}
       validatingId={validatingId}
-      onEditMessage={handleEditMessage}
+      onSubmitEdit={handleSubmitEdit}
+      loading={loadingHistory}
       onRegenerate={handleRegenerate}
       busy={sending}
       statusLabel={status?.label}
@@ -418,13 +415,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             <div className="min-w-0 flex-1">
               <ModeSelector value={mode} onChange={setMode} disabled={sending} />
             </div>
-            {mode === "thinking" && (
-              <ReasoningLensSelector
-                value={reasoningLens}
-                onChange={setReasoningLens}
-                disabled={sending}
-              />
-            )}
           </div>
           <MessageInput
             disabled={!mode || sending}
