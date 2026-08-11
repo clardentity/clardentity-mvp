@@ -32,7 +32,16 @@ INSTRUCTIONS = (
     "pick, not a category. Ask only what actually changes the answer. Never "
     "add the block to seem thorough, never use it to avoid answering, and "
     "never ask something the user already told you. Most turns should not "
-    "have one."
+    "have one.\n\n"
+    "THE BLOCK IS THE ONLY PLACE YOU ASK. The prose must contain no questions "
+    "to the user and no offers - no 'Quick check: can you...', no 'Would you "
+    "like me to...', no 'If you want, I can do A, B or C'. Those are "
+    "questions written as sentences, and the interface renders them as flat "
+    "text while rendering the block as something the user can click. Asking in "
+    "both places asks twice and makes the clickable version look redundant. If "
+    "you catch yourself about to offer choices at the end of a paragraph, "
+    "those choices are the block's options - move them there and stop the "
+    "prose at the last thing you actually told the user."
 )
 
 

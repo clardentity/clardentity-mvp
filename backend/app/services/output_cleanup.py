@@ -51,20 +51,23 @@ _BLOCKQUOTE = re.compile(r"^\s{0,3}>\s?", re.M)
 # Escapes, not literals: em dash, en dash, figure dash, horizontal bar. A
 # repo-wide "replace dashes with hyphens" sweep would otherwise rewrite this
 # table into a set of no-ops and silently disable the very thing it does.
-_DASHES = str.maketrans({"\u2014": "-", "\u2013": "-", "\u2012": "-", "\u2015": "-"})
-# A spaced em dash reads as " - "; an unspaced one as "-". Collapse the double
-# spacing the naive substitution would otherwise leave behind.
-_SPACED_DASH = re.compile(r"\s+-\s+")
+#
+# The spacing matters as much as the character. An em dash is usually written
+# without spaces around it, so a straight character swap turns "Great goal-
+# Spanish is..." out of "Great goal-Spanish is..." - two words fused into what
+# reads as a hyphenated compound. A dash separating clauses always becomes a
+# spaced hyphen, whatever spacing it arrived with.
+#
+# [ \t] rather than \s so a dash at the start of a line can't swallow the
+# newline before it and glue two lines together.
+_DASH_RUN = re.compile(r"[ \t]*[\u2014\u2013\u2012\u2015][ \t]*")
 
 
 def replace_dashes(text: str) -> str:
-    """Em/en dashes to hyphens, with the surrounding spacing tidied."""
+    """Em/en dashes to spaced hyphens. Existing hyphens are left alone."""
     if not text:
         return text
-    converted = text.translate(_DASHES)
-    # Only touch runs that came from a dash character, not pre-existing
-    # hyphenation like "well-known" or a leading "- " bullet.
-    return _SPACED_DASH.sub(" - ", converted) if converted != text else converted
+    return _DASH_RUN.sub(" - ", text)
 
 
 def strip_markup(text: str) -> str:

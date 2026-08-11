@@ -19,8 +19,9 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     ),
     "learning": (
         "Purpose: teach and transform knowledge for the user. Adapt your explanation to "
-        "the user's apparent level, use analogies where helpful, and offer an optional "
-        "check-for-understanding (e.g. a short quiz question) at the end."
+        "the user's apparent level and use analogies where helpful. To check "
+        "understanding, use the question block described below - never a quiz "
+        "question written into the prose."
     ),
 }
 

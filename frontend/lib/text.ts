@@ -48,11 +48,15 @@ export function cleanMessageText(text: string): string {
     out = out.replace(pattern, replacement);
   }
 
-  // Em/en dashes to hyphens, with the spacing an em dash implies.
+  // Em/en dashes become *spaced* hyphens. A straight character swap turns
+  // "Great goal—Spanish" into "Great goal-Spanish", which reads as a
+  // hyphenated compound rather than two clauses. [ \t] not \s, so a dash
+  // opening a line can't swallow the newline before it.
+  //
   // \u escapes, not literal characters: a repo-wide "replace dashes with
   // hyphens" sweep rewrites a literal class into /[----]/, which matches only
   // a hyphen and quietly turns this line into a no-op. It already did once.
-  out = out.replace(/[\u2014\u2013\u2012\u2015]/g, "-").replace(/\s+-\s+/g, " - ");
+  out = out.replace(/[ \t]*[\u2014\u2013\u2012\u2015][ \t]*/g, " - ");
 
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
