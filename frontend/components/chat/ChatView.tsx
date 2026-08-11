@@ -9,6 +9,7 @@ import { MessageList, type StreamingMessage } from "@/components/chat/MessageLis
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { cx } from "@/components/ui/primitives";
+import { AttachmentSearch } from "@/components/workspace/AttachmentSearch";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -20,6 +21,7 @@ type Conversation = {
   id: string;
   title: string | null;
   default_mode: CognitiveMode | null;
+  workspace_id: string;
 };
 
 type AvatarCue = { expression: AvatarExpression; gesture: AvatarGesture };
@@ -36,6 +38,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // Distinct from "no messages". Without it, reopening a chat rendered the
   // "Start a conversation" empty state for the second or two the fetch took.
   const [loadingHistory, setLoadingHistory] = useState(true);
+  // Needed to scope the attachment search; the chat route only carries the
+  // conversation id, so it comes from the conversation itself.
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
@@ -69,6 +75,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         if (cancelled) return;
         setMessages(msgs);
         setLoadingHistory(false);
+        setWorkspaceId(conv.workspace_id);
         if (conv.default_mode) setMode(conv.default_mode);
 
         const lastCued = [...msgs].reverse().find((m) => m.avatar_expression && m.avatar_gesture);
@@ -415,7 +422,48 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             <div className="min-w-0 flex-1">
               <ModeSelector value={mode} onChange={setMode} disabled={sending} />
             </div>
+            {workspaceId && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSourcesOpen((v) => !v)}
+                aria-expanded={sourcesOpen}
+                title="Search the attachments this conversation cited"
+                className={cx(
+                  "ml-auto shrink-0 rounded-md p-1.5 transition-colors",
+                  sourcesOpen
+                    ? "bg-brand-soft text-brand"
+                    : "text-ink-muted hover:bg-surface-hover hover:text-ink",
+                )}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <span className="sr-only">Search this conversation&apos;s sources</span>
+              </button>
+            )}
           </div>
+          {sourcesOpen && workspaceId && (
+            <div className="rounded-xl border border-hairline bg-surface-muted p-3">
+              <AttachmentSearch
+                workspaceId={workspaceId}
+                conversationId={conversationId}
+                compact
+              />
+              <p className="mt-2 text-[11px] text-ink-muted">
+                Searching only the attachments this conversation cited.
+              </p>
+            </div>
+          )}
           <MessageInput
             disabled={!mode || sending}
             disabledReason={

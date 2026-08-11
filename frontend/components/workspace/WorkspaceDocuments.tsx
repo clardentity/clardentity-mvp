@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { DocumentUploader } from "@/components/upload/DocumentUploader";
+import { AttachmentSearch } from "@/components/workspace/AttachmentSearch";
 import { Card, PageHeader, Spinner } from "@/components/ui/primitives";
 
 type Workspace = { id: string; name: string };
@@ -52,6 +53,10 @@ export function WorkspaceDocuments({ workspaceId }: { workspaceId: string }) {
       />
       <Card>
         <DocumentUploader workspaceId={workspaceId} />
+      </Card>
+
+      <Card className="mt-5">
+        <AttachmentSearch workspaceId={workspaceId} />
       </Card>
     </div>
   );
