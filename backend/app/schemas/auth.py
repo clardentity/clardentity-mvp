@@ -22,6 +22,17 @@ class GoogleOAuthRequest(BaseModel):
     id_token: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    # Matches RegisterRequest: bcrypt silently truncates past 72 bytes, so a
+    # longer password would appear to be accepted and then not work.
+    password: str = Field(min_length=8, max_length=72)
+
+
 class UserPublic(BaseModel):
     id: uuid.UUID
     email: str

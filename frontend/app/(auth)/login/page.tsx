@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui/primitives";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 
@@ -61,15 +62,23 @@ export default function LoginPage() {
           </Field>
 
           <Field label="Password" htmlFor="password">
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               required
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
+
+          <div className="-mt-2 text-right">
+            <Link
+              href="/forgot-password"
+              className="text-xs text-ink-muted transition-colors hover:text-ink"
+            >
+              Forgot your password?
+            </Link>
+          </div>
 
           {error && (
             <div className="rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">

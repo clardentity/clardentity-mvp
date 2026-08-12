@@ -51,6 +51,38 @@ async def send_email(*, to: str, subject: str, html: str) -> bool:
         return False
 
 
+def password_reset_html(reset_url: str, expires_minutes: int) -> str:
+    return f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <div style="max-width:520px;margin:0 auto;padding:40px 24px;">
+      <p style="font-size:15px;font-weight:600;color:#101828;margin:0 0 28px;">Clardentity</p>
+
+      <h1 style="font-size:26px;line-height:1.25;color:#101828;margin:0 0 16px;font-weight:600;">
+        Reset your password
+      </h1>
+
+      <p style="font-size:15px;line-height:1.6;color:#475467;margin:0 0 24px;">
+        Use the button below to choose a new password. The link works once and
+        expires in {expires_minutes} minutes.
+      </p>
+
+      <a href="{reset_url}"
+         style="display:inline-block;background:#5b4bc4;color:#ffffff;text-decoration:none;
+                padding:12px 22px;border-radius:999px;font-size:15px;font-weight:500;">
+        Choose a new password
+      </a>
+
+      <p style="font-size:13px;line-height:1.6;color:#667085;margin:32px 0 0;">
+        If you didn't ask for this, you can ignore this email - your password
+        stays as it is, and the link above does nothing until it's used.
+      </p>
+    </div>
+  </body>
+</html>"""
+
+
 def welcome_html(display_name: str | None, app_url: str) -> str:
     greeting = f"Hi {display_name}," if display_name else "Hi,"
     return f"""\
@@ -65,7 +97,7 @@ def welcome_html(display_name: str | None, app_url: str) -> str:
       </h1>
 
       <p style="font-size:15px;line-height:1.6;color:#475467;margin:0 0 16px;">
-        {greeting} your workspace is already set up &mdash; there's nothing to
+        {greeting} your room is already set up &mdash; there's nothing to
         configure before you ask your first question.
       </p>
 

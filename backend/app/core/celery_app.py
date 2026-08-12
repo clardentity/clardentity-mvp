@@ -27,6 +27,7 @@ celery_app = Celery(
         "app.workers.ingest_document",
         "app.workers.rebuild_memory",
         "app.workers.rebuild_profile",
+        "app.workers.send_password_reset_email",
         "app.workers.send_welcome_email",
     ],
 )

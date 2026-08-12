@@ -14,9 +14,11 @@ from app.core.security import (
     InvalidTokenError,
     TokenType,
     create_access_token,
+    create_password_reset_token,
     create_refresh_token,
     decode_token,
     hash_password,
+    password_fingerprint,
     verify_password,
 )
 from app.db.session import get_db
@@ -25,12 +27,15 @@ from app.schemas.auth import (
     AuthResponse,
     GoogleOAuthRequest,
     LoginRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
     UserPublic,
 )
 
+from app.workers.send_password_reset_email import send_password_reset_email_task
 from app.workers.send_welcome_email import send_welcome_email_task
 
 logger = logging.getLogger(__name__)
@@ -144,6 +149,83 @@ async def login(
 
     await ensure_workspace(db, user)
 
+    return _issue_tokens(user)
+
+
+@router.post("/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
+async def request_password_reset(
+    payload: PasswordResetRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Always answers the same way.
+
+    Telling the caller whether an address is registered turns this endpoint
+    into a way to test a list of emails against the user table, so the
+    response body, status code and (via the queued send) the response time do
+    not vary with whether the account exists.
+    """
+    await check_rate_limit(
+        f"auth:reset-request:{_client_ip(request)}", max_requests=5, window_seconds=900
+    )
+
+    user = await db.scalar(select(User).where(User.email == payload.email))
+    if user is not None:
+        token = create_password_reset_token(user.id, user.password_hash)
+        try:
+            send_password_reset_email_task.delay(user.email, token)
+        except Exception:
+            logger.exception(
+                "could not queue password reset email", extra={"user_id": str(user.id)}
+            )
+
+    return {"detail": "If that address has an account, a reset link is on its way."}
+
+
+@router.post("/password-reset/confirm", response_model=TokenResponse)
+async def confirm_password_reset(
+    payload: PasswordResetConfirm, request: Request, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
+    await check_rate_limit(
+        f"auth:reset-confirm:{_client_ip(request)}", max_requests=10, window_seconds=900
+    )
+
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This reset link has expired or has already been used. Request a new one.",
+    )
+
+    try:
+        claims = decode_token(payload.token, TokenType.RESET)
+    except InvalidTokenError:
+        raise invalid from None
+
+    try:
+        user_id = uuid.UUID(claims["sub"])
+    except (KeyError, ValueError):
+        raise invalid from None
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise invalid
+
+    # The link is only good against the password it was issued for. Once a
+    # reset completes the hash changes, so this stops matching and the link -
+    # along with any older ones still sitting in the mailbox - is spent.
+    if claims.get("pwf") != password_fingerprint(user.password_hash):
+        raise invalid
+
+    user.password_hash = hash_password(payload.password)
+    # Everything signed in on the old password is signed out. Someone who
+    # resets a password they think was compromised expects exactly that, and
+    # would not think to go looking for a "sign out other devices" button.
+    user.refresh_token_version += 1
+
+    await ensure_workspace(db, user)
+    await db.commit()
+    await db.refresh(user)
+
+    # Signed straight in. Making someone re-type the password they just chose,
+    # on a login form, is a step that exists only because it was easier to
+    # build - and it is the step where they discover the typo.
     return _issue_tokens(user)
 
 

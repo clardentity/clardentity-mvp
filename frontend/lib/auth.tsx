@@ -85,6 +85,8 @@ type AuthContextValue = {
     displayName?: string,
   ) => Promise<void>;
   logout: () => void;
+  /** Redeem a reset link and sign in on the new password in one step. */
+  completePasswordReset: (token: string, password: string) => Promise<void>;
   /** Re-read the signed-in user. Used after an external flow (Google
    *  sign-in) has written tokens directly. */
   refresh: () => Promise<void>;
@@ -150,6 +152,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const completePasswordReset = useCallback(async (token: string, password: string) => {
+    const tokens = await apiFetch<TokenResponse>("/auth/password-reset/confirm", {
+      method: "POST",
+      body: { token, password },
+    });
+    setTokens(tokens.access_token, tokens.refresh_token);
+    setUser(await apiFetch<User>("/auth/me"));
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       setUser(await apiFetch<User>("/auth/me"));
@@ -161,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, refresh }}
+      value={{ user, loading, login, register, logout, completePasswordReset, refresh }}
     >
       {children}
     </AuthContext.Provider>

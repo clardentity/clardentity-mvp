@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui/primitives";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 
@@ -79,9 +80,8 @@ export default function RegisterPage() {
           </Field>
 
           <Field label="Password" htmlFor="password" hint="At least 8 characters.">
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               required
               minLength={8}
               autoComplete="new-password"
