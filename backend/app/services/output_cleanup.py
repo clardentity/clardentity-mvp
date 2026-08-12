@@ -100,6 +100,25 @@ def strip_markup(text: str) -> str:
     return cleaned.strip()
 
 
+# A verdict word the model sometimes tacks onto its own sentences, because it
+# knows uncited claims get labelled. The label belongs in the evidence panel,
+# computed from the score - written into the prose it is both duplicated and
+# frequently wrong. Matched only as a standalone sentence at the end of a line
+# or paragraph, so "the claim is unsupported by the data" survives untouched.
+_SELF_LABEL = re.compile(
+    r"[ \t]*\b(?:Unsupported|Unverified|Uncited|No citation|No source)\b\s*[.:]?(?=\s*(?:\n|$))",
+    re.IGNORECASE,
+)
+
+
+def strip_self_labels(text: str) -> str:
+    """Removes the model's own evidential-status asides from the prose."""
+    return _SELF_LABEL.sub("", text)
+
+
 def clean_output(text: str) -> str:
     """Everything, in the order the passes expect."""
-    return replace_dashes(strip_markup(text))
+    cleaned = replace_dashes(strip_markup(text))
+    cleaned = strip_self_labels(cleaned)
+    # Removing a trailing label can leave a blank line where a paragraph was.
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()

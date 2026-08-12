@@ -50,6 +50,19 @@ function ExternalLinkIcon() {
   );
 }
 
+/* What each tier actually means, in the reader's terms. A label like
+   "Unverifiable (Gray Area)" beside a number is a verdict with no reasoning
+   attached - and the tiers that sound most alarming are exactly the ones
+   worth explaining, since "Fabricated / Malicious" on a claim that is merely
+   uncited reads as an accusation rather than a description. */
+const ENTAILMENT_MEANINGS: Record<string, string> = {
+  verifiable_fact: "Directly confirmed by the sources cited here.",
+  probable_fact: "Strongly supported, though short of direct confirmation.",
+  gray_area: "Plausible, but the sources here neither confirm nor refute it.",
+  distorted: "Rests on something real, but the framing overstates it.",
+  fabricated: "Nothing here supports this. Treat it as unverified.",
+};
+
 const ENTAILMENT_TONES: Record<string, string> = {
   verifiable_fact: "text-band-high",
   probable_fact: "text-band-moderate",
@@ -187,6 +200,12 @@ export function EvidencePanel({
                   </span>
                 )}
               </div>
+
+              {ENTAILMENT_MEANINGS[claim.entailment_label ?? ""] && (
+                <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+                  {ENTAILMENT_MEANINGS[claim.entailment_label ?? ""]}
+                </p>
+              )}
 
               {claim.reconciliation_note && (
                 // A second, independent pass looked at this claim again

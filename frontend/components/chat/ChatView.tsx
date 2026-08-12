@@ -324,7 +324,25 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // ceremony around a single column.
   const tracks = groupByMode(messages);
   const multiMode = tracks.length > 1;
-  const showCarousel = multiMode && carousel && !streaming;
+  // Deliberately not gated on `streaming` any more. It used to be, and the
+  // cost was a full teardown on every send: the carousel unmounted, the
+  // one-thread list mounted every message in the conversation at once, and
+  // the column resized 6xl -> 3xl in the same frame. What that looked like
+  // from the outside was the view sliding back to Knowing and locking up for
+  // a few seconds. The answer now streams into its own track instead.
+  const showCarousel = multiMode && carousel;
+
+  // Which track is in focus is *derived* from the selected mode wherever that
+  // mode has a track, rather than tracked separately. The two used to be
+  // separate pieces of state synced one way only - focusing a track set the
+  // composer's mode, but choosing a mode you had already used left the
+  // carousel where it was, so clicking it looked like it did nothing.
+  // `activeTrack` survives only as the fallback for a mode with no track yet
+  // (one you have selected but not asked anything in), where there is nothing
+  // to move to and staying put is right.
+  const modeTrackIndex = tracks.findIndex((track) => track.mode === mode);
+  const activeIndex =
+    modeTrackIndex >= 0 ? modeTrackIndex : Math.min(activeTrack, tracks.length - 1);
 
   const messageListFor = (subset: ChatMessage[], streamingHere: StreamingMessage | null) => (
     <MessageList
@@ -380,7 +398,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         {showCarousel ? (
           <ModeCarousel
             tracks={tracks}
-            activeIndex={Math.min(activeTrack, tracks.length - 1)}
+            activeIndex={activeIndex}
             onActiveIndexChange={(index) => {
               setActiveTrack(index);
               // Bringing a mode's track into focus is how you say "I want to
@@ -390,7 +408,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               const next = tracks[index]?.mode;
               if (next) setMode(next);
             }}
-            renderMessages={(subset) => messageListFor(subset, null)}
+            renderMessages={(subset, trackMode) =>
+              // The answer streams into the track it was asked in, not into
+              // whichever one happens to be in focus.
+              messageListFor(subset, streaming?.mode_used === trackMode ? streaming : null)
+            }
           />
         ) : (
           messageListFor(messages, streaming)

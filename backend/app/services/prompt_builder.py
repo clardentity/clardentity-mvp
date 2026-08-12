@@ -101,9 +101,12 @@ def build_system_instructions(
         'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
         "context with [n] referring to the numbered CONTEXT item. A single claim may cite "
         "more than one source - use multiple [n] markers in that case.\n"
-        "If no supporting context exists for a claim, say so explicitly rather than "
-        "inventing a source, and leave that claim uncited so it is correctly marked "
-        "Unsupported rather than guessing at a citation.\n"
+        "If no supporting context exists for a claim, simply leave that claim uncited - do "
+        "not invent a source, and do not write anything about the claim's own evidential "
+        "status. Never write words like 'Unsupported', 'Unverified', 'no citation' or "
+        "'[no source]' into your prose. The system scores and labels every claim after you "
+        "write it, and the reader sees those labels in a separate panel; putting them in "
+        "the text yourself duplicates the label and reads as broken output.\n"
         "Number claims sequentially starting at 1. Every sentence of your response must be "
         "inside some <claim> tag - do not leave prose outside of one."
     )

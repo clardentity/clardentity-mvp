@@ -4,6 +4,14 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
 import { cx, Spinner } from "@/components/ui/primitives";
+import { cleanMessageText } from "@/lib/text";
+
+/** Both panes read as prose so the eye compares wording, which is the only
+ *  thing that differs between them. Citation markers point at a source list
+ *  neither pane is showing. */
+function comparableText(text: string): string {
+  return cleanMessageText(text).replace(/\s*\[\d+\]/g, "");
+}
 
 /* "Devil's Draft" - the draft before the checks, and the devil's advocate at
  * the same time. The point of showing it is that a careful answer, read alone,
@@ -99,16 +107,20 @@ export function DevilsDraft({
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <section className="rounded-lg border border-hairline bg-surface-muted p-3">
             <h4 className="text-[11px] font-semibold uppercase tracking-wide text-band-high">
-              As written
+              As written - the answer you got
             </h4>
             <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-ink-secondary">
-              {answer}
+              {/* The bubble above renders this cleaned and with its citations
+                  turned into markers; showing the raw string here put stray
+                  "[2]"s and leftover markup on one side of a comparison whose
+                  whole point is the difference in *wording*. */}
+              {comparableText(answer)}
             </p>
           </section>
 
           <section className="rounded-lg border border-caution-border bg-caution-bg p-3">
             <h4 className="text-[11px] font-semibold uppercase tracking-wide text-caution">
-              Off the leash
+              Off the leash - the same answer, unchecked
             </h4>
             {loading && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-caution">
@@ -119,7 +131,7 @@ export function DevilsDraft({
             {error && <p className="mt-1.5 text-xs text-band-low">{error}</p>}
             {text && (
               <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-caution">
-                {text}
+                {comparableText(text)}
               </p>
             )}
           </section>

@@ -429,7 +429,11 @@ function MessageActions({
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(content);
+      // What was on screen, not what was on the wire. Citation markers point
+      // at a numbered source list that isn't coming with the text, so they
+      // paste as meaningless "[2]"s into whatever the reader is writing.
+      const plain = cleanMessageText(content).replace(/\s*\[\d+\]/g, "");
+      await navigator.clipboard.writeText(plain);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -446,9 +450,13 @@ function MessageActions({
   return (
     <div
       className={cx(
-        "mt-2 flex items-center gap-0.5 opacity-0 transition-opacity",
+        "mt-2 flex items-center gap-0.5 transition-opacity",
         "group-hover/msg:opacity-100 focus-within:opacity-100",
-        tone === "onBrand" && "justify-end",
+        // An answer's actions stay visible. Hover-only was fine for your own
+        // messages - short, and you know what you wrote - but on a response
+        // it put Copy behind a hover, below the evidence panel, where nobody
+        // found it. On the brand bubble a permanent row is just noise.
+        tone === "onBrand" ? "justify-end opacity-0" : "opacity-45",
       )}
     >
       <button

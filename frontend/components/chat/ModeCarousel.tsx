@@ -100,7 +100,10 @@ export function ModeCarousel({
   tracks: Track[];
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
-  renderMessages: (messages: ChatMessage[]) => ReactNode;
+  // The mode comes with the messages so the caller can decide which track a
+  // streaming answer belongs in - it arrives while you may be reading a
+  // different one.
+  renderMessages: (messages: ChatMessage[], mode: CognitiveMode) => ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -139,6 +142,14 @@ export function ModeCarousel({
   }
 
   function onPointerDown(event: React.PointerEvent) {
+    // A mouse drag is how you select text, and that is almost always what it
+    // means inside a wall of prose. Trying to serve both from one gesture is
+    // what made responses impossible to copy: any horizontal sweep past 8px
+    // tore the selection down and swiped the track instead. Mice get the
+    // arrows, the pills, the keyboard and horizontal wheel/trackpad swipe
+    // (onWheel, which is what the MacBook two-finger gesture actually emits);
+    // dragging the track with a finger stays a touch and pen affordance.
+    if (event.pointerType === "mouse") return;
     // Ignore drags that start on something interactive - selecting text in a
     // message shouldn't swipe the track out from under the selection.
     if ((event.target as HTMLElement).closest("button, a, textarea, input")) return;
@@ -226,6 +237,16 @@ export function ModeCarousel({
           // make it impossible to copy anything out of a message.
           dragging && "select-none",
         )}
+        style={{
+          // The neighbouring tracks are meant to say "there is more this way",
+          // not to be read. Left legible they sat either side of the answer
+          // like a watermark, competing with the column you're actually in.
+          // Fading the outer edges to nothing turns them back into a hint.
+          maskImage:
+            "linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%)",
+        }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -253,9 +274,15 @@ export function ModeCarousel({
                 key={track.mode}
                 aria-hidden={!isActive}
                 className={cx(
-                  "flex h-full w-[78%] shrink-0 flex-col px-2 transition-opacity duration-300",
-                  isActive ? "opacity-100" : "pointer-events-none opacity-35",
+                  "flex h-full w-[78%] shrink-0 flex-col px-2 transition-all duration-300",
+                  isActive ? "opacity-100" : "pointer-events-none opacity-20",
                 )}
+                style={
+                  // Blurred, not just dimmed. Faint-but-sharp text still reads
+                  // as text and the eye keeps trying to parse it; out of focus
+                  // it registers as "another column" and stops competing.
+                  isActive ? undefined : { filter: "blur(2px)" }
+                }
               >
                 <div
                   className={cx(
@@ -266,7 +293,7 @@ export function ModeCarousel({
                   <p className="shrink-0 border-b border-hairline px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                     {MODE_BY_VALUE[track.mode].label}
                   </p>
-                  {renderMessages(track.messages)}
+                  {renderMessages(track.messages, track.mode)}
                 </div>
               </section>
             );
