@@ -9,6 +9,10 @@ services:
     dockerContext: ./backend
     plan: free
     healthCheckPath: /health
+    # Inert on the free plan - Render accepts and stores it but never runs it,
+    # which is why backend/start.sh applies migrations at boot instead. Kept
+    # so the intent survives a plan upgrade; alembic upgrade head is
+    # idempotent, so running in both places is harmless.
     preDeployCommand: alembic upgrade head
     envVars:
       - fromGroup: clardentity-shared
@@ -18,8 +22,16 @@ envVarGroups:
     envVars:
       - key: OPENAI_API_KEY
         sync: false
+      # gpt-5 is a heavy reasoning model and was the cause of ~30s responses;
+      # the fix was applied on the dashboard and this file was left behind,
+      # so a Blueprint sync would have quietly reinstated the slow model.
+      # These three are latency-critical - keep them in step with the service.
       - key: OPENAI_MODEL
-        value: gpt-5
+        value: gpt-5.4-mini
+      - key: OPENAI_FAST_MODEL
+        value: gpt-5.4-nano
+      - key: OPENAI_REASONING_EFFORT
+        value: low
       - key: OPENAI_EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: OPENAI_STT_MODEL
@@ -55,3 +67,20 @@ envVarGroups:
         sync: false
       - key: MAX_UPLOAD_SIZE_MB
         value: "25"
+      # Set on the service but missing here, which is the same trap as the
+      # model pin above - a Blueprint sync would drop them back to the code
+      # defaults in app/core/config.py, and those defaults are wrong for
+      # production in ways that fail quietly rather than loudly:
+      #   APP_URL      -> http://localhost:3000, so every password-reset link
+      #                   we email would point at the recipient's own machine
+      #   EMAIL_FROM   -> onboarding@resend.dev, off-domain
+      #   RESEND_API_KEY unset -> email silently disabled, by design
+      #   GOOGLE_CLIENT_ID unset -> Google sign-in stops working
+      - key: APP_URL
+        value: https://clardentity.ai
+      - key: EMAIL_FROM
+        value: Clardentity <hello@clardentity.ai>
+      - key: RESEND_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
