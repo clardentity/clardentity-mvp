@@ -197,32 +197,28 @@ export function ModeCarousel({
       {/* Arrows either side of the pills. The swipe is the nice way to do
           this and the pills are the direct way, but neither helps someone on a
           mouse who wants the next track without aiming at a specific one. */}
+      {/* Arrows either side of the current mode's name, and nothing else. A
+          pill per mode meant the row grew with the conversation and put a
+          filled accent-coloured chip above every answer; the name alone says
+          where you are, and the arrows say there is more. */}
       <nav
         aria-label="Modes in this conversation"
-        className="flex shrink-0 items-center justify-center gap-1 py-2"
+        className="flex shrink-0 items-center justify-center gap-2 py-1.5"
       >
         <StepButton
           direction="previous"
           disabled={activeIndex === 0}
           onClick={() => onActiveIndexChange(clamp(activeIndex - 1))}
         />
-        {tracks.map((track, index) => (
-          <button
-            key={track.mode}
-            type="button"
-            onClick={() => onActiveIndexChange(index)}
-            aria-current={index === activeIndex ? "true" : undefined}
-            className={cx(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-              index === activeIndex
-                ? "bg-brand text-white"
-                : "text-ink-muted hover:bg-surface-hover hover:text-ink",
-            )}
-          >
-            {MODE_BY_VALUE[track.mode].label}
-            <span className="ml-1.5 opacity-70">{track.messages.length}</span>
-          </button>
-        ))}
+        <span
+          aria-live="polite"
+          className="min-w-24 text-center text-xs font-medium text-ink-secondary"
+        >
+          {MODE_BY_VALUE[tracks[activeIndex]?.mode]?.label}
+          <span className="ml-1.5 tabular-nums text-ink-muted">
+            {activeIndex + 1}/{tracks.length}
+          </span>
+        </span>
         <StepButton
           direction="next"
           disabled={activeIndex === tracks.length - 1}
@@ -284,15 +280,12 @@ export function ModeCarousel({
                   isActive ? undefined : { filter: "blur(2px)" }
                 }
               >
-                <div
-                  className={cx(
-                    "flex min-h-0 flex-1 flex-col rounded-2xl border transition-colors",
-                    isActive ? "border-brand-border" : "border-hairline",
-                  )}
-                >
-                  <p className="shrink-0 border-b border-hairline px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                    {MODE_BY_VALUE[track.mode].label}
-                  </p>
+                {/* No card around the track. The border, its rounding and the
+                    repeated mode heading cost ~40px of vertical space on a
+                    column whose height is the scarce thing, and framed a
+                    conversation that is already the only thing on screen. The
+                    nav above says which mode this is. */}
+                <div className="flex min-h-0 flex-1 flex-col">
                   {renderMessages(track.messages, track.mode)}
                 </div>
               </section>

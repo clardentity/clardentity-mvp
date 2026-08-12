@@ -109,7 +109,12 @@ export function MessageInput({
 
       {imageError && <p className="text-xs text-band-low">{imageError}</p>}
 
-      <div className="flex items-end gap-2 rounded-xl border border-hairline-strong bg-surface p-2 transition-colors focus-within:border-brand">
+      {/* No focus treatment on the composer. It is the one control on the
+          page whose whole purpose is to be typed into, so ringing it in the
+          accent colour every time the caret lands there was decoration that
+          fired constantly and told you nothing you didn't already know. The
+          caret is the indicator. */}
+      <div className="flex items-end gap-2 rounded-xl border border-hairline-strong bg-surface p-2">
         <AudioRecorder
           disabled={disabled}
           onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
