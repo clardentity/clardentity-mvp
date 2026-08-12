@@ -1,28 +1,112 @@
 "use client";
 
-import type { Claim } from "@/lib/sse";
+import type { Claim, Evidence } from "@/lib/sse";
 import { cx } from "@/components/ui/primitives";
 import { cleanMessageText } from "@/lib/text";
 
 /* Veracity tiers, from the claim's numeric score:
      0-20 fabricated · 21-40 distorted · 41-80 gray_area
      81-99 probable_fact · 100 verifiable_fact
-   The label and the number next to it now come from the same place, so a
-   claim can't read "Verifiable Fact" beside a score of 41. The four older
-   labels (full/moderate/partial/none/unsupported) are kept so claims scored
-   before this tier system shipped still render something. */
-const ENTAILMENT_LABELS: Record<string, string> = {
-  verifiable_fact: "Verifiable Fact",
-  probable_fact: "Probable Fact",
-  gray_area: "Unverifiable (Gray Area)",
-  distorted: "Distorted / Misinformed",
-  fabricated: "Fabricated / Malicious",
-  full: "Fully supported",
-  moderate: "Moderately supported",
-  partial: "Partially supported",
-  none: "Unsupported",
-  unsupported: "Unsupported",
+   The label and the number next to it come from the same place, so a claim
+   can't read "Verifiable Fact" beside a score of 41. The older labels
+   (full/moderate/partial/none/unsupported) are kept so claims scored before
+   the tier system shipped still render something.
+
+   The tier names come from the client's scoring framework and are kept as it
+   words them, minus internal parentheticals like "(Gray Area)" that name the
+   slab rather than describe the claim. Renaming them properly would change
+   what the score says, not just how it reads - so instead each tier carries a
+   plain-language line underneath, which is what stops "Fabricated /
+   Malicious" landing as an accusation against a claim that is merely
+   uncited. */
+const TIERS: Record<string, { label: string; meaning: string; text: string; rail: string }> = {
+  verifiable_fact: {
+    label: "Verifiable Fact",
+    meaning: "Directly confirmed by the sources cited here.",
+    text: "text-band-high",
+    rail: "border-band-high-border",
+  },
+  probable_fact: {
+    label: "Probable Fact",
+    meaning: "Strongly supported, though short of direct confirmation.",
+    text: "text-band-moderate",
+    rail: "border-band-high-border",
+  },
+  gray_area: {
+    label: "Unverifiable",
+    meaning: "Plausible, but these sources neither confirm nor refute it.",
+    text: "text-band-mid",
+    rail: "border-band-mid-border",
+  },
+  distorted: {
+    label: "Distorted",
+    meaning: "Rests on something real, but the framing overstates it.",
+    text: "text-caution",
+    rail: "border-caution-border",
+  },
+  fabricated: {
+    // The framework's own name for the 0-20 slab. Left verbatim rather than
+    // softened to "Unsupported": it is the client's taxonomy, and quietly
+    // renaming the harshest tier is a change to what the score *says*, not
+    // to how it is worded. The meaning line below is what stops it reading
+    // as an accusation against a claim that is merely uncited.
+    label: "Fabricated / Malicious",
+    meaning: "Nothing found here backs this up. Worth checking yourself.",
+    text: "text-band-low",
+    rail: "border-band-low-border",
+  },
+  // Pre-framework rows.
+  full: { label: "Fully supported", meaning: "", text: "text-band-high", rail: "border-band-high-border" },
+  moderate: { label: "Moderately supported", meaning: "", text: "text-band-moderate", rail: "border-band-high-border" },
+  partial: { label: "Partially supported", meaning: "", text: "text-band-mid", rail: "border-band-mid-border" },
+  none: { label: "Unsupported", meaning: "", text: "text-band-low", rail: "border-band-low-border" },
+  unsupported: { label: "Unsupported", meaning: "", text: "text-band-low", rail: "border-band-low-border" },
 };
+
+const FALLBACK_TIER = {
+  label: "Unrated",
+  meaning: "",
+  text: "text-ink-muted",
+  rail: "border-hairline",
+};
+
+function tierOf(label: string | null) {
+  return TIERS[label ?? ""] ?? FALLBACK_TIER;
+}
+
+/* The panel used to print "support 0.72 · relevance 0.55 · credibility 0.81"
+   and leave the reader to work out what any of it meant, or what it added up
+   to. Each number becomes the sentence it stands for; the figure itself stays
+   available in the tooltip for anyone who wants it. */
+function supportPhrase(e: Evidence): string {
+  if (e.entailment_label === "full") return "Backs this directly";
+  if (e.entailment_label === "partial") return "Partly backs this";
+  if (e.entailment_label === "none") return "Doesn't back this";
+  return "Bearing unclear";
+}
+
+function relevancePhrase(score: number | null): string | null {
+  if (score === null) return null;
+  if (score >= 0.75) return "closely on topic";
+  if (score >= 0.5) return "related";
+  return "loosely related";
+}
+
+function credibilityPhrase(score: number | null): string | null {
+  if (score === null) return null;
+  if (score >= 0.8) return "source looks reliable";
+  if (score >= 0.6) return "source looks reasonable";
+  return "source is questionable";
+}
+
+/** Mirrors compute_claim_score on the server: the score comes from whichever
+ *  single source backs the claim best, not from all of them averaged. Saying
+ *  which one turns the number from a verdict into something checkable. */
+function strongest(evidence: Evidence[]): Evidence | null {
+  if (evidence.length === 0) return null;
+  const weight = (e: Evidence) => 0.7 * (e.support_score ?? 0) + 0.3 * (e.relevance_score ?? 0);
+  return evidence.reduce((best, e) => (weight(e) > weight(best) ? e : best));
+}
 
 function hostOf(url: string): string {
   try {
@@ -50,67 +134,147 @@ function ExternalLinkIcon() {
   );
 }
 
-/* What each tier actually means, in the reader's terms. A label like
-   "Unverifiable (Gray Area)" beside a number is a verdict with no reasoning
-   attached - and the tiers that sound most alarming are exactly the ones
-   worth explaining, since "Fabricated / Malicious" on a claim that is merely
-   uncited reads as an accusation rather than a description. */
-const ENTAILMENT_MEANINGS: Record<string, string> = {
-  verifiable_fact: "Directly confirmed by the sources cited here.",
-  probable_fact: "Strongly supported, though short of direct confirmation.",
-  gray_area: "Plausible, but the sources here neither confirm nor refute it.",
-  distorted: "Rests on something real, but the framing overstates it.",
-  fabricated: "Nothing here supports this. Treat it as unverified.",
-};
-
-const ENTAILMENT_TONES: Record<string, string> = {
-  verifiable_fact: "text-band-high",
-  probable_fact: "text-band-moderate",
-  gray_area: "text-band-mid",
-  distorted: "text-caution",
-  fabricated: "text-band-low",
-  full: "text-band-high",
-  moderate: "text-band-moderate",
-  partial: "text-band-mid",
-  none: "text-band-low",
-  unsupported: "text-band-low",
-};
-
 /** A detected cognitive bias, named from the taxonomy rather than shown as a
  *  raw flag. The definition travels with the claim from the API so the reader
- *  can tell what the label means without leaving the message - which is the
- *  whole reason there is no longer a browsable library to link out to. */
+ *  can tell what the label means without leaving the message. */
 function BiasCallout({ claim }: { claim: Claim }) {
   if (!claim.distortion_flag) return null;
 
   const name = claim.bias_name ?? claim.distortion_flag.replace(/_/g, " ");
 
   return (
-    <div className="mt-2 rounded-lg border border-caution-border bg-caution-bg p-2.5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-caution">
-          Possible bias
-        </span>
-        <span className="text-xs font-semibold text-caution opacity-90">{name}</span>
+    <div className="mt-2.5 rounded-lg border border-caution-border bg-caution-bg px-3 py-2">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-xs font-semibold text-caution">Possible bias: {name}</span>
         {claim.bias_category_name && (
-          <span className="text-[11px] text-caution opacity-80">
-            · {claim.bias_category_name}
-          </span>
+          <span className="text-[11px] text-caution opacity-80">{claim.bias_category_name}</span>
         )}
       </div>
-
+      {claim.distortion_explanation && (
+        <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+          {claim.distortion_explanation}
+        </p>
+      )}
       {claim.bias_definition && (
         <p className="mt-1 text-[11px] leading-relaxed text-caution opacity-90">
           {claim.bias_definition}
         </p>
       )}
-      {claim.distortion_explanation && (
-        <p className="mt-1.5 text-xs leading-relaxed text-ink-secondary">
-          <span className="font-medium text-ink">In this claim: </span>
-          {claim.distortion_explanation}
+    </div>
+  );
+}
+
+function EvidenceRow({ e }: { e: Evidence }) {
+  const isWeb = e.source_type === "web" && e.url;
+  const facts = [
+    supportPhrase(e),
+    isWeb ? credibilityPhrase(e.credibility_score) : relevancePhrase(e.relevance_score),
+  ].filter(Boolean);
+
+  return (
+    <li className="space-y-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="shrink-0 rounded bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink-secondary">
+          {e.citation_marker}
+        </span>
+        {isWeb ? (
+          // A link, because a web citation you can't open is not a citation -
+          // it's a claim about a citation.
+          <a
+            href={e.url!}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+          >
+            {e.document_filename}
+            <ExternalLinkIcon />
+          </a>
+        ) : (
+          <span className="text-xs font-medium text-ink">{e.document_filename}</span>
+        )}
+        {isWeb && <span className="text-[11px] text-ink-muted">{hostOf(e.url!)}</span>}
+      </div>
+
+      {/* The sentence the verifier actually judged on, not wherever the
+          retrieved chunk happened to begin. */}
+      {e.excerpt && (
+        <blockquote className="border-l-2 border-hairline pl-2.5 text-xs leading-relaxed text-ink-secondary">
+          {e.excerpt}
+        </blockquote>
+      )}
+
+      <p
+        className="text-[11px] text-ink-muted"
+        title={`support ${e.support_score?.toFixed(2) ?? "?"} · ${
+          isWeb ? "credibility" : "relevance"
+        } ${(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ?? "?"}`}
+      >
+        {facts.join(" · ")}
+      </p>
+
+      {e.credibility_note && (
+        <p className="text-[11px] italic leading-relaxed text-ink-muted">{e.credibility_note}</p>
+      )}
+    </li>
+  );
+}
+
+function ClaimBlock({ claim }: { claim: Claim }) {
+  const tier = tierOf(claim.entailment_label);
+  const best = strongest(claim.evidence);
+  const count = claim.evidence.length;
+
+  return (
+    <article className={cx("border-l-2 pl-3", tier.rail)}>
+      <p className="text-[13px] leading-relaxed text-ink">{cleanMessageText(claim.claim_text)}</p>
+
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className={cx("text-xs font-semibold", tier.text)}>{tier.label}</span>
+        {claim.claim_score !== null && (
+          <span className="text-xs tabular-nums text-ink-muted">
+            {Math.round(claim.claim_score)}/100
+          </span>
+        )}
+      </div>
+
+      {tier.meaning && (
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{tier.meaning}</p>
+      )}
+
+      {/* Where the number came from. The server scores a claim off its single
+          best source rather than an average, so naming that source is the
+          difference between a verdict and a thing you can go and check. */}
+      <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+        {best === null
+          ? "Nothing was found to check this against."
+          : count === 1
+            ? `Scored on source ${best.citation_marker}.`
+            : `Scored on source ${best.citation_marker}, the strongest of ${count} checked.`}
+        {claim.distortion_flag && " Capped because the reasoning was flagged below."}
+      </p>
+
+      {claim.reconciliation_note && (
+        // A second, independent pass looked at this claim again without
+        // seeing the first verdict.
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+          <span className="font-medium text-ink-secondary">Second look: </span>
+          {claim.reconciliation_note}
+          {claim.dynamic && (
+            <span className="italic"> May be reassessed as more information emerges.</span>
+          )}
         </p>
       )}
-    </div>
+
+      <BiasCallout claim={claim} />
+
+      {count > 0 && (
+        <ul className="mt-2.5 space-y-2.5">
+          {claim.evidence.map((e) => (
+            <EvidenceRow key={e.citation_marker} e={e} />
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }
 
@@ -175,115 +339,13 @@ export function EvidencePanel({
       </button>
 
       {expanded && (
-        <div className="mt-2.5 space-y-2.5 border-t border-hairline pt-2.5">
+        <div className="mt-3 space-y-4 border-t border-hairline pt-3">
+          <p className="text-[11px] leading-relaxed text-ink-muted">
+            Each statement in the answer is checked separately against the sources
+            it cites, then scored on how well the best of them backs it up.
+          </p>
           {claims.map((claim) => (
-            <article
-              key={claim.claim_index}
-              className="rounded-lg border border-hairline bg-surface-muted p-3"
-            >
-              <p className="text-xs leading-relaxed text-ink">{cleanMessageText(claim.claim_text)}</p>
-
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
-                <span
-                  className={cx(
-                    "font-medium",
-                    ENTAILMENT_TONES[claim.entailment_label ?? ""] ?? "text-ink-muted",
-                  )}
-                >
-                  {ENTAILMENT_LABELS[claim.entailment_label ?? ""] ??
-                    claim.entailment_label ??
-                    "Unrated"}
-                </span>
-                {claim.claim_score !== null && (
-                  <span className="tabular-nums text-ink-muted">
-                    {Math.round(claim.claim_score)}/100
-                  </span>
-                )}
-              </div>
-
-              {ENTAILMENT_MEANINGS[claim.entailment_label ?? ""] && (
-                <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
-                  {ENTAILMENT_MEANINGS[claim.entailment_label ?? ""]}
-                </p>
-              )}
-
-              {claim.reconciliation_note && (
-                // A second, independent pass looked at this claim again
-                // without seeing the first verdict - shown as a footnote
-                // rather than folded into the tier label, since it's
-                // context for the reader, not a different score.
-                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
-                  <span className="font-medium text-ink-secondary">Second look: </span>
-                  {claim.reconciliation_note}
-                  {claim.dynamic && (
-                    <span className="ml-1 italic">
-                      May be reassessed as more information becomes available.
-                    </span>
-                  )}
-                </p>
-              )}
-
-              <BiasCallout claim={claim} />
-
-              {claim.evidence.length === 0 ? (
-                <p className="mt-2 text-[11px] italic text-ink-muted">
-                  No supporting evidence found for this statement.
-                </p>
-              ) : (
-                <ul className="mt-2 space-y-1.5">
-                  {claim.evidence.map((e) => {
-                    const isWeb = e.source_type === "web" && e.url;
-                    return (
-                      <li
-                        key={e.citation_marker}
-                        className="rounded-md border border-hairline bg-surface p-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          {isWeb ? (
-                            // A link, because a web citation you can't open is
-                            // not a citation - it's a claim about a citation.
-                            <a
-                              href={e.url!}
-                              target="_blank"
-                              rel="noopener noreferrer nofollow"
-                              className="inline-flex items-center gap-1 text-[11px] font-medium text-brand hover:underline"
-                            >
-                              [{e.citation_marker}] {e.document_filename}
-                              <ExternalLinkIcon />
-                            </a>
-                          ) : (
-                            <span className="text-[11px] font-medium text-ink">
-                              [{e.citation_marker}] {e.document_filename}
-                            </span>
-                          )}
-                          <span className="tabular-nums text-[11px] text-ink-muted">
-                            support {e.support_score?.toFixed(2) ?? "?"}
-                            {isWeb ? " · credibility " : " · relevance "}
-                            {(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ??
-                              "?"}
-                          </span>
-                        </div>
-                        {isWeb && (
-                          <p className="mt-0.5 truncate text-[10px] text-ink-muted">
-                            {hostOf(e.url!)}
-                          </p>
-                        )}
-                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
-                          {e.excerpt}
-                        </p>
-                        {e.credibility_note && (
-                          // Why the supervisor scored it that way. A number on
-                          // its own is just another thing to take on trust.
-                          <p className="mt-1 text-[10px] italic leading-relaxed text-ink-muted">
-                            {e.credibility_note}
-                          </p>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </article>
+            <ClaimBlock key={claim.claim_index} claim={claim} />
           ))}
         </div>
       )}

@@ -86,6 +86,16 @@ def build_scored_evidence(
         if not (0 < marker <= len(chunks) + len(web_sources)):
             continue
 
+        def excerpt_for(full_text: str) -> str:
+            """The sentence the verifier judged on, when it gave one.
+
+            The fallback is the old behaviour - the first 300 characters of
+            the source - which is a reasonable thing to show and a poor thing
+            to call evidence, since where a chunk starts has nothing to do
+            with the claim being checked.
+            """
+            return verification.quote or full_text[:300]
+
         if marker > len(chunks):
             source = web_sources[marker - len(chunks) - 1]
             result.append(
@@ -93,7 +103,7 @@ def build_scored_evidence(
                     citation_marker=marker,
                     document_id=None,
                     document_filename=source.title,
-                    excerpt=source.excerpt[:300],
+                    excerpt=excerpt_for(source.excerpt),
                     support_score=verification.support_score,
                     # A web source has no embedding-similarity score to report,
                     # so its relevance is the supervisor's credibility judgement
@@ -115,7 +125,7 @@ def build_scored_evidence(
                 citation_marker=marker,
                 document_id=rc.document.id,
                 document_filename=rc.document.filename,
-                excerpt=rc.chunk.content[:300],
+                excerpt=excerpt_for(rc.chunk.content),
                 support_score=verification.support_score,
                 relevance_score=rc.score,
                 entailment_label=verification.entailment_label,

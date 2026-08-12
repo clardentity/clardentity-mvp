@@ -100,48 +100,58 @@ export function DevilsDraft({
       >
         <DevilIcon className="h-3.5 w-3.5" />
         {open ? "Hide the Devil's Draft" : "Devil's Draft"}
-        <span className="text-ink-muted">what this would say unchecked</span>
+        <span className="text-ink-muted">compare against the unchecked version</span>
       </button>
 
       {open && (
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <section className="rounded-lg border border-hairline bg-surface-muted p-3">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-band-high">
-              As written - the answer you got
-            </h4>
-            <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-ink-secondary">
-              {/* The bubble above renders this cleaned and with its citations
-                  turned into markers; showing the raw string here put stray
-                  "[2]"s and leftover markup on one side of a comparison whose
-                  whole point is the difference in *wording*. */}
-              {comparableText(answer)}
-            </p>
-          </section>
-
-          <section className="rounded-lg border border-caution-border bg-caution-bg p-3">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-caution">
-              Off the leash - the same answer, unchecked
-            </h4>
-            {loading && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-caution">
-                <Spinner className="h-3 w-3" />
-                Arguing the other way…
-              </p>
-            )}
-            {error && <p className="mt-1.5 text-xs text-band-low">{error}</p>}
-            {text && (
-              <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-caution">
-                {comparableText(text)}
-              </p>
-            )}
-          </section>
-
-          <p className="text-[11px] leading-relaxed text-ink-muted sm:col-span-2">
-            The right-hand version states things flatly, drops the caveats and
-            leads with whatever lands hardest. It is not a second opinion - it
-            is the same answer with the bias screening switched off, shown so
-            you can see what the screening was doing.
+        <div className="mt-2">
+          {/* Said before the two panes rather than after them. It is the
+              instruction for how to read the comparison, and underneath it
+              was a footnote explaining something you had already misread. */}
+          <p className="text-[11px] leading-relaxed text-ink-muted">
+            Same question, same conclusion, bias screening switched off. The
+            second version states things flatly, drops the caveats and leads
+            with whatever lands hardest - so the difference between them is
+            what the screening was doing for you.
           </p>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <section className="rounded-lg border border-hairline bg-surface-muted p-3">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-band-high">
+                What you were told
+              </h4>
+              <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-secondary">
+                {/* The bubble above renders this cleaned and with its
+                    citations turned into markers; showing the raw string here
+                    put stray "[2]"s and leftover markup on one side of a
+                    comparison whose whole point is the difference in
+                    *wording*. */}
+                {comparableText(answer)}
+              </p>
+            </section>
+
+            <section className="rounded-lg border border-caution-border bg-caution-bg p-3">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-caution">
+                What it would have said unchecked
+              </h4>
+              {loading && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-caution">
+                  <Spinner className="h-3 w-3" />
+                  Arguing the other way…
+                </p>
+              )}
+              {error && <p className="mt-1.5 text-xs text-band-low">{error}</p>}
+              {text && (
+                // Body in the ordinary reading colour, not the warning
+                // colour. A full paragraph of orange is a thing you skim and
+                // give up on, and this is the half you are meant to read
+                // closely - the border and heading already carry the warning.
+                <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-secondary">
+                  {comparableText(text)}
+                </p>
+              )}
+            </section>
+          </div>
         </div>
       )}
     </div>

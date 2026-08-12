@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from app.services import taxonomy
 from app.services.openai_client import generate_structured
+from app.services.output_cleanup import replace_dashes
 
 # Listing every screenable bias inline would dominate the prompt, so the model
 # is given a domain-scoped shortlist by name. It resolves the name back to a
@@ -17,6 +18,11 @@ _BASE_INSTRUCTIONS = (
     'the claim: "full" (directly and completely supports it), "partial" (related but '
     'doesn\'t fully establish it), or "none" (doesn\'t support it at all) - plus a '
     "support_score from 0 to 1 (0 = no support, 1 = complete direct support).\n\n"
+    "Also return `quote`: the specific sentence or two, copied verbatim from that piece of "
+    "evidence, that decided your judgement - the part a reader would need to see to agree "
+    "with you. Copy it exactly, do not paraphrase, and keep it under about 240 characters. "
+    "If nothing in the evidence bears on the claim, return the sentence that comes closest "
+    "and score it accordingly.\n\n"
     "Then screen the claim's reasoning itself (not just its factual grounding). If the "
     "reasoning exhibits a cognitive bias or distortion, name it using EXACTLY one of the "
     "labels from the VOCABULARY below - copy the label verbatim. If the reasoning is sound, "
@@ -37,7 +43,8 @@ _BASE_INSTRUCTIONS = (
     "fall back to Wishful Thinking or Magical Thinking when no more specific bias fits.\n\n"
     "Respond with ONLY a JSON object with exactly these keys, no other text and no markdown "
     "fencing:\n"
-    '{"evidence": [{"entailment_label": "full|partial|none", "support_score": 0.0}, ...], '
+    '{"evidence": [{"entailment_label": "full|partial|none", "support_score": 0.0, '
+    '"quote": "the deciding sentence, verbatim"}, ...], '
     '"bias": "<exact label from VOCABULARY>"|null, '
     '"bias_explanation": "one plain-language sentence naming what the reasoning does, or null"}\n'
     "The evidence array must have exactly as many items, in the same order, as the "
@@ -70,6 +77,12 @@ _ENTAILMENT_LABELS = ("full", "partial", "none")
 class EvidenceVerification:
     entailment_label: str
     support_score: float
+    # The sentence the judgement actually turned on. What we used to show a
+    # reader instead was the first 300 characters of the retrieved chunk,
+    # which is where the chunk happened to start rather than anything to do
+    # with the claim - so the panel asked you to take the score on trust and
+    # then showed you an unrelated paragraph as if it were the reason.
+    quote: str | None = None
 
 
 @dataclass
@@ -118,8 +131,15 @@ _SCHEMA = {
                         "type": "number",
                         "description": "0.0-1.0, how strongly this evidence supports the claim.",
                     },
+                    "quote": {
+                        "type": "string",
+                        "description": (
+                            "The sentence from this evidence that decided the judgement, "
+                            "copied verbatim. Under ~240 characters."
+                        ),
+                    },
                 },
-                "required": ["entailment_label", "support_score"],
+                "required": ["entailment_label", "support_score", "quote"],
                 "additionalProperties": False,
             },
         },
@@ -188,7 +208,12 @@ async def verify_claim(
                 label = "partial"
             score = float(item.get("support_score", 0.5))
             score = max(0.0, min(1.0, score))
-            evidence_results.append(EvidenceVerification(label, score))
+            quote = item.get("quote")
+            if isinstance(quote, str):
+                quote = quote.strip()[:400] or None
+            else:
+                quote = None
+            evidence_results.append(EvidenceVerification(label, score, quote))
 
         # Anything the model names that isn't in the catalogue resolves to None
         # and is dropped, so a hallucinated bias never reaches the UI or the DB.
@@ -299,5 +324,11 @@ async def reconcile_gray_area(claim_text: str, evidence_texts: list[str]) -> Rec
     if pattern not in ("spoofed", "understated", "genuinely_developing"):
         return fallback
 
-    note = parsed.get("note") or fallback.note
+    # This note is our own prose and goes straight to the panel without
+    # passing through the answer's clean_output pass, so it needs the dash
+    # rule applied here or it arrives with the en dashes the model likes to
+    # write ranges with ("28-35%"). Source quotes above are deliberately left
+    # verbatim - misquoting a document in an evidence panel is a worse fault
+    # than a typographic one.
+    note = replace_dashes(parsed.get("note") or fallback.note)
     return ReconciliationResult(pattern=pattern, note=note, dynamic=pattern == "genuinely_developing")
