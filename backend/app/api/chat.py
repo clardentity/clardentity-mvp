@@ -33,6 +33,7 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
+    veracity_tier,
 )
 from app.services.devils_advocate import generate_counterfactual
 from app.services.decision_classifier import (
@@ -63,7 +64,7 @@ from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
 from app.services.taxonomy import describe_bias
-from app.services.verification_agent import verify_claim
+from app.services.verification_agent import reconcile_gray_area, verify_claim
 from app.services.web_research import WebSource, gather_context, research_claim
 from app.workers.rebuild_memory import rebuild_memory_task
 from app.workers.rebuild_profile import rebuild_profile_task
@@ -713,7 +714,9 @@ async def send_message(
         for claim, markers, verification, evidence in zip(
             parsed_claims, claim_marker_lists, verifications, evidence_by_claim
         ):
-            claim_score, entailment_label = compute_claim_score(evidence)
+            claim_score, entailment_label = compute_claim_score(
+                evidence, distorted=bool(verification.distortion_flag)
+            )
             scored_claims.append(
                 ScoredClaim(
                     claim_index=claim.claim_index,
@@ -726,6 +729,43 @@ async def send_message(
                     evidence=evidence,
                 )
             )
+
+        # Veracity framework "Targeted Blind Sampling": claims that landed in
+        # the gray_area tier get one independent second look, run concurrently
+        # since they have nothing to do with each other. The second pass never
+        # sees the tier we just assigned, so it can't just rubber-stamp it.
+        gray_area_indices = [
+            i for i, c in enumerate(scored_claims) if c.entailment_label == "gray_area"
+        ]
+        if gray_area_indices:
+            reconciliations = await asyncio.gather(
+                *(
+                    reconcile_gray_area(
+                        scored_claims[i].claim_text,
+                        [source_excerpt(m) for m in claim_marker_lists[i]],
+                    )
+                    for i in gray_area_indices
+                ),
+                return_exceptions=True,
+            )
+            for i, result in zip(gray_area_indices, reconciliations):
+                if isinstance(result, BaseException):
+                    continue
+                c = scored_claims[i]
+                c.reconciliation_note = result.note
+                c.dynamic = result.dynamic
+                # A blind pass that recognizes a spoofed/deepfake-shaped premise
+                # or an accurate claim buried in informal phrasing overrules the
+                # first-pass number - the reconciliation matrix treats both as
+                # cases the first pass got wrong, not cases it was merely unsure
+                # about. "genuinely_developing" leaves the score untouched; it
+                # confirms gray_area rather than correcting it.
+                if result.pattern == "spoofed":
+                    c.claim_score = min(c.claim_score, 40.0)
+                    c.entailment_label = veracity_tier(c.claim_score)
+                elif result.pattern == "understated":
+                    c.claim_score = max(c.claim_score, 81.0)
+                    c.entailment_label = veracity_tier(c.claim_score)
 
         message_score = compute_message_score(scored_claims, scoring_weights)
 
@@ -817,6 +857,8 @@ async def send_message(
                     distortion_flag=c.distortion_flag,
                     distortion_explanation=c.distortion_explanation,
                     bias_category=c.bias_category,
+                    reconciliation_note=c.reconciliation_note,
+                    dynamic=c.dynamic,
                 )
                 gen_db.add(claim_row)
                 await gen_db.flush()

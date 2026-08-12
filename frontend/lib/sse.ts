@@ -30,6 +30,12 @@ export type Claim = {
   bias_definition: string | null;
   bias_category: string | null;
   bias_category_name: string | null;
+  /** Set only when this claim landed in gray_area and got a second, blind
+   *  reconciliation pass. `dynamic` means that pass judged it genuinely
+   *  developing rather than simply hard to verify - there is no scheduled
+   *  re-check behind it, just a signal the tier is provisional. */
+  reconciliation_note: string | null;
+  dynamic: boolean;
   evidence: Evidence[];
 };
 

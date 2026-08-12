@@ -81,6 +81,13 @@ class ClaimOut(BaseModel):
     bias_definition: str | None = None
     bias_category: str | None = None
     bias_category_name: str | None = None
+    # Set only when this claim landed in the gray_area tier and got a second,
+    # blind reconciliation pass (see verification_agent.reconcile_gray_area).
+    # `dynamic` means that pass judged it genuinely developing rather than
+    # simply hard to verify - there is no scheduled re-check behind it, just
+    # a signal that the tier is provisional.
+    reconciliation_note: str | None = None
+    dynamic: bool = False
     evidence: list[EvidenceOut] = []
 
 

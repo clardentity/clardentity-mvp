@@ -63,6 +63,8 @@ async def load_claims_for_messages(
                 distortion_flag=c.distortion_flag,
                 distortion_explanation=c.distortion_explanation,
                 **describe_bias(c.distortion_flag, c.bias_category),
+                reconciliation_note=c.reconciliation_note,
+                dynamic=c.dynamic,
                 evidence=evidence_by_claim.get(c.id, []),
             )
         )

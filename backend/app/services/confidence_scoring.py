@@ -49,11 +49,15 @@ class ScoredClaim:
     claim_index: int
     claim_text: str
     claim_score: float
-    entailment_label: str  # full/partial/none/unsupported
+    entailment_label: str  # veracity tier - see VERACITY_TIERS below
     distortion_flag: str | None
     distortion_explanation: str | None
     evidence: list[ScoredEvidence]
     bias_category: str | None = None
+    # Set only when a second-level blind reconciliation pass ran (gray_area
+    # claims only - see verification_agent.reconcile_gray_area).
+    reconciliation_note: str | None = None
+    dynamic: bool = False
 
 
 @dataclass
@@ -120,42 +124,80 @@ def build_scored_evidence(
     return result
 
 
-# Support bands, in ascending order of (lower_bound, label).
+# Claim-level veracity tiers, per the "Output/Answer Veracity Scoring
+# Framework" (client spec, 2026-08-12) - ascending (lower_bound, tier id).
 #
-# Derived from the score rather than taken from the verification agent's own
-# word for it. Those two used to be able to disagree - a claim could read
-# "Fully supported" next to a score of 41, because the label came from the
-# model's judgement of entailment and the number came from arithmetic over
-# support and relevance. Whichever a reader believed, the other one was
-# lying to them.
-SUPPORT_BANDS: tuple[tuple[float, str], ...] = (
-    (76.0, "full"),
-    (51.0, "moderate"),
-    (26.0, "partial"),
-    (0.0, "unsupported"),
+# The framework's own table gives 100 as a standalone row ("Verifiable Fact"),
+# distinct from 81-99 ("Probable Fact"). Reached against the *rounded*
+# display score rather than the raw float: our claim_score is a continuous
+# 0.7*support + 0.3*relevance blend, so a raw 99.6 is realistically as good
+# as it gets and would otherwise sit forever on the wrong side of a boundary
+# the reader can't see - the UI already rounds for display, and the label has
+# to agree with the number it's printed next to.
+VERACITY_TIERS: tuple[tuple[float, str], ...] = (
+    (100.0, "verifiable_fact"),  # 100        - absolute consensus, primary sources, zero omissions
+    (81.0, "probable_fact"),  # 81-99      - strongly supported, short of primary confirmation
+    (41.0, "gray_area"),  # 41-80      - speculative/uncorroborated, not disproven either
+    (21.0, "distorted"),  # 21-40      - a real seed of truth, weaponised via omission/hyperbole
+    (0.0, "fabricated"),  # 0-20       - no factual grounding, or built to deceive
 )
 
+# Human-readable labels, for anything that renders the tier server-side
+# (export, admin views) without duplicating this table.
+VERACITY_TIER_LABELS: dict[str, str] = {
+    "verifiable_fact": "Verifiable Fact",
+    "probable_fact": "Probable Fact",
+    "gray_area": "Unverifiable (Gray Area)",
+    "distorted": "Distorted / Misinformed",
+    "fabricated": "Fabricated / Malicious",
+}
 
-def support_band(score: float) -> str:
-    """0-25 unsupported, 26-50 partial, 51-75 moderate, 76-100 full."""
-    for lower, label in SUPPORT_BANDS:
-        if score >= lower:
-            return label
-    return "unsupported"
+# A claim whose reasoning was flagged for cognitive distortion cannot read as
+# an established fact, however well its citations score - the framework
+# reserves 81-100 for content that is *not* "weaponised via hyperbole, severe
+# omissions, or chronological displacement", which is exactly what a flagged
+# distortion means we found. Capped at the top of "distorted" (40) rather than
+# dropped straight to "fabricated" (0-20): a biased framing of a true event is
+# a different, lesser claim than "text generated to deceive", and the
+# framework treats those as two separate tiers for a reason.
+_DISTORTION_CAP = 40.0
 
 
-def compute_claim_score(evidence: list[ScoredEvidence]) -> tuple[float, str]:
-    """§9.2: claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
-    evidence item best supports the claim. No evidence -> 0 / Unsupported.
-    (The 0.7/0.3 per-claim split isn't listed as admin-configurable in the
-    spec - only the message-level weights below are.)
+def veracity_tier(score: float) -> str:
+    """0 fabricated, 21-40 distorted, 41-80 gray_area, 81-99 probable_fact,
+    100 verifiable_fact - boundaries checked against the rounded score so the
+    label always agrees with the number printed beside it.
+    """
+    rounded = round(score)
+    for lower, tier in VERACITY_TIERS:
+        if rounded >= lower:
+            return tier
+    return "fabricated"
+
+
+def compute_claim_score(
+    evidence: list[ScoredEvidence], distorted: bool = False
+) -> tuple[float, str]:
+    """claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
+    evidence item best supports the claim. No evidence -> 0 (fabricated tier -
+    see the module docstring note in chat.py's caller about what that does and
+    doesn't imply). The 0.7/0.3 per-claim split isn't admin-configurable,
+    unlike the message-level weights below.
+
+    `distorted` is whether the verification agent flagged this claim's
+    reasoning for cognitive bias - when true, the score is capped so the tier
+    can never read higher than "distorted", regardless of how well-cited it is.
     """
     if not evidence:
-        return 0.0, "unsupported"
+        score = 0.0
+    else:
+        best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
+        score = 100 * (0.7 * best.support_score + 0.3 * best.relevance_score)
 
-    best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
-    score = 100 * (0.7 * best.support_score + 0.3 * best.relevance_score)
-    return score, support_band(score)
+    if distorted:
+        score = min(score, _DISTORTION_CAP)
+
+    return score, veracity_tier(score)
 
 
 def compute_message_score(

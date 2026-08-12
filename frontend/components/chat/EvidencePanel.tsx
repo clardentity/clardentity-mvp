@@ -4,15 +4,22 @@ import type { Claim } from "@/lib/sse";
 import { cx } from "@/components/ui/primitives";
 import { cleanMessageText } from "@/lib/text";
 
-/* Support bands, from the claim's numeric score:
-     0-25 unsupported · 26-50 partial · 51-75 moderate · 76-100 full
+/* Veracity tiers, from the claim's numeric score:
+     0-20 fabricated · 21-40 distorted · 41-80 gray_area
+     81-99 probable_fact · 100 verifiable_fact
    The label and the number next to it now come from the same place, so a
-   claim can't read "Fully supported" beside a score of 41. */
+   claim can't read "Verifiable Fact" beside a score of 41. The four older
+   labels (full/moderate/partial/none/unsupported) are kept so claims scored
+   before this tier system shipped still render something. */
 const ENTAILMENT_LABELS: Record<string, string> = {
+  verifiable_fact: "Verifiable Fact",
+  probable_fact: "Probable Fact",
+  gray_area: "Unverifiable (Gray Area)",
+  distorted: "Distorted / Misinformed",
+  fabricated: "Fabricated / Malicious",
   full: "Fully supported",
   moderate: "Moderately supported",
   partial: "Partially supported",
-  // Written by an older build, before the bands existed.
   none: "Unsupported",
   unsupported: "Unsupported",
 };
@@ -44,6 +51,11 @@ function ExternalLinkIcon() {
 }
 
 const ENTAILMENT_TONES: Record<string, string> = {
+  verifiable_fact: "text-band-high",
+  probable_fact: "text-band-moderate",
+  gray_area: "text-band-mid",
+  distorted: "text-caution",
+  fabricated: "text-band-low",
   full: "text-band-high",
   moderate: "text-band-moderate",
   partial: "text-band-mid",
@@ -175,6 +187,22 @@ export function EvidencePanel({
                   </span>
                 )}
               </div>
+
+              {claim.reconciliation_note && (
+                // A second, independent pass looked at this claim again
+                // without seeing the first verdict - shown as a footnote
+                // rather than folded into the tier label, since it's
+                // context for the reader, not a different score.
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+                  <span className="font-medium text-ink-secondary">Second look: </span>
+                  {claim.reconciliation_note}
+                  {claim.dynamic && (
+                    <span className="ml-1 italic">
+                      May be reassessed as more information becomes available.
+                    </span>
+                  )}
+                </p>
+              )}
 
               <BiasCallout claim={claim} />
 

@@ -44,6 +44,25 @@ _BASE_INSTRUCTIONS = (
     "evidence you were given."
 )
 
+# Per-source-category judgement criteria from the "Output/Answer Veracity
+# Scoring Framework" Metric Accuracy Parameters table. We have no wire-service
+# API, plagiarism scanner, domain-authority database, or bot-detection system
+# to call - these are the framework's benchmarks folded into the verifier's
+# own judgement instead of a fabricated integration, so the model applies the
+# same standard a human reviewer would without us pretending to automate what
+# we can't.
+_SOURCE_BENCHMARKS = (
+    "When evidence looks like a news or media article, weigh chronological consistency and "
+    "whether quotes appear to be reported verbatim; a single outlet's account is weaker than "
+    "corroboration you can infer from independent, reputable coverage of the same event.\n"
+    "When evidence looks like a scientific or academic paper, weigh methodological soundness "
+    "and peer-review signals (journal, citations) over the confidence of its prose; a claim "
+    "that outruns what the study itself established should not inherit the study's credibility.\n"
+    "When evidence looks like user-generated content (reviews, forum posts, social media), "
+    "weigh first-hand experiential detail against generic or incentivized-sounding language "
+    "(vague praise/complaint patterns typical of paid or bot-generated reviews)."
+)
+
 _ENTAILMENT_LABELS = ("full", "partial", "none")
 
 
@@ -75,7 +94,10 @@ def _build_instructions(bias_category_id: str | None) -> str:
     if scope is not None:
         header += f" (this conversation looks like: {scope.name})"
 
-    return f"{_BASE_INSTRUCTIONS}\n\n{header}:\n" + "\n".join(lines)
+    return (
+        f"{_BASE_INSTRUCTIONS}\n\nSOURCE BENCHMARKS:\n{_SOURCE_BENCHMARKS}"
+        f"\n\n{header}:\n" + "\n".join(lines)
+    )
 
 
 _SCHEMA = {
@@ -190,3 +212,92 @@ async def verify_claim(
         )
     except Exception:
         return fallback
+
+
+# Second-level screening: only for claims that land in the gray_area tier on
+# the first pass ("Output/Answer Veracity Scoring Framework" §"Automated AI
+# Execution" -> "Targeted Blind Sampling"). This is a genuinely separate call
+# from verify_claim, not a re-run of it - it never receives the first pass's
+# score or label, so it can't just agree with itself. It is oriented around
+# the framework's three Reconciliation Matrix scenarios: a fabricated/deepfake
+# premise being missed, an accurate claim being underscored for informal or
+# regional phrasing, or a genuinely developing topic that isn't wrong, just
+# not settled yet.
+_RECONCILIATION_INSTRUCTIONS = (
+    "You are the second, independent reviewer for a claim an AI assistant made, which a first "
+    "pass rated as unclear/gray-area. You do NOT know what the first reviewer concluded - form "
+    "your own judgement from the claim and evidence alone.\n\n"
+    "Decide which of these three patterns best fits:\n"
+    '  "spoofed" - the claim mimics the format of something factual (e.g. a fabricated quote, a '
+    "cloned/synthetic-sounding source, a manufactured statistic) but its core premise looks "
+    "manufactured or unverifiable at the source.\n"
+    '  "understated" - the claim is stated informally, colloquially, or in a regional/non-standard '
+    "way, but the underlying factual content looks accurate and well-supported once the phrasing "
+    "is set aside.\n"
+    '  "genuinely_developing" - this is authentically gray: developing news, a speculative '
+    "forecast, or a hypothesis that lacks long-run data, where no amount of re-reading the "
+    "evidence resolves it further right now.\n\n"
+    "Respond with ONLY a JSON object, no other text and no markdown fencing:\n"
+    '{"pattern": "spoofed|understated|genuinely_developing", '
+    '"note": "one plain-language sentence explaining the call, written for the person reading the '
+    'answer"}'
+)
+
+_RECONCILIATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pattern": {
+            "type": "string",
+            "enum": ["spoofed", "understated", "genuinely_developing"],
+        },
+        "note": {"type": "string"},
+    },
+    "required": ["pattern", "note"],
+    "additionalProperties": False,
+}
+
+
+@dataclass
+class ReconciliationResult:
+    pattern: str
+    note: str
+    dynamic: bool
+
+
+async def reconcile_gray_area(claim_text: str, evidence_texts: list[str]) -> ReconciliationResult:
+    """Blind second-level review for a gray_area claim. Never raises - falls
+    back to "genuinely_developing" (the safest read: leave the tier as-is,
+    tag it dynamic) rather than block scoring.
+    """
+    if evidence_texts:
+        evidence_block = "\n\n".join(
+            f"EVIDENCE {i + 1}:\n{text}" for i, text in enumerate(evidence_texts)
+        )
+    else:
+        evidence_block = "(no evidence was cited for this claim)"
+
+    input_text = f"CLAIM:\n{claim_text}\n\n{evidence_block}"
+
+    fallback = ReconciliationResult(
+        pattern="genuinely_developing",
+        note="Second-level review was inconclusive; treated as a genuinely developing topic.",
+        dynamic=True,
+    )
+
+    try:
+        parsed = await generate_structured(
+            instructions=_RECONCILIATION_INSTRUCTIONS,
+            input_text=input_text,
+            schema=_RECONCILIATION_SCHEMA,
+            schema_name="gray_area_reconciliation",
+            fast=True,
+        )
+    except Exception:
+        return fallback
+
+    pattern = parsed.get("pattern")
+    if pattern not in ("spoofed", "understated", "genuinely_developing"):
+        return fallback
+
+    note = parsed.get("note") or fallback.note
+    return ReconciliationResult(pattern=pattern, note=note, dynamic=pattern == "genuinely_developing")
