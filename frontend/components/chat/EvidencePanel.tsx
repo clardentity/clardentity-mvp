@@ -85,6 +85,23 @@ function supportPhrase(e: Evidence): string {
   return "Bearing unclear";
 }
 
+/* The support score, in its band's colour. Same four steps the claim tiers
+   use, so a 0.9 here and a 90 up on the claim read as the same kind of good.
+   Shown as a figure and not only as a phrase: the number is the thing the
+   scoring pipeline actually produced, and hiding it in a tooltip meant the
+   panel asserted a judgement while keeping its own working out of sight. */
+const SUPPORT_BANDS: [number, string][] = [
+  [0.76, "text-band-high"],
+  [0.51, "text-band-moderate"],
+  [0.26, "text-band-mid"],
+  [0, "text-band-low"],
+];
+
+function supportTone(score: number | null): string {
+  if (score === null) return "text-ink-muted";
+  return SUPPORT_BANDS.find(([min]) => score >= min)?.[1] ?? "text-band-low";
+}
+
 function relevancePhrase(score: number | null): string | null {
   if (score === null) return null;
   if (score >= 0.75) return "closely on topic";
@@ -134,36 +151,6 @@ function ExternalLinkIcon() {
   );
 }
 
-/** A detected cognitive bias, named from the taxonomy rather than shown as a
- *  raw flag. The definition travels with the claim from the API so the reader
- *  can tell what the label means without leaving the message. */
-function BiasCallout({ claim }: { claim: Claim }) {
-  if (!claim.distortion_flag) return null;
-
-  const name = claim.bias_name ?? claim.distortion_flag.replace(/_/g, " ");
-
-  return (
-    <div className="mt-2.5 rounded-lg border border-caution-border bg-caution-bg px-3 py-2">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="text-xs font-semibold text-caution">Possible bias: {name}</span>
-        {claim.bias_category_name && (
-          <span className="text-[11px] text-caution opacity-80">{claim.bias_category_name}</span>
-        )}
-      </div>
-      {claim.distortion_explanation && (
-        <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-          {claim.distortion_explanation}
-        </p>
-      )}
-      {claim.bias_definition && (
-        <p className="mt-1 text-[11px] leading-relaxed text-caution opacity-90">
-          {claim.bias_definition}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function EvidenceRow({ e }: { e: Evidence }) {
   const isWeb = e.source_type === "web" && e.url;
   const facts = [
@@ -203,13 +190,15 @@ function EvidenceRow({ e }: { e: Evidence }) {
         </blockquote>
       )}
 
-      <p
-        className="text-[11px] text-ink-muted"
-        title={`support ${e.support_score?.toFixed(2) ?? "?"} · ${
-          isWeb ? "credibility" : "relevance"
-        } ${(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ?? "?"}`}
-      >
-        {facts.join(" · ")}
+      <p className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-ink-muted">
+        <span className={cx("font-semibold tabular-nums", supportTone(e.support_score))}>
+          {e.support_score !== null ? e.support_score.toFixed(2) : "?"}
+        </span>
+        <span>{facts.join(" · ")}</span>
+        <span className="tabular-nums">
+          ({isWeb ? "credibility" : "relevance"}{" "}
+          {(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ?? "?"})
+        </span>
       </p>
 
       {e.credibility_note && (
@@ -250,7 +239,11 @@ function ClaimBlock({ claim }: { claim: Claim }) {
           : count === 1
             ? `Scored on source ${best.citation_marker}.`
             : `Scored on source ${best.citation_marker}, the strongest of ${count} checked.`}
-        {claim.distortion_flag && " Capped because the reasoning was flagged below."}
+        {/* The bias itself is no longer named to the reader - a taxonomy label
+            like "Anchoring Bias" is our vocabulary, not theirs. The cap it
+            causes still has to be accounted for, or the tier silently
+            contradicts the evidence above it. */}
+        {claim.distortion_flag && " Capped: the wording claims more than the sources carry."}
       </p>
 
       {claim.reconciliation_note && (
@@ -264,8 +257,6 @@ function ClaimBlock({ claim }: { claim: Claim }) {
           )}
         </p>
       )}
-
-      <BiasCallout claim={claim} />
 
       {count > 0 && (
         <ul className="mt-2.5 space-y-2.5">
@@ -295,15 +286,13 @@ export function EvidencePanel({
 }) {
   if (claims.length === 0) return null;
 
-  const flagged = claims.filter((c) => c.distortion_flag).length;
   const needsVerification = band === "Needs Verification";
 
   return (
     <div id={panelId} className="mt-2.5">
       {/* One quiet line, the whole width clickable. Collapsed it reads as a
-          footnote; the summary still says how many claims there are and
-          whether any were flagged, so nothing that would change your mind
-          about trusting the answer is hidden behind the click. */}
+          footnote; it still says how many claims there are, so the size of
+          what is behind the click is never a surprise. */}
       <button
         type="button"
         onClick={onToggle}
@@ -326,7 +315,6 @@ export function EvidencePanel({
           {expanded ? "Hide evidence" : "Evidence"}
           <span className="ml-1.5 text-ink-muted">
             {claims.length} claim{claims.length === 1 ? "" : "s"}
-            {flagged > 0 && ` · ${flagged} flagged`}
           </span>
         </span>
         {/* A weak answer shouldn't need the panel opened to be recognised as

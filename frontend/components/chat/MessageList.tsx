@@ -5,7 +5,7 @@ import type { Claim, ChatMessage } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
-import { DevilsDraft } from "@/components/chat/DevilsDraft";
+import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/ResponseFlip";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
 import { cleanMessageText } from "@/lib/text";
@@ -73,8 +73,8 @@ export function MessageList({
           <p className="text-sm font-medium text-ink">Start a conversation</p>
           <p className="mt-1 text-sm text-ink-muted">
             Pick a cognitive mode below, then ask your question. Every answer is
-            broken into claims, checked against your attachments, and screened for
-            cognitive bias.
+            broken into claims and checked against your attachments, so you can
+            see what each part of it rests on.
           </p>
         </div>
       </div>
@@ -92,7 +92,6 @@ export function MessageList({
           role={m.role}
           content={m.content ?? ""}
           modeUsed={m.mode_used}
-          reasoningLens={m.reasoning_lens}
           confidenceScore={m.confidence_score}
           confidenceBand={m.confidence_band}
           claims={m.claims}
@@ -128,7 +127,6 @@ export function MessageList({
           role="assistant"
           content={streaming.content}
           modeUsed={streaming.mode_used}
-          reasoningLens={null}
           confidenceScore={null}
           confidenceBand={null}
           claims={[]}
@@ -165,7 +163,6 @@ function MessageBubble({
   role,
   content,
   modeUsed,
-  reasoningLens,
   confidenceScore,
   confidenceBand,
   claims,
@@ -186,7 +183,6 @@ function MessageBubble({
   role: string;
   content: string;
   modeUsed: string;
-  reasoningLens: string | null;
   confidenceScore: number | null;
   confidenceBand: string | null;
   claims: Claim[];
@@ -209,6 +205,9 @@ function MessageBubble({
   // open it - clicking a score to find out where it came from should show you
   // the working, not scroll to a collapsed row.
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  // The Devil's Draft now lives on the back of this bubble rather than in a
+  // panel beneath it, so its state belongs to the bubble.
+  const devil = useCounterfactual({ conversationId, messageId: id, preloaded: counterfactual });
   // Editing happens inside the bubble. The previous version rewound the
   // conversation the moment you clicked edit and dropped the text into the
   // composer - so the rest of the chat disappeared before you had typed
@@ -228,16 +227,17 @@ function MessageBubble({
       >
         {!isUser && (
           <div className="mb-2 flex items-center justify-between gap-2">
+            {/* Mode only. The reasoning lens the agent picked is deliberately
+                never surfaced - it is an internal choice about how to think,
+                and naming it ("critical", "non-linear") asked the reader to
+                hold a vocabulary that was only ever meant for the model. */}
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
               <span>{modeUsed}</span>
-              {reasoningLens && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{reasoningLens.replace("_", "-")}</span>
-                </>
-              )}
             </div>
             <div className="flex items-center gap-1.5">
+              {!isStreaming && content && (
+                <FlipButton flipped={devil.flipped} onClick={devil.toggle} />
+              )}
               {onPlayAudio && content && (
                 <button
                   type="button"
@@ -339,13 +339,26 @@ function MessageBubble({
               </button>
             </div>
           </form>
+        ) : isUser ? (
+          <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
         ) : (
-          <p className="whitespace-pre-wrap leading-relaxed">
-            {isUser ? content : renderTextWithCitations(content, claims)}
-            {isStreaming && (
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
-            )}
-          </p>
+          // Only answers have a back. Wrapping your own messages in the flip
+          // container gave them a second face they could never show, and the
+          // stacked grid sized every user bubble to it.
+          <ResponseFlip
+            flipped={devil.flipped}
+            text={devil.text}
+            loading={devil.loading}
+            error={devil.error}
+            front={
+              <p className="whitespace-pre-wrap leading-relaxed">
+                {renderTextWithCitations(content, claims)}
+                {isStreaming && (
+                  <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
+                )}
+              </p>
+            }
+          />
         )}
 
         {isValidating && (
@@ -374,15 +387,6 @@ function MessageBubble({
             options={clarifier.options}
             onAnswer={onClarifierAnswer}
             disabled={busy}
-          />
-        )}
-
-        {!isUser && !isStreaming && conversationId && content && (
-          <DevilsDraft
-            conversationId={conversationId}
-            messageId={id}
-            answer={content}
-            preloaded={counterfactual}
           />
         )}
 

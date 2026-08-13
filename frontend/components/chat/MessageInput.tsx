@@ -2,6 +2,7 @@
 
 import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
+import { ModelPicker } from "@/components/chat/ModelPicker";
 
 export type PendingImage = { data: string; mimeType: string; previewUrl: string };
 
@@ -115,6 +116,8 @@ export function MessageInput({
           fired constantly and told you nothing you didn't already know. The
           caret is the indicator. */}
       <div className="flex items-end gap-2 rounded-xl border border-hairline-strong bg-surface p-2">
+        <ModelPicker disabled={disabled} />
+
         <AudioRecorder
           disabled={disabled}
           onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
