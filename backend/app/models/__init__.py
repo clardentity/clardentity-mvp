@@ -10,6 +10,7 @@ from app.models.message import (
     Message,
     MessageClaim,
 )
+from app.models.pro_interest import ProInterest
 from app.models.profile import UserProfile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -30,5 +31,6 @@ __all__ = [
     "DocumentChunk",
     "ConversationMemory",
     "AdminSetting",
+    "ProInterest",
     "UserProfile",
 ]

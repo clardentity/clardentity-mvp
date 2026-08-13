@@ -24,23 +24,53 @@ const PHASE_LABEL: Record<CallPhase, string> = {
 
 /** Mounted only while the call is up, so "fresh state for a new call" is
  *  what the initial values already mean - no effect has to reset anything. */
-export function LiveCallOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function LiveCallOverlay({
+  open,
+  onClose,
+  onEnded,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Everything said on the call, in order, once it ends. */
+  onEnded?: (turns: { role: "user" | "assistant"; content: string }[]) => void;
+}) {
   if (!open) return null;
-  return <CallSession onClose={onClose} />;
+  return <CallSession onClose={onClose} onEnded={onEnded} />;
 }
 
-function CallSession({ onClose }: { onClose: () => void }) {
+function CallSession({
+  onClose,
+  onEnded,
+}: {
+  onClose: () => void;
+  onEnded?: (turns: { role: "user" | "assistant"; content: string }[]) => void;
+}) {
   const [phase, setPhase] = useState<CallPhase>("connecting");
   const [viseme, setViseme] = useState<Viseme | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const callRef = useRef<LiveCall | null>(null);
+  // A ref, not state: transcript lines arrive from a callback that outlives
+  // the render they were registered in, and nothing on screen depends on
+  // them until the call is over.
+  const turnsRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  // Held in a ref so the unmount cleanup below calls whatever the latest
+  // handler is, without `onEnded` becoming a dependency that would tear the
+  // call down and rebuild it every time the parent re-renders.
+  const onEndedRef = useRef(onEnded);
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
 
   useEffect(() => {
     const call = new LiveCall({
       onPhase: setPhase,
       onViseme: setViseme,
       onError: setError,
+      onTranscript: (role, text) => {
+        const content = text.trim();
+        if (content) turnsRef.current.push({ role, content });
+      },
     });
     callRef.current = call;
     void call.start();
@@ -48,6 +78,10 @@ function CallSession({ onClose }: { onClose: () => void }) {
     return () => {
       call.stop();
       callRef.current = null;
+      // Handing the transcript over on unmount means it survives every way a
+      // call can end - the End button, Escape, or navigating away.
+      if (turnsRef.current.length) onEndedRef.current?.(turnsRef.current);
+      turnsRef.current = [];
     };
   }, []);
 

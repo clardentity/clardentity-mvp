@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/apiClient";
 import { cx } from "@/components/ui/primitives";
 
 /* The upgrade prompt, as a bento grid.
@@ -59,6 +60,26 @@ export function UpgradeDialog({
   trigger?: string | null;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [registered, setRegistered] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function notifyMe() {
+    setBusy(true);
+    try {
+      const res = await apiFetch<{ email: string }>("/pro/interest", {
+        method: "POST",
+        body: { model: trigger?.toLowerCase() ?? null },
+      });
+      setRegistered(res.email);
+    } catch {
+      // Recording interest is not something the user can fix or should be
+      // told about; closing is the honest fallback for a button whose only
+      // job was to say "yes, I want this".
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -149,8 +170,14 @@ export function UpgradeDialog({
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          {/* The old copy said "leave your address" beside a dialog with no
+              address field and a button that only closed it. The caller is
+              signed in, so the address is already known - the button now
+              records the interest and says where the mail will go. */}
           <p className="text-xs text-ink-muted">
-            Pro is not open yet - leave your address and you&apos;ll be first in.
+            {registered
+              ? `You're on the list. We'll email ${registered} when Pro opens.`
+              : "Pro is not open yet."}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -158,15 +185,18 @@ export function UpgradeDialog({
               onClick={onClose}
               className="rounded-full px-3.5 py-2 text-sm text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
             >
-              Not now
+              {registered ? "Close" : "Not now"}
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark"
-            >
-              Notify me
-            </button>
+            {!registered && (
+              <button
+                type="button"
+                onClick={notifyMe}
+                disabled={busy}
+                className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+              >
+                {busy ? "Adding…" : "Notify me"}
+              </button>
+            )}
           </div>
         </div>
       </div>

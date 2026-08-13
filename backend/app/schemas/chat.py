@@ -114,3 +114,20 @@ class MessageOut(BaseModel):
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class CallTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class CallTranscript(BaseModel):
+    """What was said on a live call, saved after it ends.
+
+    Turns arrive already transcribed by the realtime session. They are stored
+    unscored - a call runs outside the retrieval and verification pipeline, so
+    there are no claims, no citations and no confidence band to attach.
+    """
+
+    mode: str
+    turns: list[CallTurn] = Field(min_length=1, max_length=200)

@@ -8,6 +8,7 @@ import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
+import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { cx } from "@/components/ui/primitives";
 import {
   AvatarPanel,
@@ -56,6 +57,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // Carousel view is opt-out, and only offered once a second mode exists.
   const [carousel, setCarousel] = useState(true);
   const [activeTrack, setActiveTrack] = useState(0);
+  const [callOpen, setCallOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -189,6 +191,27 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         },
       },
     );
+  }
+
+  /** Save what was said on a call into the thread.
+   *
+   *  Best-effort: the call already happened, and failing to file it is not
+   *  worth an error banner over an answer the user already heard. Saved
+   *  unscored - see the endpoint for why.
+   */
+  async function handleCallEnded(
+    turns: { role: "user" | "assistant"; content: string }[],
+  ) {
+    if (!turns.length || !mode) return;
+    try {
+      const saved = await apiFetch<ChatMessage[]>(
+        `/chat/${conversationId}/call-transcript`,
+        { method: "POST", body: { mode, turns } },
+      );
+      setMessages((prev) => [...prev, ...saved]);
+    } catch {
+      // Nothing to say here that the user could act on.
+    }
   }
 
   /** Drop `messageId` and everything after it, locally and on the server, and
@@ -375,6 +398,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // repeating it - and that height comes straight out of the message area.
     // The controls it held now live in the composer, which was already a row.
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Lives here rather than in the composer: a finished call has to be
+          written into this conversation, and the composer doesn't know which
+          one it belongs to. */}
+      <LiveCallOverlay
+        open={callOpen}
+        onClose={() => setCallOpen(false)}
+        onEnded={handleCallEnded}
+      />
+
       <div
         className={cx(
           "mx-auto flex w-full min-h-0 flex-1 flex-col px-4 sm:px-6",
@@ -455,6 +487,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onSend={handleSend}
             onTypingChange={setIsTyping}
             textareaRef={composerRef}
+            onStartCall={mode ? () => setCallOpen(true) : undefined}
           />
         </div>
       </div>

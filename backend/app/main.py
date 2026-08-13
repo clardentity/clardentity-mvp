@@ -9,6 +9,7 @@ from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.history import router as history_router
+from app.api.pro import router as pro_router
 from app.api.profile import router as profile_router
 from app.api.realtime import router as realtime_router
 from app.api.memory import router as memory_router
@@ -46,3 +47,4 @@ app.include_router(validation_router, prefix=API_PREFIX)
 app.include_router(admin_router, prefix=API_PREFIX)
 app.include_router(audio_router, prefix=API_PREFIX)
 app.include_router(realtime_router, prefix=API_PREFIX)
+app.include_router(pro_router, prefix=API_PREFIX)

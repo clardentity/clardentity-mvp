@@ -14,6 +14,7 @@ from app.core.rate_limit import check_rate_limit
 from app.db.session import AsyncSessionLocal, get_db
 from app.models import AudioTranscript, Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
 from app.schemas.chat import (
+    CallTranscript,
     ClaimOut,
     ConversationCreate,
     ConversationOut,
@@ -957,3 +958,49 @@ async def send_message(
         yield {"event": "final", "data": json.dumps(final_payload)}
 
     return EventSourceResponse(event_stream())
+
+
+@router.post(
+    "/{conversation_id}/call-transcript",
+    response_model=list[MessageOut],
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_call_transcript(
+    conversation_id: uuid.UUID,
+    payload: CallTranscript,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[MessageOut]:
+    """Write a finished call into the conversation.
+
+    Saved unscored and said so plainly elsewhere in the UI: a call runs outside
+    retrieval and verification because those take seconds, which is fine behind
+    a streaming answer and fatal between spoken turns. So these rows carry no
+    claims, no citations and no confidence band - the alternative was letting
+    the call vanish when it ended, which loses the one thing the user actually
+    said out loud.
+    """
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    # Same 400-not-422 contract as the send endpoint; uncaught this surfaced
+    # as a 500 on a request the caller could have fixed.
+    try:
+        mode = validate_mode(payload.mode)
+    except InvalidModeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    saved: list[Message] = []
+    for turn in payload.turns:
+        message = Message(
+            conversation_id=conversation.id,
+            role=turn.role,
+            content=clean_output(turn.content),
+            mode_used=mode,
+        )
+        db.add(message)
+        saved.append(message)
+
+    await db.commit()
+    for message in saved:
+        await db.refresh(message)
+
+    return [_serialize_message(m, []) for m in saved]

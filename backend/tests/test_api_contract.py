@@ -35,6 +35,9 @@ class TestRoutes:
             f"{API}/auth/password-reset/request",
             f"{API}/auth/password-reset/confirm",
             f"{API}/realtime/session",
+            f"{API}/pro/interest",
+            f"{API}/profile/import",
+            f"{API}/chat/{{conversation_id}}/call-transcript",
         ):
             assert path in paths, f"missing route: {path}"
 
@@ -66,6 +69,8 @@ class TestAuthGuards:
         [
             ("get", f"{API}/auth/me"),
             ("post", f"{API}/realtime/session"),
+            ("post", f"{API}/pro/interest"),
+            ("post", f"{API}/profile/import"),
             ("get", f"{API}/chat/conversations"),
             ("get", f"{API}/workspaces"),
         ],

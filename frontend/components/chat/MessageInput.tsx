@@ -3,7 +3,6 @@
 import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
-import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 
 export type PendingImage = { data: string; mimeType: string; previewUrl: string };
 
@@ -21,6 +20,7 @@ export function MessageInput({
   onSend,
   onTypingChange,
   textareaRef,
+  onStartCall,
 }: {
   disabled: boolean;
   disabledReason?: string;
@@ -29,10 +29,12 @@ export function MessageInput({
   onSend: (content: string, images: PendingImage[]) => void;
   onTypingChange?: (isTyping: boolean) => void;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  /** Owned by the conversation, not the composer: a finished call has to be
+   *  saved into the thread, and the composer doesn't know which thread. */
+  onStartCall?: () => void;
 }) {
   const [images, setImages] = useState<PendingImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [callOpen, setCallOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleChange(newValue: string) {
@@ -129,8 +131,8 @@ export function MessageInput({
             lengths: dictate one message, or have a conversation. */}
         <button
           type="button"
-          onClick={() => setCallOpen(true)}
-          disabled={disabled}
+          onClick={onStartCall}
+          disabled={disabled || !onStartCall}
           title="Start a live call"
           aria-label="Start a live call"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
@@ -206,8 +208,6 @@ export function MessageInput({
       {disabled && disabledReason && (
         <p className="text-xs text-ink-muted">{disabledReason}</p>
       )}
-
-      <LiveCallOverlay open={callOpen} onClose={() => setCallOpen(false)} />
     </div>
   );
 }
