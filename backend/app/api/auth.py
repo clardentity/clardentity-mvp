@@ -22,6 +22,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
+from app.services.geolocation import is_resolvable
 from app.models import User, Workspace, WorkspaceMember
 from app.schemas.auth import (
     AuthResponse,
@@ -35,6 +36,7 @@ from app.schemas.auth import (
     UserPublic,
 )
 
+from app.workers.refresh_location import refresh_location_task
 from app.workers.send_password_reset_email import send_password_reset_email_task
 from app.workers.send_welcome_email import send_welcome_email_task
 
@@ -89,6 +91,18 @@ async def ensure_workspace(db: AsyncSession, user: User) -> None:
     if not count:
         await provision_new_user(db, user)
         await db.commit()
+
+
+def queue_location_refresh(user: User, ip: str) -> None:
+    """Best-effort and always out-of-band. Sign-in latency is the thing users
+    notice first, and a geolocation lookup is worth none of it.
+    """
+    if not is_resolvable(ip):
+        return
+    try:
+        refresh_location_task.delay(str(user.id), ip)
+    except Exception:
+        logger.exception("could not queue location refresh", extra={"user_id": str(user.id)})
 
 
 def queue_welcome_email(user: User) -> None:
@@ -148,6 +162,7 @@ async def login(
         raise invalid_credentials
 
     await ensure_workspace(db, user)
+    queue_location_refresh(user, _client_ip(request))
 
     return _issue_tokens(user)
 
@@ -262,7 +277,9 @@ async def refresh(
 
 
 @router.post("/oauth/google", response_model=TokenResponse)
-async def oauth_google(payload: GoogleOAuthRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def oauth_google(
+    payload: GoogleOAuthRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
     if not settings.google_client_id:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -309,6 +326,7 @@ async def oauth_google(payload: GoogleOAuthRequest, db: AsyncSession = Depends(g
 
     # Covers the returning-user branches above, where nothing is provisioned.
     await ensure_workspace(db, user)
+    queue_location_refresh(user, _client_ip(request))
 
     if is_new_user:
         queue_welcome_email(user)

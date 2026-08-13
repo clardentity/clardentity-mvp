@@ -26,6 +26,7 @@ from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
 from app.services.clarifier import propose_clarifier
+from app.services.geolocation import location_prompt_line
 from app.services.guidance import propose_guidance
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
@@ -484,6 +485,14 @@ async def send_message(
     # domain-scoped screening, they just aren't told to editorialise about it.
     bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
     profile_block = profile_prompt_block(await get_profile(db, current_user.id))
+    # Appended rather than folded into the profile: the profile is inferred
+    # from what the user wrote, this is inferred from where they connected
+    # from, and the two deserve different amounts of trust.
+    location_line = location_prompt_line(
+        current_user.location_label, current_user.location_timezone
+    )
+    if location_line:
+        profile_block = f"{profile_block}\n\n{location_line}" if profile_block else location_line
     instructions = build_system_instructions(
         mode, reasoning_lens, bias_guidance, profile_block
     )
