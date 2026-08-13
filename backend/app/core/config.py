@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     openai_stt_model: str = "whisper-1"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"
+    # Live call. A speech-to-speech model, separate from the text pipeline
+    # above: a call cannot afford a retrieve-verify-score round trip between
+    # turns, so it trades the citation machinery for latency a conversation
+    # can survive.
+    openai_realtime_model: str = "gpt-realtime-2.1"
+    openai_realtime_voice: str = "marin"
 
     # Database
     database_url: str

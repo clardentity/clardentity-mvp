@@ -110,16 +110,22 @@ function Arm({
   );
 }
 
+/** Live mouth shape, both 0-1. Supplied only during a call; everywhere else
+ *  the mouth is the expression's own curve, or the generic talking loop. */
+export type Viseme = { openness: number; width: number };
+
 export function AvatarPanel({
   state,
   gesture,
   expression,
   className,
+  viseme,
 }: {
   state: AvatarState;
   gesture: AvatarGesture;
   expression: AvatarExpression;
   className?: string;
+  viseme?: Viseme | null;
 }) {
   // Gradient ids must be unique per instance or a second avatar on the page
   // silently repaints the first one's fills.
@@ -282,7 +288,21 @@ export function AvatarPanel({
               <ellipse cx="68" cy="88" rx="7" ry="4.5" fill="var(--avatar-blush)" opacity="0.5" />
               <ellipse cx="132" cy="88" rx="7" ry="4.5" fill="var(--avatar-blush)" opacity="0.5" />
 
-              {isSpeaking ? (
+              {viseme ? (
+                // Driven by the live audio rather than a loop: `openness` is
+                // the envelope and `width` is roughly how bright the sound is,
+                // which between them separate an "oo" (tall, narrow) from an
+                // "ee" (short, wide) well enough to read as speech. No
+                // transition - at 60fps the analyser is already smoother than
+                // any easing would be, and a transition here lags the audio.
+                <ellipse
+                  cx="100"
+                  cy="94"
+                  rx={5.5 + viseme.width * 5.5}
+                  ry={0.8 + viseme.openness * 8.5}
+                  fill="var(--avatar-face)"
+                />
+              ) : isSpeaking ? (
                 <ellipse
                   cx="100"
                   cy="94"

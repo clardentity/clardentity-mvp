@@ -3,6 +3,7 @@
 import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
+import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 
 export type PendingImage = { data: string; mimeType: string; previewUrl: string };
 
@@ -31,6 +32,7 @@ export function MessageInput({
 }) {
   const [images, setImages] = useState<PendingImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [callOpen, setCallOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleChange(newValue: string) {
@@ -123,6 +125,32 @@ export function MessageInput({
           onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
         />
 
+        {/* Next to the mic, because they are the same intention at two
+            lengths: dictate one message, or have a conversation. */}
+        <button
+          type="button"
+          onClick={() => setCallOpen(true)}
+          disabled={disabled}
+          title="Start a live call"
+          aria-label="Start a live call"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="h-4 w-4"
+          >
+            {/* A waveform inside a call bubble: speech, live. */}
+            <path d="M21 15.5v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 1.1 2.8 2 2 0 0 1 3.1 1h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L7.1 8.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z" />
+            <path d="M16 3v4M19.5 1.5v7M13 4.5v1" />
+          </svg>
+        </button>
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -178,6 +206,8 @@ export function MessageInput({
       {disabled && disabledReason && (
         <p className="text-xs text-ink-muted">{disabledReason}</p>
       )}
+
+      <LiveCallOverlay open={callOpen} onClose={() => setCallOpen(false)} />
     </div>
   );
 }
