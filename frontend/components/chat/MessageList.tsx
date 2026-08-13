@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { Claim, ChatMessage } from "@/lib/sse";
+import type { Claim, ChatMessage, Guidance } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
 import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/ResponseFlip";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
+import { GuidanceCard } from "@/components/chat/GuidanceCard";
 import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
@@ -28,6 +29,8 @@ export function MessageList({
   busy,
   statusLabel,
   onClarifierAnswer,
+  onUseMode,
+  onAskRefined,
   loading,
   onSubmitEdit,
 }: {
@@ -48,6 +51,9 @@ export function MessageList({
   statusLabel?: string | null;
   /** Sends a clarifying-question answer as the next message. */
   onClarifierAnswer?: (answer: string) => void;
+  /** Acting on a guidance nudge: switch mode, or ask the sharper question. */
+  onUseMode?: (mode: string) => void;
+  onAskRefined?: (question: string) => void;
   /** History is still being fetched. Distinct from "there is nothing here" -
    *  showing the empty state first made every reopened chat flash
    *  "Start a conversation" before its messages arrived. */
@@ -97,6 +103,7 @@ export function MessageList({
           claims={m.claims}
           counterfactual={m.counterfactual_content}
           clarifier={m.clarifier}
+          guidance={m.guidance}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -107,6 +114,8 @@ export function MessageList({
           busy={busy}
           conversationId={conversationId}
           onClarifierAnswer={onClarifierAnswer}
+          onUseMode={onUseMode}
+          onAskRefined={onAskRefined}
           onSubmitEdit={onSubmitEdit}
         />
       ))}
@@ -168,6 +177,7 @@ function MessageBubble({
   claims,
   counterfactual,
   clarifier,
+  guidance,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -177,6 +187,8 @@ function MessageBubble({
   busy,
   conversationId,
   onClarifierAnswer,
+  onUseMode,
+  onAskRefined,
   onSubmitEdit,
 }: {
   id: string;
@@ -188,6 +200,7 @@ function MessageBubble({
   claims: Claim[];
   counterfactual?: string | null;
   clarifier?: { question: string; options: string[] } | null;
+  guidance?: Guidance | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -197,6 +210,8 @@ function MessageBubble({
   busy?: boolean;
   conversationId?: string;
   onClarifierAnswer?: (answer: string) => void;
+  onUseMode?: (mode: string) => void;
+  onAskRefined?: (question: string) => void;
   onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
   const isUser = role === "user";
@@ -386,6 +401,15 @@ function MessageBubble({
             question={clarifier.question}
             options={clarifier.options}
             onAnswer={onClarifierAnswer}
+            disabled={busy}
+          />
+        )}
+
+        {guidance && !isStreaming && (
+          <GuidanceCard
+            guidance={guidance}
+            onUseMode={onUseMode ? (m) => onUseMode(m) : undefined}
+            onAskRefined={onAskRefined}
             disabled={busy}
           />
         )}

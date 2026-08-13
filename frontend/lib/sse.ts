@@ -39,6 +39,16 @@ export type Claim = {
   evidence: Evidence[];
 };
 
+/** Suggestions about the question rather than answers to it: a mode that
+ *  would have suited it better, and a sharper phrasing. Both halves are
+ *  independently nullable and are null on most turns by design. */
+export type Guidance = {
+  suggested_mode: string | null;
+  mode_reason: string | null;
+  refined_question: string | null;
+  refinement_reason: string | null;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -54,6 +64,7 @@ export type ChatMessage = {
   counterfactual_content: string | null;
   /** A question the answer wants answered, with options. Null on most turns. */
   clarifier: { question: string; options: string[] } | null;
+  guidance: Guidance | null;
   claims: Claim[];
 };
 

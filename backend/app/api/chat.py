@@ -26,6 +26,7 @@ from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
 from app.services.clarifier import propose_clarifier
+from app.services.guidance import propose_guidance
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
     ScoredClaim,
@@ -158,6 +159,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         created_at=message.created_at,
         counterfactual_content=message.counterfactual_content,
         clarifier=message.clarifier,
+        guidance=message.guidance,
         claims=claims,
     )
 
@@ -593,6 +595,10 @@ async def send_message(
         clarifier_task = asyncio.create_task(
             propose_clarifier(payload.content, draft_display_text)
         )
+        # Looks only at the question and the chosen mode, so it does not wait
+        # on the answer - it is in this fan-out purely so its latency lands
+        # inside the post-answer window rather than after it.
+        guidance_task = asyncio.create_task(propose_guidance(payload.content, mode))
         counterfactual_task = (
             asyncio.create_task(generate_counterfactual(draft_display_text))
             if draft_display_text
@@ -788,6 +794,7 @@ async def send_message(
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
         clarifier = await clarifier_task
+        guidance = await guidance_task
         display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
@@ -813,6 +820,7 @@ async def send_message(
                 clean_output(counterfactual_text) if counterfactual_text else None
             )
             assistant_message.clarifier = clarifier
+            assistant_message.guidance = guidance
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere
@@ -928,6 +936,7 @@ async def send_message(
             # Ships with the answer so the Devil's Draft opens instantly.
             "counterfactual_content": counterfactual_text,
             "clarifier": clarifier,
+            "guidance": guidance,
             # Only present when the search agent came back empty-handed; it is
             # the difference between "nothing supports this" and "nothing was
             # looked for".

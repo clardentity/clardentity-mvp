@@ -108,6 +108,9 @@ class MessageOut(BaseModel):
     #: {"question": str, "options": [str, ...]} when the answer needs something
     #: from the user before it can be better. Null on most turns.
     clarifier: dict | None = None
+    #: {"suggested_mode", "mode_reason", "refined_question", "refinement_reason"}
+    #: Null on most turns - see services/guidance.py.
+    guidance: dict | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

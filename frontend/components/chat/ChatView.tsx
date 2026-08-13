@@ -120,6 +120,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       created_at: new Date().toISOString(),
       counterfactual_content: null,
       clarifier: null,
+      guidance: null,
       claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -352,6 +353,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       busy={sending}
       statusLabel={status?.label}
       onClarifierAnswer={(answer) => handleSend(answer, [])}
+      // Switching mode from a nudge only changes the composer's mode - it
+      // does not re-ask anything. The answer you already have is still the
+      // answer; this sets up the next question.
+      onUseMode={(next) => setMode(next as CognitiveMode)}
+      onAskRefined={(question) => handleSend(question, [])}
       emptyStateAvatar={
         <AvatarPanel
           state={avatarState}

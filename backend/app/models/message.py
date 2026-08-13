@@ -76,6 +76,11 @@ class Message(Base):
     # A question the answer needs answered before it can be better, with a few
     # concrete options. {"question": str, "options": [str, ...]} or null.
     clarifier: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Suggestions about the *question* rather than answers to it: a mode that
+    # would have suited it better, and a sharper phrasing of it. Null on most
+    # turns, by design - see services/guidance.py.
+    # {"suggested_mode", "mode_reason", "refined_question", "refinement_reason"}
+    guidance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
