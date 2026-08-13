@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,12 @@ class UserProfile(Base):
     # produces and what the prompt reads, but no longer the editing surface -
     # see `aspects`.
     personality_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The user's own messages from another assistant's export, already
+    # filtered to their side of the conversation. Feeds inference the same way
+    # their Clardentity messages do - see services/chat_import.py.
+    imported_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imported_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # The same picture as a list of separate, editable facts:
     #   [{"id": "...", "label": "Work", "value": "...", "source": "inferred"}]
     #

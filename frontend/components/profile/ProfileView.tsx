@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
+import { ImportHistory } from "@/components/profile/ImportHistory";
 import { authErrorMessage } from "@/lib/auth";
 import { AspectList, type Aspect } from "@/components/profile/AspectList";
 import {
@@ -167,6 +168,7 @@ export function ProfileView() {
 
       {(
         <div className="space-y-5">
+          <ImportHistory onImported={() => setReloadKey((k) => k + 1)} />
           <Card>
             <CardHeader
               title="What it knows about you"

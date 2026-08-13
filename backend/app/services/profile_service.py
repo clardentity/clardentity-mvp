@@ -103,7 +103,16 @@ async def gather_evidence(db: AsyncSession, user_id: uuid.UUID) -> tuple[str, in
     )
     filenames = [f for (f,) in doc_rows.all() if f]
 
+    # History imported from another assistant, if any. Listed first: it is
+    # usually much older than anything here and reads as the backstory.
     parts = []
+    profile = await db.scalar(select(UserProfile).where(UserProfile.user_id == user_id))
+    if profile is not None and profile.imported_context:
+        parts.append(
+            f"THEIR EARLIER MESSAGES, IMPORTED FROM {profile.imported_source or 'another assistant'}:\n"
+            + profile.imported_context[:_MESSAGE_CHARS]
+        )
+
     if messages:
         # Oldest first reads as a trajectory rather than a reverse-chronological dump.
         joined = "\n".join(f"- {m}" for m in reversed(messages))

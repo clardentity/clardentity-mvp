@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -17,6 +18,7 @@ from app.schemas.profile import (
 )
 from app.services import taxonomy
 from app.services.output_cleanup import clean_output
+from app.services.chat_import import UnreadableExport, parse_export
 from app.services.profile_service import get_profile
 from app.workers.rebuild_profile import rebuild_profile_task
 
@@ -215,3 +217,57 @@ async def request_rebuild(
 
     rebuild_profile_task.delay(str(current_user.id))
     return {"status": "rebuilding"}
+
+
+# Bigger than any plausible export of *messages* after filtering, small enough
+# that a mistaken upload of something else is rejected before it is parsed.
+MAX_IMPORT_BYTES = 60 * 1024 * 1024
+
+
+@router.post("/import", status_code=status.HTTP_202_ACCEPTED)
+async def import_history(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Seed the profile from a ChatGPT, Claude or Gemini data export.
+
+    There is no API to read another assistant's history and there isn't going
+    to be one, so this takes the file the provider gives the user directly.
+    Only their own messages are kept; the other assistant's replies are
+    discarded on parse and never stored.
+    """
+    raw = await file.read()
+    if len(raw) > MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="That file is too large. Export files over 60MB usually contain "
+            "attachments - upload conversations.json on its own.",
+        )
+
+    try:
+        history = parse_export(raw)
+    except UnreadableExport as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    profile = await get_profile(db, current_user.id)
+    if profile is None:
+        profile = UserProfile(user_id=current_user.id)
+        db.add(profile)
+
+    profile.imported_context = history.text
+    profile.imported_source = history.source
+    profile.imported_at = datetime.now(timezone.utc)
+    # An import is new evidence, so the inferred profile is now out of date.
+    # Clearing user_edited matches /rebuild: asking for this is asking for the
+    # picture to be redrawn.
+    profile.user_edited = False
+    await db.commit()
+
+    rebuild_profile_task.delay(str(current_user.id))
+    return {
+        "status": "importing",
+        "source": history.source,
+        "messages": len(history.messages),
+        "conversations": history.conversations,
+    }
