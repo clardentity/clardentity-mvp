@@ -1,3 +1,4 @@
+import math
 import uuid
 from dataclasses import dataclass
 
@@ -177,8 +178,15 @@ def veracity_tier(score: float) -> str:
     """0 fabricated, 21-40 distorted, 41-80 gray_area, 81-99 probable_fact,
     100 verifiable_fact - boundaries checked against the rounded score so the
     label always agrees with the number printed beside it.
+
+    Rounds half *up*, deliberately not via round(). Python rounds halves to
+    even (round(80.5) == 80) and JavaScript's Math.round - which is what the
+    UI prints the score with - rounds them up (80.5 -> 81). Using round() here
+    meant a claim scoring exactly 80.5 was labelled from 80 and displayed as
+    81: "Unverifiable" printed beside 81, which is the precise disagreement
+    between label and number this function exists to prevent.
     """
-    rounded = round(score)
+    rounded = math.floor(score + 0.5)
     for lower, tier in VERACITY_TIERS:
         if rounded >= lower:
             return tier
