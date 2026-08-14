@@ -111,6 +111,9 @@ class MessageOut(BaseModel):
     #: {"suggested_mode", "mode_reason", "refined_question", "refinement_reason"}
     #: Null on most turns - see services/guidance.py.
     guidance: dict | None = None
+    #: Decision mode only. Per-option verdicts on the options the user listed,
+    #: plus an alternative when all of them are compromised. Null otherwise.
+    decision_review: dict | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

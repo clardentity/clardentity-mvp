@@ -49,6 +49,20 @@ export type Guidance = {
   refinement_reason: string | null;
 };
 
+/** Per-option verdicts on options the user listed in decision mode, plus an
+ *  alternative when every one of them is compromised. Null on most turns. */
+export type DecisionReviewData = {
+  options: {
+    label: string;
+    sound: boolean;
+    bias_name: string | null;
+    bias_definition: string | null;
+    why: string;
+  }[];
+  alternative: string | null;
+  alternative_why: string | null;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -65,6 +79,7 @@ export type ChatMessage = {
   /** A question the answer wants answered, with options. Null on most turns. */
   clarifier: { question: string; options: string[] } | null;
   guidance: Guidance | null;
+  decision_review: DecisionReviewData | null;
   claims: Claim[];
 };
 

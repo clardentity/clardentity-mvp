@@ -28,6 +28,7 @@ from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
 from app.services.clarifier import propose_clarifier
 from app.services.geolocation import location_prompt_line
+from app.services.decision_review import review_decisions
 from app.services.guidance import propose_guidance
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
@@ -162,6 +163,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         counterfactual_content=message.counterfactual_content,
         clarifier=message.clarifier,
         guidance=message.guidance,
+        decision_review=message.decision_review,
         claims=claims,
     )
 
@@ -609,6 +611,13 @@ async def send_message(
         # on the answer - it is in this fan-out purely so its latency lands
         # inside the post-answer window rather than after it.
         guidance_task = asyncio.create_task(propose_guidance(payload.content, mode))
+        # Decision mode only: judging options nobody listed is a call spent to
+        # return null.
+        review_task = (
+            asyncio.create_task(review_decisions(payload.content, bias_category_id))
+            if mode == "decision"
+            else None
+        )
         counterfactual_task = (
             asyncio.create_task(generate_counterfactual(draft_display_text))
             if draft_display_text
@@ -805,6 +814,7 @@ async def send_message(
         # flatten lists/paragraphs and visibly reflow the message on finalize.
         clarifier = await clarifier_task
         guidance = await guidance_task
+        decision_review = await review_task if review_task else None
         display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
@@ -831,6 +841,7 @@ async def send_message(
             )
             assistant_message.clarifier = clarifier
             assistant_message.guidance = guidance
+            assistant_message.decision_review = decision_review
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere
@@ -947,6 +958,7 @@ async def send_message(
             "counterfactual_content": counterfactual_text,
             "clarifier": clarifier,
             "guidance": guidance,
+            "decision_review": decision_review,
             # Only present when the search agent came back empty-handed; it is
             # the difference between "nothing supports this" and "nothing was
             # looked for".

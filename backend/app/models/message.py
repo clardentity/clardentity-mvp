@@ -81,6 +81,11 @@ class Message(Base):
     # turns, by design - see services/guidance.py.
     # {"suggested_mode", "mode_reason", "refined_question", "refinement_reason"}
     guidance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Decision mode only, and only when the user listed options to compare:
+    # a per-option verdict plus, when every one is compromised, an alternative.
+    # {"options": [{"label","sound","bias_name","bias_definition","why"}],
+    #  "alternative", "alternative_why"} - see services/decision_review.py.
+    decision_review: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

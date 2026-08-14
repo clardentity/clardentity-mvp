@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { Claim, ChatMessage, Guidance } from "@/lib/sse";
+import type { Claim, ChatMessage, Guidance, DecisionReviewData } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
@@ -9,6 +9,7 @@ import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/R
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
 import { GuidanceCard } from "@/components/chat/GuidanceCard";
+import { DecisionReview } from "@/components/chat/DecisionReview";
 import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
@@ -104,6 +105,7 @@ export function MessageList({
           counterfactual={m.counterfactual_content}
           clarifier={m.clarifier}
           guidance={m.guidance}
+          decisionReview={m.decision_review}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -178,6 +180,7 @@ function MessageBubble({
   counterfactual,
   clarifier,
   guidance,
+  decisionReview,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -201,6 +204,7 @@ function MessageBubble({
   counterfactual?: string | null;
   clarifier?: { question: string; options: string[] } | null;
   guidance?: Guidance | null;
+  decisionReview?: DecisionReviewData | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -216,6 +220,23 @@ function MessageBubble({
 }) {
   const isUser = role === "user";
   const panelId = `evidence-${id}`;
+
+  /* Whether a confidence verdict is meaningful for this answer.
+   *
+   * The band measures how well claims are grounded in cited sources. In
+   * Knowing that is the entire job, so it is always shown - including when
+   * nothing supported the answer, which is exactly when the reader most needs
+   * telling.
+   *
+   * The other three modes produce reasoning, recommendations and
+   * explanations. A Thinking answer with nothing cited is not dubious, it is
+   * a chain of reasoning, and stamping "Needs Verification" on it reports an
+   * absence that was never a fault - the same category error as calling an
+   * uncited claim "Fabricated". So outside Knowing the verdict appears only
+   * once the answer actually rested on a source, where it is a real
+   * statement about real evidence. */
+  const citedAnything = claims.some((c) => c.evidence.length > 0);
+  const verdictIsMeaningful = modeUsed === "knowing" || citedAnything;
   // Lives here rather than inside EvidencePanel so the confidence badge can
   // open it - clicking a score to find out where it came from should show you
   // the working, not scroll to a collapsed row.
@@ -285,7 +306,7 @@ function MessageBubble({
                   </svg>
                 </button>
               )}
-              {confidenceBand && (
+              {confidenceBand && verdictIsMeaningful && (
                 <ConfidenceBadge
                   band={confidenceBand}
                   score={confidenceScore}
@@ -386,7 +407,7 @@ function MessageBubble({
           </p>
         )}
 
-        {!isUser && !isStreaming && (
+        {!isUser && !isStreaming && verdictIsMeaningful && (
           <EvidencePanel
             claims={claims}
             band={confidenceBand}
@@ -404,6 +425,8 @@ function MessageBubble({
             disabled={busy}
           />
         )}
+
+        {decisionReview && !isStreaming && <DecisionReview review={decisionReview} />}
 
         {guidance && !isStreaming && (
           <GuidanceCard

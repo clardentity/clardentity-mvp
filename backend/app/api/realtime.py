@@ -74,6 +74,12 @@ async def create_realtime_session(current_user: User = Depends(get_current_user)
                     # rather than merely gone quiet, which is the difference
                     # between being interrupted mid-sentence and being heard.
                     "turn_detection": {"type": "semantic_vad"},
+                    # Off by default, which is why saved calls were one-sided:
+                    # without it the API never emits
+                    # conversation.item.input_audio_transcription.completed,
+                    # so the model heard the user perfectly and we had no text
+                    # for anything they said.
+                    "transcription": {"model": settings.openai_stt_model},
                 },
                 "output": {"voice": settings.openai_realtime_voice},
             },

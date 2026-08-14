@@ -43,3 +43,83 @@ class TestPlaceholderRejection:
 
     def test_none_passes_through(self):
         assert _reject_placeholders(None) is None
+
+
+class TestDecisionReviewGuards:
+    """The reviewer's judgement isn't testable here; its guards are, and each
+    one encodes something worth refusing to show."""
+
+    def _review(self, options, alternative="Do something else", why="because"):
+        return {
+            "applicable": True,
+            "options": options,
+            "alternative": alternative,
+            "alternative_why": why,
+        }
+
+    async def test_needs_at_least_two_options_to_be_a_comparison(self, monkeypatch):
+        from app.services import decision_review
+
+        async def fake(**_):
+            return self._review([{"label": "A", "sound": False, "bias": None, "why": "x"}])
+
+        monkeypatch.setattr(decision_review, "generate_structured", fake)
+        assert await decision_review.review_decisions("one thing") is None
+
+    async def test_no_alternative_when_an_option_was_sound(self, monkeypatch):
+        from app.services import decision_review
+
+        async def fake(**_):
+            return self._review(
+                [
+                    {"label": "A", "sound": True, "bias": None, "why": "fine"},
+                    {"label": "B", "sound": False, "bias": None, "why": "not fine"},
+                ]
+            )
+
+        monkeypatch.setattr(decision_review, "generate_structured", fake)
+        result = await decision_review.review_decisions("a or b")
+        # A rival to a sound option competes with the actual answer.
+        assert result is not None
+        assert result["alternative"] is None
+        assert result["alternative_why"] is None
+
+    async def test_alternative_survives_when_everything_is_flagged(self, monkeypatch):
+        from app.services import decision_review
+
+        async def fake(**_):
+            return self._review(
+                [
+                    {"label": "A", "sound": False, "bias": None, "why": "no"},
+                    {"label": "B", "sound": False, "bias": None, "why": "also no"},
+                ]
+            )
+
+        monkeypatch.setattr(decision_review, "generate_structured", fake)
+        result = await decision_review.review_decisions("a or b")
+        assert result["alternative"] == "Do something else"
+
+    async def test_invented_bias_labels_are_dropped(self, monkeypatch):
+        from app.services import decision_review
+
+        async def fake(**_):
+            return self._review(
+                [
+                    {"label": "A", "sound": False, "bias": "Totally Made Up Bias", "why": "no"},
+                    {"label": "B", "sound": False, "bias": "Wishful Thinking", "why": "no"},
+                ]
+            )
+
+        monkeypatch.setattr(decision_review, "generate_structured", fake)
+        result = await decision_review.review_decisions("a or b")
+        assert result["options"][0]["bias_name"] is None
+        assert result["options"][1]["bias_name"] is not None
+
+    async def test_returns_none_when_not_applicable(self, monkeypatch):
+        from app.services import decision_review
+
+        async def fake(**_):
+            return {"applicable": False, "options": [], "alternative": None, "alternative_why": None}
+
+        monkeypatch.setattr(decision_review, "generate_structured", fake)
+        assert await decision_review.review_decisions("should I move?") is None
