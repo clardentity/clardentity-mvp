@@ -193,6 +193,44 @@ def veracity_tier(score: float) -> str:
     return "fabricated"
 
 
+# What the second-level blind pass implies about the first pass's *support*
+# judgement, rather than about the score directly.
+#
+# Clamping the score itself was the earlier approach and it produced fake
+# precision: a gray_area claim scores 41-80, so max(score, 81) is always
+# exactly 81 and min(score, 40) is always exactly 40. Every reconciled claim
+# came out on the same number, which looked computed and was a constant.
+#
+# Re-deriving from the evidence instead keeps the score a real measurement.
+# "understated" means the verifier marked support down over informal phrasing
+# the second pass saw through, so support is restored; "spoofed" means the
+# source's premise looks manufactured, so its support cannot be trusted at
+# all. Relevance is untouched by either verdict - how on-topic a source is
+# doesn't change because of how the claim was worded.
+_RECONCILED_SUPPORT: dict[str, float] = {
+    "understated": 1.0,
+    "spoofed": 0.15,
+}
+
+
+def rescore_after_reconciliation(
+    evidence: list[ScoredEvidence], pattern: str
+) -> tuple[float, str] | None:
+    """Recompute a gray_area claim once the blind pass has ruled on it.
+
+    Returns None when the verdict implies no change ("genuinely_developing"
+    confirms the tier rather than correcting it), or when there is no evidence
+    to recompute from.
+    """
+    support = _RECONCILED_SUPPORT.get(pattern)
+    if support is None or not evidence:
+        return None
+
+    best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
+    score = 100 * (0.7 * support + 0.3 * best.relevance_score)
+    return score, veracity_tier(score)
+
+
 def compute_claim_score(
     evidence: list[ScoredEvidence], distorted: bool = False
 ) -> tuple[float, str]:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Claim, ChatMessage, Guidance, DecisionReviewData } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
@@ -61,6 +61,42 @@ export function MessageList({
   loading?: boolean;
   onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /* Whether to follow new content down.
+   *
+   * True until you scroll away from the bottom yourself. Without this, reading
+   * back through an answer while the next one streams in yanks you to the
+   * bottom every few hundred milliseconds - the one thing worse than not
+   * scrolling at all. A ref rather than state: it changes on every scroll
+   * event and nothing renders from it. */
+  const stickToBottom = useRef(true);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 80px of slack, so "near enough the bottom" survives the last line of a
+    // message and a rounding error.
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  const lastMessageId = messages.at(-1)?.id ?? null;
+
+  // A new message - yours or its answer - is the moment you want to be at the
+  // bottom, so this one is smooth and deliberate.
+  useEffect(() => {
+    if (!stickToBottom.current) return;
+    const el = scrollRef.current;
+    el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [lastMessageId, busy]);
+
+  // Streaming text arrives many times a second; smooth scrolling that would
+  // queue an animation per token and visibly lag the text.
+  useEffect(() => {
+    if (!stickToBottom.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [streaming?.content]);
+
   if (loading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
@@ -91,7 +127,11 @@ export function MessageList({
   return (
     // min-h-0 is required for overflow-y-auto to engage: a flex item defaults
     // to min-height:auto, which sizes it to its content and defeats scrolling.
-    <div className="scroll-slim min-h-0 flex-1 animate-[fade-in_0.35s_ease] space-y-5 overflow-y-auto px-1 py-5">
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="scroll-slim min-h-0 flex-1 animate-[fade-in_0.35s_ease] space-y-5 overflow-y-auto px-1 py-5"
+    >
       {messages.map((m) => (
         <MessageBubble
           key={m.id}

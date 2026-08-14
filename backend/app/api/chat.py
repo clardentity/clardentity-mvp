@@ -37,7 +37,7 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
-    veracity_tier,
+    rescore_after_reconciliation,
 )
 from app.services.devils_advocate import generate_counterfactual
 from app.services.decision_classifier import (
@@ -785,12 +785,14 @@ async def send_message(
                 # cases the first pass got wrong, not cases it was merely unsure
                 # about. "genuinely_developing" leaves the score untouched; it
                 # confirms gray_area rather than correcting it.
-                if result.pattern == "spoofed":
-                    c.claim_score = min(c.claim_score, 40.0)
-                    c.entailment_label = veracity_tier(c.claim_score)
-                elif result.pattern == "understated":
-                    c.claim_score = max(c.claim_score, 81.0)
-                    c.entailment_label = veracity_tier(c.claim_score)
+                #
+                # Re-derived from the evidence rather than clamped: clamping a
+                # 41-80 score to max(.,81) or min(.,40) produced exactly 81 and
+                # exactly 40 every single time, which read as a measurement and
+                # was a constant.
+                rescored = rescore_after_reconciliation(c.evidence, result.pattern)
+                if rescored is not None:
+                    c.claim_score, c.entailment_label = rescored
 
         message_score = compute_message_score(scored_claims, scoring_weights)
 

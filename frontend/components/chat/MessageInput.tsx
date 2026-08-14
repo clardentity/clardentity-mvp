@@ -192,7 +192,7 @@ export function MessageInput({
           placeholder={
             disabled
               ? disabledReason ?? "Select a mode to start typing"
-              : "Ask a question…  (Enter to send, Shift+Enter for a new line)"
+              : "Ask a question…  (Enter to ask, Shift+Enter for a new line)"
           }
           className="flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
         />
@@ -202,7 +202,11 @@ export function MessageInput({
           disabled={disabled || !value.trim()}
           className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Send
+          {/* "Ask", not "Send". Send is what you do to a message; this is a
+              product where every mode is framed as a question and the whole
+              value is in the answer coming back. "Submit" is form language -
+              it belongs on a tax return. */}
+          Ask
         </button>
       </div>
       {disabled && disabledReason && (

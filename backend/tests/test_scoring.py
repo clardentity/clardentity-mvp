@@ -5,6 +5,8 @@ label and the number printed beside it disagreeing, because one came from
 arithmetic and the other from a model's opinion.
 """
 
+import math
+
 from app.services.confidence_scoring import (
     ScoredClaim,
     ScoredEvidence,
@@ -12,6 +14,7 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
+    rescore_after_reconciliation,
     veracity_tier,
 )
 from app.services.verification_agent import EvidenceVerification
@@ -150,3 +153,56 @@ class TestMessageScore:
     def test_score_never_negative(self):
         result = compute_message_score([self._claim(0, flagged=True, cited=False)])
         assert result.score >= 0.0
+
+
+class TestReconciliationRescoring:
+    """The second-level pass rules on the first pass's *support* judgement,
+    and the score is re-derived from the evidence.
+
+    The bug these guard against: clamping the score directly. A gray_area
+    claim scores 41-80, so max(score, 81) is always exactly 81 and
+    min(score, 40) is always exactly 40 - every reconciled claim landed on the
+    same number, which looked measured and was a constant.
+    """
+
+    def _gray(self, support: float, relevance: float) -> ScoredEvidence:
+        return ev(support, relevance)
+
+    def test_understated_scores_vary_with_the_evidence(self):
+        scores = {
+            rescore_after_reconciliation([self._gray(s, r)], "understated")[0]
+            for s, r in [(0.6, 0.35), (0.7, 0.5), (0.8, 0.62), (0.65, 0.9)]
+        }
+        assert len(scores) == 4, "every understated claim produced the same score"
+        assert 81.0 not in scores or len(scores) > 1
+
+    def test_spoofed_scores_vary_with_the_evidence(self):
+        scores = {
+            rescore_after_reconciliation([self._gray(s, r)], "spoofed")[0]
+            for s, r in [(0.6, 0.35), (0.7, 0.5), (0.8, 0.62), (0.65, 0.9)]
+        }
+        assert len(scores) == 4, "every spoofed claim produced the same score"
+
+    def test_understated_never_lowers_the_score(self):
+        for s, r in [(0.6, 0.35), (0.75, 0.8), (0.9, 0.45)]:
+            before, _ = compute_claim_score([self._gray(s, r)])
+            after, _ = rescore_after_reconciliation([self._gray(s, r)], "understated")
+            assert after >= before
+
+    def test_spoofed_never_raises_the_score(self):
+        for s, r in [(0.6, 0.35), (0.75, 0.8), (0.9, 0.45)]:
+            before, _ = compute_claim_score([self._gray(s, r)])
+            after, _ = rescore_after_reconciliation([self._gray(s, r)], "spoofed")
+            assert after <= before
+
+    def test_tier_still_agrees_with_the_displayed_number(self):
+        # The UI prints Math.round(score), which rounds halves up.
+        for pattern in ("understated", "spoofed"):
+            for s, r in [(0.6, 0.35), (0.7, 0.5), (0.65, 0.9), (0.9, 0.45)]:
+                score, tier = rescore_after_reconciliation([self._gray(s, r)], pattern)
+                assert tier == veracity_tier(score)
+                assert veracity_tier(float(math.floor(score + 0.5))) == tier
+
+    def test_confirming_verdicts_and_empty_evidence_change_nothing(self):
+        assert rescore_after_reconciliation([self._gray(0.7, 0.5)], "genuinely_developing") is None
+        assert rescore_after_reconciliation([], "understated") is None
