@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pro", tags=["pro"])
 
-_KNOWN_MODELS = {"chatgpt", "claude", "gemini"}
+# The Clar tiers, as the picker labels them. Narrowed server-side so a
+# client sending anything else records interest without a bogus model name
+# ending up in the demand data.
+_KNOWN_MODELS = {"clar pro", "clar max", "clar ultra"}
 
 
 @router.post("/interest", status_code=status.HTTP_202_ACCEPTED)

@@ -4,31 +4,61 @@ import { useEffect, useRef, useState } from "react";
 import { cx } from "@/components/ui/primitives";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
 
-/* Model selection, of which exactly one option currently does anything.
+/* Model selection, named by capability rather than by vendor.
  *
- * "Auto" is the product: Clardentity routes the question itself, and which
- * model it lands on is deliberately never stated - see the identity rules in
- * the backend prompt. The three named entries are roadmap, shown locked, and
- * are the entry point to the Pro upsell.
+ * The rows used to read ChatGPT / Claude / Gemini, which was three leaks at
+ * once: it announced the whole vendor set on the composer, contradicting the
+ * identity rules the backend enforces on every generation; it let anyone infer
+ * from which models were gated roughly what the cheap path costs; and since
+ * vendor API prices are published, per-vendor pricing is a public cost sheet
+ * anyone can compute a markup from.
  *
- * They describe what Pro will offer rather than what is running now, which is
- * why naming them here does not contradict the identity rules: a locked
- * "Claude" row is a thing you could buy, not a statement about what answered
- * your last question.
+ * Clar is Clardentity's own model family, so the tiers describe what you get -
+ * depth, breadth, reasoning - and routing stays an implementation detail we
+ * can change without it being a pricing conversation.
  */
 
-type Model = { id: string; label: string; blurb: string; locked: boolean };
+type Model = {
+  id: string;
+  label: string;
+  blurb: string;
+  detail: string;
+  locked: boolean;
+};
 
 const MODELS: Model[] = [
   {
     id: "auto",
     label: "Auto",
-    blurb: "Clardentity picks the right engine for the question.",
+    blurb: "Clardentity picks for each question.",
+    detail:
+      "Routes every question to whichever Clar tier suits it, so simple questions stay fast and hard ones get the depth they need. The default, and the right choice for most work.",
     locked: false,
   },
-  { id: "chatgpt", label: "ChatGPT", blurb: "Route everything to GPT.", locked: true },
-  { id: "claude", label: "Claude", blurb: "Route everything to Claude.", locked: true },
-  { id: "gemini", label: "Gemini", blurb: "Route everything to Gemini.", locked: true },
+  {
+    id: "clar-pro",
+    label: "Clar Pro",
+    blurb: "For advanced, specialist work.",
+    detail:
+      "Holds longer chains of reasoning than Auto and stays precise on technical and domain-specific questions. For work where the answer has to be right in the details, not just broadly correct.",
+    locked: true,
+  },
+  {
+    id: "clar-max",
+    label: "Clar Max",
+    blurb: "Wider context, deeper checking.",
+    detail:
+      "Reads further into your attachments, searches more widely, and pushes each claim through more verification before it reaches you. For research, long documents, and questions with a lot of ground to cover.",
+    locked: true,
+  },
+  {
+    id: "clar-ultra",
+    label: "Clar Ultra",
+    blurb: "Our most intelligent reasoner.",
+    detail:
+      "The most capable Clar tier, for problems where getting it right matters more than getting it quickly: ambiguous tradeoffs, novel analysis, and decisions you only make once.",
+    locked: true,
+  },
 ];
 
 function ChipIcon({ className }: { className?: string }) {
@@ -71,6 +101,9 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [upsell, setUpsell] = useState<string | null>(null);
   const [selected, setSelected] = useState("auto");
+  // Which row the pointer or keyboard focus is on, so the detail card can
+  // describe it. Null closes the card.
+  const [hovered, setHovered] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,6 +123,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
   }, [open]);
 
   const current = MODELS.find((m) => m.id === selected) ?? MODELS[0];
+  const described = MODELS.find((m) => m.id === hovered) ?? null;
 
   return (
     <>
@@ -110,13 +144,19 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
         {open && (
           <div
             role="menu"
-            className="absolute bottom-full left-0 z-40 mb-2 w-64 overflow-hidden rounded-xl border border-hairline bg-surface p-1 shadow-xl"
+            onMouseLeave={() => setHovered(null)}
+            // No overflow-hidden: the detail card is positioned outside this
+            // box, and clipping the corners it doesn't need cost the whole
+            // card. Rows carry their own rounding.
+            className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-hairline bg-surface p-1 shadow-xl"
           >
             {MODELS.map((model) => (
               <button
                 key={model.id}
                 type="button"
                 role="menuitem"
+                onMouseEnter={() => setHovered(model.id)}
+                onFocus={() => setHovered(model.id)}
                 onClick={() => {
                   if (model.locked) {
                     // The lock is the pitch. Opening the dialog from the click
@@ -131,7 +171,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
                 className={cx(
                   "flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
                   "hover:bg-surface-hover",
-                  model.locked && "opacity-45",
+                  model.locked && "opacity-60",
                 )}
               >
                 <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center">
@@ -167,6 +207,25 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
                 </span>
               </button>
             ))}
+
+            {/* Sits beside the menu rather than over it, so the row you are
+                pointing at stays visible while you read about it. Hidden on
+                narrow screens, where there is nowhere for it to go and the
+                one-line blurb is already in the row. */}
+            {described && (
+              <div
+                role="tooltip"
+                className="absolute bottom-0 left-full ml-2 hidden w-60 rounded-xl border border-hairline bg-surface p-3 shadow-xl lg:block"
+              >
+                <p className="text-xs font-semibold text-ink">{described.label}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+                  {described.detail}
+                </p>
+                {described.locked && (
+                  <p className="mt-2 text-[11px] font-medium text-brand">Included with Pro</p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

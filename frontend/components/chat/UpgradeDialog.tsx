@@ -22,8 +22,8 @@ type Tile = {
 
 const TILES: Tile[] = [
   {
-    title: "Every model, one subscription",
-    body: "Route any question to ChatGPT, Claude or Gemini - or let Clardentity pick the one that suits it. No extra accounts, no extra bills.",
+    title: "The full Clar range",
+    body: "Clar Pro for specialist work, Clar Max for wider context and deeper checking, Clar Ultra when getting it right matters more than getting it fast. Or leave it on Auto and let Clardentity choose.",
     span: "sm:col-span-4",
     accent: true,
   },
@@ -119,8 +119,11 @@ export function UpgradeDialog({
               {trigger ? `${trigger} is part of Pro.` : "Unlock every model."}
             </h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Keep the companion that shows its work. Add the models you already
-              trust.
+              {/* Was "add the models you already trust", which made sense when
+                  these rows carried other vendors' names. They are Clar tiers
+                  now and nobody trusts them yet - the pitch is depth, not
+                  familiarity. */}
+              Keep the companion that shows its work. Give it more to work with.
             </p>
           </div>
           <button
