@@ -29,6 +29,7 @@ from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_cl
 from app.services.clarifier import propose_clarifier
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
+from app.services.thinking_review import review_thinking
 from app.services.guidance import propose_guidance
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
@@ -164,6 +165,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         clarifier=message.clarifier,
         guidance=message.guidance,
         decision_review=message.decision_review,
+        thinking_review=message.thinking_review,
         claims=claims,
     )
 
@@ -645,6 +647,13 @@ async def send_message(
             if mode == "decision"
             else None
         )
+        # Thinking mode's replacement for the evidence panel, on the same
+        # terms: one fast call in the fan-out, null when it has nothing.
+        thinking_task = (
+            asyncio.create_task(review_thinking(payload.content, bias_category_id))
+            if mode == "thinking"
+            else None
+        )
         counterfactual_task = (
             asyncio.create_task(generate_counterfactual(draft_display_text))
             if draft_display_text
@@ -843,6 +852,7 @@ async def send_message(
         # flatten lists/paragraphs and visibly reflow the message on finalize.
         clarifier = await clarifier_task
         decision_review = await review_task if review_task else None
+        thinking_review = await thinking_task if thinking_task else None
         # Only the phrasing half survives to the post-answer ghost; the mode
         # half was a gate before generation and is spent.
         post_guidance = None
@@ -880,6 +890,7 @@ async def send_message(
             assistant_message.clarifier = clarifier
             assistant_message.guidance = post_guidance
             assistant_message.decision_review = decision_review
+            assistant_message.thinking_review = thinking_review
             await gen_db.flush()
 
             # One `citations` row per unique marker actually cited anywhere
@@ -997,6 +1008,7 @@ async def send_message(
             "clarifier": clarifier,
             "guidance": post_guidance,
             "decision_review": decision_review,
+            "thinking_review": thinking_review,
             # Only present when the search agent came back empty-handed; it is
             # the difference between "nothing supports this" and "nothing was
             # looked for".

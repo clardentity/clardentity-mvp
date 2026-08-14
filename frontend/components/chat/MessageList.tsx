@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Claim, ChatMessage, Guidance, DecisionReviewData } from "@/lib/sse";
+import type {
+  Claim,
+  ChatMessage,
+  Guidance,
+  DecisionReviewData,
+  ThinkingReviewData,
+} from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { EvidencePanel } from "@/components/chat/EvidencePanel";
@@ -10,6 +16,7 @@ import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
 import { GuidanceCard } from "@/components/chat/GuidanceCard";
 import { DecisionReview } from "@/components/chat/DecisionReview";
+import { ThinkingReview } from "@/components/chat/ThinkingReview";
 import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
@@ -146,6 +153,7 @@ export function MessageList({
           clarifier={m.clarifier}
           guidance={m.guidance}
           decisionReview={m.decision_review}
+          thinkingReview={m.thinking_review}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -221,6 +229,7 @@ function MessageBubble({
   clarifier,
   guidance,
   decisionReview,
+  thinkingReview,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -245,6 +254,7 @@ function MessageBubble({
   clarifier?: { question: string; options: string[] } | null;
   guidance?: Guidance | null;
   decisionReview?: DecisionReviewData | null;
+  thinkingReview?: ThinkingReviewData | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -276,7 +286,20 @@ function MessageBubble({
    * once the answer actually rested on a source, where it is a real
    * statement about real evidence. */
   const citedAnything = claims.some((c) => c.evidence.length > 0);
-  const verdictIsMeaningful = modeUsed === "knowing" || citedAnything;
+
+  /* Which panel belongs under this answer.
+   *
+   * Thinking and Decision don't produce claims worth citing. A reasoning
+   * chain is sound or unsound, not sourced or unsourced; a recommendation is
+   * a judgement, not a fact with a footnote. Showing them an evidence panel
+   * reported an absence that was never a fault, so each gets the panel that
+   * actually says something about its own output - the reasoning contrast,
+   * and the decisions worth considering. Knowing and Learning keep the
+   * evidence, which is the whole point of those two. */
+  const panel =
+    modeUsed === "thinking" ? "thinking" : modeUsed === "decision" ? "decision" : "evidence";
+  const verdictIsMeaningful =
+    panel === "evidence" && (modeUsed === "knowing" || citedAnything);
   // Lives here rather than inside EvidencePanel so the confidence badge can
   // open it - clicking a score to find out where it came from should show you
   // the working, not scroll to a collapsed row.
@@ -447,6 +470,10 @@ function MessageBubble({
           </p>
         )}
 
+        {!isUser && !isStreaming && panel === "thinking" && thinkingReview && (
+          <ThinkingReview review={thinkingReview} />
+        )}
+
         {!isUser && !isStreaming && verdictIsMeaningful && (
           <EvidencePanel
             claims={claims}
@@ -466,7 +493,9 @@ function MessageBubble({
           />
         )}
 
-        {decisionReview && !isStreaming && <DecisionReview review={decisionReview} />}
+        {panel === "decision" && decisionReview && !isStreaming && (
+          <DecisionReview review={decisionReview} />
+        )}
 
         {guidance && !isStreaming && (
           <GuidanceCard

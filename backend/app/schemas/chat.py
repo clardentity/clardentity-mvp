@@ -119,6 +119,9 @@ class MessageOut(BaseModel):
     #: Decision mode only. Per-option verdicts on the options the user listed,
     #: plus an alternative when all of them are compromised. Null otherwise.
     decision_review: dict | None = None
+    #: Thinking mode only. Sound vs biased ways of reasoning about the
+    #: question, shown instead of claims and evidence.
+    thinking_review: dict | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}

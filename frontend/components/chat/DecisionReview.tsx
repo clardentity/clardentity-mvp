@@ -32,12 +32,15 @@ function Warn() {
 }
 
 export function DecisionReview({ review }: { review: DecisionReviewData }) {
-  if (!review.options?.length) return null;
+  const hasOptions = Boolean(review.options?.length);
+  const hasSuggestions = Boolean(review.suggestions?.length);
+  if (!hasOptions && !hasSuggestions) return null;
 
   const unsound = review.options.filter((o) => !o.sound).length;
 
   return (
     <section className="mt-2.5 rounded-xl border border-hairline bg-surface-muted p-3">
+      {hasOptions && (
       <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
         Your options, checked
         <span className="ml-1.5 font-normal normal-case tracking-normal text-ink-muted">
@@ -48,7 +51,9 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
               : `${unsound} flagged`}
         </span>
       </h4>
+      )}
 
+      {hasOptions && (
       <ul className="mt-2 space-y-2">
         {review.options.map((option, i) => (
           <li key={i} className="flex gap-2">
@@ -79,6 +84,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
           </li>
         ))}
       </ul>
+      )}
 
       {review.alternative && (
         // Only ever present when every option was flagged. Telling someone all
@@ -96,6 +102,33 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
               {review.alternative_why}
             </p>
           )}
+        </div>
+      )}
+      {hasSuggestions && (
+        // Decision mode's replacement for the evidence panel. Present whether
+        // or not they brought options of their own: the useful output of a
+        // decision question is decisions, and there is nothing to cite.
+        <div className={hasOptions ? "mt-3 border-t border-hairline pt-3" : ""}>
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
+            Decisions worth considering
+          </h4>
+          <ol className="mt-2 space-y-2">
+            {review.suggestions.map((s, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-surface-hover text-[10px] font-semibold tabular-nums text-ink-secondary">
+                  {i + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium leading-relaxed text-ink">
+                    {s.decision}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">
+                    {s.why}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
       )}
     </section>

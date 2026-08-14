@@ -86,6 +86,11 @@ class Message(Base):
     # {"options": [{"label","sound","bias_name","bias_definition","why"}],
     #  "alternative", "alternative_why"} - see services/decision_review.py.
     decision_review: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Thinking mode only: the reasoning that holds for this question against
+    # the way it most easily goes wrong. Shown in place of the evidence panel,
+    # because a reasoning chain is sound or unsound rather than cited or
+    # uncited. {"sound": [...], "biased": [...]} - see thinking_review.py.
+    thinking_review: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

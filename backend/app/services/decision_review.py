@@ -25,6 +25,7 @@ from app.services.output_cleanup import clean_output
 logger = logging.getLogger("clardentity.decision_review")
 
 MAX_OPTIONS = 6
+MAX_SUGGESTIONS = 5
 _MAX_TEXT = 240
 _SHORTLIST = 50
 
@@ -50,6 +51,13 @@ _INSTRUCTIONS = (
     "itself, stated as an action; `alternative_why` names the shared fault and "
     "says how this avoids it. If any option was sound, both must be null - the "
     "sound option is the answer, and inventing a rival to it is noise.\n\n"
+    "Separately, and ALWAYS - whether or not they listed options - give "
+    "`suggestions`: one to five decisions you would actually recommend "
+    "considering for this question, best first. Each is a `decision` phrased as "
+    "an action they could take, and a `why` giving the reason it is worth "
+    "considering. These stand on their own: if they listed good options, the "
+    "best of those belong here too. Do not pad the list to five - give as many "
+    "as genuinely deserve considering and no more.\n\n"
     "Be willing to find nothing wrong. Options are frequently fine. Plain text "
     "only: no markdown, no em dashes."
 )
@@ -77,8 +85,20 @@ _SCHEMA = {
         },
         "alternative": {"type": ["string", "null"]},
         "alternative_why": {"type": ["string", "null"]},
+        "suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "decision": {"type": "string"},
+                    "why": {"type": "string"},
+                },
+                "required": ["decision", "why"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["applicable", "options", "alternative", "alternative_why"],
+    "required": ["applicable", "options", "alternative", "alternative_why", "suggestions"],
     "additionalProperties": False,
 }
 
@@ -113,8 +133,27 @@ async def review_decisions(question: str, bias_category_id: str | None = None) -
         logger.warning("decision review failed", exc_info=True)
         return None
 
+    suggestions = []
+    for raw in (parsed.get("suggestions") or [])[:MAX_SUGGESTIONS]:
+        decision, why = _text(raw.get("decision"), 160), _text(raw.get("why"))
+        if decision and why:
+            suggestions.append({"decision": decision, "why": why})
+
+    def _only_suggestions() -> dict | None:
+        # `applicable` governs the verdicts on *their* options. Suggestions
+        # stand on their own, so a question with no menu still gets them -
+        # which is what decision mode shows in place of an evidence panel.
+        if not suggestions:
+            return None
+        return {
+            "options": [],
+            "alternative": None,
+            "alternative_why": None,
+            "suggestions": suggestions,
+        }
+
     if not parsed.get("applicable"):
-        return None
+        return _only_suggestions()
 
     options = []
     for raw in (parsed.get("options") or [])[:MAX_OPTIONS]:
@@ -137,9 +176,10 @@ async def review_decisions(question: str, bias_category_id: str | None = None) -
             }
         )
 
-    # Two options is the minimum that makes this a comparison.
+    # Two options is the minimum that makes this a comparison. Fewer means
+    # there were no verdicts worth showing, but suggestions may still stand.
     if len(options) < 2:
-        return None
+        return _only_suggestions()
 
     alternative = _text(parsed.get("alternative"))
     alternative_why = _text(parsed.get("alternative_why"))
@@ -152,4 +192,5 @@ async def review_decisions(question: str, bias_category_id: str | None = None) -
         "options": options,
         "alternative": alternative,
         "alternative_why": alternative_why if alternative else None,
+        "suggestions": suggestions,
     }

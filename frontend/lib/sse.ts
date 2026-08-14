@@ -61,6 +61,16 @@ export type DecisionReviewData = {
   }[];
   alternative: string | null;
   alternative_why: string | null;
+  /** Decisions worth considering, best first - present whether or not the
+   *  user listed options of their own. */
+  suggestions: { decision: string; why: string }[];
+};
+
+/** Thinking mode's replacement for claims and evidence: the reasoning that
+ *  holds for the question against the way it most easily goes wrong. */
+export type ThinkingReviewData = {
+  sound: { approach: string; why: string }[];
+  biased: { approach: string; bias_name: string | null; bias_definition: string | null; why: string }[];
 };
 
 export type ChatMessage = {
@@ -80,6 +90,7 @@ export type ChatMessage = {
   clarifier: { question: string; options: string[] } | null;
   guidance: Guidance | null;
   decision_review: DecisionReviewData | null;
+  thinking_review: ThinkingReviewData | null;
   claims: Claim[];
 };
 
