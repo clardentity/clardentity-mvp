@@ -170,41 +170,63 @@ export class LiveCall {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctor();
     this.ctx = ctx;
+    // Created inside an async ontrack callback, which is nowhere near the
+    // click that opened the call - so autoplay policy starts it suspended,
+    // and a suspended context's analyser returns a buffer of silence forever.
+    // That is why the mouth wasn't tracking the voice: it was faithfully
+    // animating zero.
+    void ctx.resume().catch(() => {});
+
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
-    // Small FFT: we want the shape of the envelope now, not a spectrogram.
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.55;
+    analyser.fftSize = 1024;
+    // Low, because the smoothing that makes a spectrum look nice is exactly
+    // the smoothing that makes a mouth lag the voice.
+    analyser.smoothingTimeConstant = 0.2;
     source.connect(analyser);
 
-    const bins = new Uint8Array(analyser.frequencyBinCount);
-    // Voice energy lives low; consonants and sibilants push the top end. The
-    // ratio between the two is what separates a round vowel from a wide one.
+    const freq = new Uint8Array(analyser.frequencyBinCount);
+    const time = new Uint8Array(analyser.fftSize);
+    // Speech energy sits low; sibilants and plosives push the top end. The
+    // balance between them is what separates a round "oo" from a wide "ee".
     const lowEnd = Math.floor(analyser.frequencyBinCount * 0.12);
 
     let openness = 0;
     let width = 0.5;
 
     const tick = () => {
-      analyser.getByteFrequencyData(bins);
+      // Openness comes from the waveform, not the spectrum. RMS over the
+      // time domain is the actual loudness envelope of the voice; summing
+      // frequency bins measures how much spectral content there is, which
+      // stays high through quiet consonants and barely dips between words.
+      analyser.getByteTimeDomainData(time);
+      let sumSquares = 0;
+      for (let i = 0; i < time.length; i++) {
+        const sample = (time[i] - 128) / 128;
+        sumSquares += sample * sample;
+      }
+      const rms = Math.sqrt(sumSquares / time.length);
 
+      analyser.getByteFrequencyData(freq);
       let low = 0;
       let high = 0;
-      for (let i = 0; i < bins.length; i++) {
-        if (i < lowEnd) low += bins[i];
-        else high += bins[i];
+      for (let i = 0; i < freq.length; i++) {
+        if (i < lowEnd) low += freq[i];
+        else high += freq[i];
       }
       low /= lowEnd * 255;
-      high /= (bins.length - lowEnd) * 255;
+      high /= (freq.length - lowEnd) * 255;
 
-      const energy = Math.min(1, (low * 1.6 + high * 0.9) * 1.5);
+      // Speech RMS rarely exceeds ~0.3, so it needs scaling before it reads
+      // as a mouth opening rather than a twitch.
+      const energy = Math.min(1, rms * 3.6);
       const brightness = high / (low + high + 0.0001);
 
-      // Attack fast, release slow: a mouth that snaps shut between syllables
-      // reads as a glitch, one that snaps open reads as speech.
-      const targetOpen = energy < 0.06 ? 0 : Math.min(1, energy);
-      openness += (targetOpen - openness) * (targetOpen > openness ? 0.55 : 0.18);
-      width += (Math.min(1, Math.max(0, brightness * 1.9)) - width) * 0.25;
+      // Attack fast, release slower: a mouth that snaps shut between
+      // syllables reads as a glitch, one that snaps open reads as speech.
+      const target = energy < 0.04 ? 0 : energy;
+      openness += (target - openness) * (target > openness ? 0.6 : 0.25);
+      width += (Math.min(1, Math.max(0, brightness * 2.2)) - width) * 0.3;
 
       this.handlers.onViseme({ openness, width });
       this.raf = requestAnimationFrame(tick);

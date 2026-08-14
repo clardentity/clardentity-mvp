@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
-import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
-import { COGNITIVE_MODES, type CognitiveMode } from "@/lib/modes";
+import { type CognitiveMode } from "@/lib/modes";
 import {
   Badge,
   Button,
@@ -33,6 +32,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which mode is being started, so only the card you clicked shows a
   // pending label. `"any"` covers the plain "New conversation" button.
@@ -85,6 +85,18 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     );
   }
 
+  async function handleDelete(id: string) {
+    setDeleting(id);
+    try {
+      await apiFetch(`/chat/conversations/${id}`, { method: "DELETE" });
+      setConversations((prev) => (prev ?? []).filter((c) => c.id !== id));
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   if (!workspace || conversations === null) {
     return (
       <div className="flex flex-1 items-center justify-center py-24">
@@ -109,42 +121,12 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         }
       />
 
-      {/* The four modes are the product, so the workspace opens on them rather
-          than on a list of admin links: picking one starts a conversation
-          already set to it, which is one fewer decision after landing here.
-          Knowing takes the wide cell - it's the one most people arrive for. */}
-      <BentoGrid className="mb-5" rowHeight="10.5rem">
-        {COGNITIVE_MODES.map((mode, i) => (
-          <BentoCard
-            key={mode.value}
-            name={mode.label}
-            description={mode.when}
-            className={i === 0 ? "lg:col-span-2" : ""}
-            onClick={() => handleNewConversation(mode.value)}
-            cta={creating === mode.value ? "Starting…" : `Ask in ${mode.label}`}
-            background={
-              <div className="absolute right-0 top-0 p-5 text-right">
-                <span className="text-xs font-medium text-brand">{mode.hint}</span>
-              </div>
-            }
-          />
-        ))}
-        <BentoCard
-          name="Attachments"
-          description="PDF, DOCX or TXT. Everything you upload here is what answers get cited against."
-          Icon={DocIcon}
-          href={`/workspace/${workspaceId}/documents`}
-          cta="Manage attachments"
-        />
-        <BentoCard
-          name="Chats"
-          description="Search everything said across every conversation in this room."
-          Icon={SearchIcon}
-          href={`/workspace/${workspaceId}/search`}
-          cta="Search"
-        />
-      </BentoGrid>
-
+      {/* The mode cards used to open this page - six tiles asking you to pick
+          a cognitive stance before you had a question. The mode belongs to the
+          message, not to the room, and is chosen in the composer where you can
+          see what you're asking; attachments and search moved to the sidebar,
+          where navigation lives. What's left is the one thing you came here
+          to do and the list of what you did before. */}
       <Card padded={false}>
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold text-ink">Conversations</h2>
@@ -164,10 +146,16 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
         ) : (
           <ul className="divide-y divide-hairline">
             {conversations.map((conv) => (
-              <li key={conv.id}>
+              // The row is a link and delete is a button, so they can't nest -
+              // a <button> inside an <a> is invalid and swallows the click on
+              // whichever browser feels like it.
+              <li
+                key={conv.id}
+                className="group/row flex items-center gap-1 transition-colors hover:bg-surface-hover"
+              >
                 <Link
                   href={`/chat/${conv.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-hover sm:px-5"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 sm:px-5"
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-ink">
@@ -183,6 +171,11 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                     </Badge>
                   )}
                 </Link>
+                <DeleteConversation
+                  title={conv.title}
+                  busy={deleting === conv.id}
+                  onDelete={() => handleDelete(conv.id)}
+                />
               </li>
             ))}
           </ul>
@@ -192,22 +185,63 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function DocIcon({ className }: { className?: string }) {
+/** Delete, with the confirmation in the row rather than in a dialog.
+ *
+ *  A conversation takes its messages, claims and citations with it, so it
+ *  asks first - but a modal for a row you can see is heavier than the thing
+ *  it is protecting. The button becomes its own "Sure?" and reverts if you
+ *  look away. */
+function DeleteConversation({
+  title,
+  busy,
+  onDelete,
+}: {
+  title: string | null;
+  busy: boolean;
+  onDelete: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const label = title || "Untitled conversation";
+
+  if (confirming) {
+    return (
+      <span className="flex shrink-0 items-center gap-1 pr-3">
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={busy}
+          className="rounded-md px-2 py-1 text-xs font-medium text-band-low transition-colors hover:bg-band-low-bg disabled:opacity-50"
+        >
+          {busy ? "Deleting…" : "Delete"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          disabled={busy}
+          className="rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+        >
+          Cancel
+        </button>
+      </span>
+    );
+  }
+
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
+    <button
+      type="button"
+      onClick={() => setConfirming(true)}
+      onBlur={() => setConfirming(false)}
+      title={`Delete "${label}"`}
+      aria-label={`Delete "${label}"`}
+      className="mr-3 shrink-0 rounded-md p-1.5 text-ink-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-band-low focus-visible:opacity-100 group-hover/row:opacity-100"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-3.5 w-3.5">
+        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M10 11v6M14 11v6" />
+      </svg>
+    </button>
   );
 }
 
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
+
