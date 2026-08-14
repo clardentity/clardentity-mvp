@@ -93,6 +93,10 @@ export type ChatFinalEvent = {
   research_notes: string[];
 };
 
+/** The server stopped before generating because a different mode suits the
+ *  question better. Nothing was saved; the turn is exactly where it was. */
+export type ModeSuggestion = { suggested_mode: string; mode_reason: string | null };
+
 /** Named phase of the work in progress, for the waiting indicator. */
 export type ChatStatus = { phase: string; label: string };
 
@@ -105,6 +109,9 @@ export type ChatStreamHandlers = {
   /** Named phase of the pipeline, so the wait can say what it's waiting on. */
   onStatus?: (status: ChatStatus) => void;
   onFinal: (event: ChatFinalEvent) => void;
+  /** Fires *instead of* everything else: no answer was generated and nothing
+   *  was written. The caller re-sends once the user has chosen. */
+  onModeSuggestion?: (suggestion: ModeSuggestion) => void;
   onError: (detail: string) => void;
 };
 
@@ -120,6 +127,9 @@ export type SendMessageBody = {
   reasoning_lens?: string | null;
   attachments?: SendMessageAttachment[];
   audio_duration_seconds?: number | null;
+  /** Set when re-sending after a mode suggestion, either way the user
+   *  answered, so the same question is never stopped twice. */
+  mode_confirmed?: boolean;
 };
 
 async function openStream(
@@ -208,6 +218,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
     else if (eventType === "answer") handlers.onAnswer(parsed.message);
     else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);
+    else if (eventType === "mode_suggestion") handlers.onModeSuggestion?.(parsed);
     else if (eventType === "error") handlers.onError(parsed.detail);
   } catch {
     // ignore malformed frame

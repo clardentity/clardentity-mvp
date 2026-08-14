@@ -3,12 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
-import { streamChatMessage, type ChatMessage, type ChatStatus } from "@/lib/sse";
+import {
+  streamChatMessage,
+  type ChatMessage,
+  type ChatStatus,
+  type ModeSuggestion,
+} from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
+import { ModeSuggestionCard } from "@/components/chat/ModeSuggestionCard";
 import { cx } from "@/components/ui/primitives";
 import {
   AvatarPanel,
@@ -58,6 +64,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [carousel, setCarousel] = useState(true);
   const [activeTrack, setActiveTrack] = useState(0);
   const [callOpen, setCallOpen] = useState(false);
+  // A pending question the server declined to answer until the mode is
+  // settled. Holds the original send so either choice can replay it.
+  const [pendingMode, setPendingMode] = useState<{
+    suggestion: ModeSuggestion;
+    content: string;
+    images: PendingImage[];
+    mode: CognitiveMode;
+  } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -100,9 +114,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // may not have caught up yet - setMode in the same tick doesn't apply
     // until the next render - so the caller passes it explicitly.
     modeOverride?: CognitiveMode,
+    // The user has answered the mode question, either way. Stops the server
+    // asking again about a question it already asked about.
+    modeConfirmed = false,
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
+    setPendingMode(null);
 
     setError(null);
     setSending(true);
@@ -139,6 +157,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           data: img.data,
           mime_type: img.mimeType,
         })),
+        mode_confirmed: modeConfirmed,
       },
       {
         onStatus: setStatus,
@@ -182,6 +201,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           }
           setReacting(true);
           setTimeout(() => setReacting(false), 700);
+        },
+        onModeSuggestion: (suggestion) => {
+          // Nothing was written server-side, so the optimistic user message is
+          // rolled back too - it will be re-sent for real once they choose.
+          setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          setPendingMode({ suggestion, content, images, mode: sendMode });
+          setStreaming(null);
+          setSending(false);
+          setStatus(null);
         },
         onError: (detail) => {
           setError(detail);
@@ -449,6 +477,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           />
         ) : (
           messageListFor(messages, streaming)
+        )}
+
+        {pendingMode && (
+          <ModeSuggestionCard
+            suggestedMode={pendingMode.suggestion.suggested_mode}
+            reason={pendingMode.suggestion.mode_reason}
+            currentMode={pendingMode.mode}
+            busy={sending}
+            onSwitch={() => {
+              const next = pendingMode.suggestion.suggested_mode as CognitiveMode;
+              setMode(next);
+              void handleSend(pendingMode.content, pendingMode.images, next, true);
+            }}
+            onContinue={() =>
+              void handleSend(pendingMode.content, pendingMode.images, pendingMode.mode, true)
+            }
+          />
         )}
 
         {error && (

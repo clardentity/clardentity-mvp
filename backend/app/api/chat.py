@@ -397,6 +397,10 @@ async def send_message(
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
     admin_settings = await get_all_settings(db)
 
+    # Started here rather than awaited here: its latency overlaps the history
+    # and memory reads below, so the pre-answer check is close to free.
+    guidance_task = asyncio.create_task(propose_guidance(payload.content, mode))
+
     history_rows = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -405,6 +409,30 @@ async def send_message(
     )
     history = list(reversed(history_rows.scalars().all()))
     memory_summary = await get_memory_summary(db, conversation_id)
+
+    # The mode nudge has to happen *before* generating, not after: a question
+    # answered in the wrong mode has already had its claims extracted, its
+    # evidence gathered and its score computed against the wrong standard, and
+    # offering to switch underneath that asks the reader to discard work they
+    # can see. It only reads the question and the chosen mode, so it needs
+    # nothing from retrieval and runs while the history and memory load.
+    guidance = await guidance_task
+
+    if not payload.mode_confirmed and guidance and guidance.get("suggested_mode"):
+        # Nothing is persisted on this path. The user message is not saved,
+        # no answer is generated, and the turn is exactly where it was - so
+        # picking "stay" costs one round trip and picking "switch" costs the
+        # same, rather than leaving a dangling question with no answer under
+        # it in the transcript.
+        suggestion = {
+            "suggested_mode": guidance["suggested_mode"],
+            "mode_reason": guidance.get("mode_reason"),
+        }
+
+        async def mode_gate() -> AsyncIterator[dict]:
+            yield {"event": "mode_suggestion", "data": json.dumps(suggestion)}
+
+        return EventSourceResponse(mode_gate())
 
     user_message = Message(
         conversation_id=conversation_id,
@@ -610,7 +638,6 @@ async def send_message(
         # Looks only at the question and the chosen mode, so it does not wait
         # on the answer - it is in this fan-out purely so its latency lands
         # inside the post-answer window rather than after it.
-        guidance_task = asyncio.create_task(propose_guidance(payload.content, mode))
         # Decision mode only: judging options nobody listed is a call spent to
         # return null.
         review_task = (
@@ -815,8 +842,17 @@ async def send_message(
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
         clarifier = await clarifier_task
-        guidance = await guidance_task
         decision_review = await review_task if review_task else None
+        # Only the phrasing half survives to the post-answer ghost; the mode
+        # half was a gate before generation and is spent.
+        post_guidance = None
+        if guidance and guidance.get("refined_question"):
+            post_guidance = {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": guidance["refined_question"],
+                "refinement_reason": guidance.get("refinement_reason"),
+            }
         display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
@@ -842,7 +878,7 @@ async def send_message(
                 clean_output(counterfactual_text) if counterfactual_text else None
             )
             assistant_message.clarifier = clarifier
-            assistant_message.guidance = guidance
+            assistant_message.guidance = post_guidance
             assistant_message.decision_review = decision_review
             await gen_db.flush()
 
@@ -959,7 +995,7 @@ async def send_message(
             # Ships with the answer so the Devil's Draft opens instantly.
             "counterfactual_content": counterfactual_text,
             "clarifier": clarifier,
-            "guidance": guidance,
+            "guidance": post_guidance,
             "decision_review": decision_review,
             # Only present when the search agent came back empty-handed; it is
             # the difference between "nothing supports this" and "nothing was

@@ -47,6 +47,11 @@ class MessageCreate(BaseModel):
     # §12.1: set when `content` came from /audio/transcribe, so the turn can
     # still be linked to an audio_transcripts row.
     audio_duration_seconds: float | None = None
+    # Set by the client when re-sending after a mode suggestion, whichever way
+    # the user answered it. Suppresses the pre-answer check so the same
+    # question cannot be stopped twice - and so choosing "stay in this mode"
+    # is respected rather than re-argued.
+    mode_confirmed: bool = False
 
 
 class EvidenceOut(BaseModel):
