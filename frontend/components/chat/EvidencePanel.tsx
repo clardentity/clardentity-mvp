@@ -186,7 +186,7 @@ function EvidenceRow({ e }: { e: Evidence }) {
       {/* The sentence the verifier actually judged on, not wherever the
           retrieved chunk happened to begin. */}
       {e.excerpt && (
-        <blockquote className="border-l-2 border-hairline pl-2.5 text-xs leading-relaxed text-ink-secondary">
+        <blockquote className="border-l-2 border-hairline pl-2 text-xs leading-relaxed text-ink-secondary sm:pl-2.5">
           {e.excerpt}
         </blockquote>
       )}
@@ -221,7 +221,10 @@ function ClaimBlock({ claim }: { claim: Claim }) {
   const count = claim.evidence.length;
 
   return (
-    <article className={cx("border-l-2 pl-3", tier.rail)}>
+    // Rail indent halves on a phone. Three nested levels each with their own
+    // padding left the quote running in ~240px of a 375px screen; this buys
+    // back the difference where it is scarcest.
+    <article className={cx("border-l-2 pl-2 sm:pl-3", tier.rail)}>
       <p className="text-[13px] leading-relaxed text-ink">{cleanMessageText(claim.claim_text)}</p>
 
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">

@@ -100,14 +100,18 @@ function CallSession({
       role="dialog"
       aria-modal="true"
       aria-label="Live call"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-canvas px-6"
+      // Scrollable and top-padded rather than hard-centred: in landscape on a
+      // phone the viewport is ~375px tall, and a centred column of avatar,
+      // status, two hint lines and a control row simply does not fit - the
+      // End button was pushed off the bottom edge with no way to reach it.
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-y-auto bg-canvas px-6 py-6"
     >
       {/* A soft bloom behind the companion that breathes with its voice. The
           avatar is a flat SVG; this is what makes it feel like a source of
           sound rather than a picture of one. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute h-[min(70vh,34rem)] w-[min(70vh,34rem)] rounded-full transition-opacity duration-300"
+        className="pointer-events-none absolute h-[min(60vmin,34rem)] w-[min(60vmin,34rem)] rounded-full transition-opacity duration-300"
         style={{
           background:
             "radial-gradient(circle, color-mix(in srgb, var(--brand) 26%, transparent) 0%, transparent 66%)",
@@ -121,24 +125,27 @@ function CallSession({
         gesture="none"
         expression="neutral"
         viseme={speaking ? viseme : null}
-        className="relative h-[min(46vh,22rem)] w-[min(46vh,22rem)]"
+        className="relative h-[min(42vmin,22rem)] w-[min(42vmin,22rem)] shrink-0"
       />
 
-      <p className="relative mt-6 text-sm font-medium text-ink-secondary">
+      <p className="relative mt-4 text-sm font-medium text-ink-secondary sm:mt-6">
         {error ?? PHASE_LABEL[phase]}
       </p>
+      {/* Hidden on short viewports - landscape phones - where the controls
+          matter more than the advice. Both are restatements of things the
+          call itself makes obvious within a few seconds. */}
       {!error && phase === "listening" && (
-        <p className="relative mt-1 text-xs text-ink-muted">
+        <p className="relative mt-1 hidden text-xs text-ink-muted [@media(min-height:600px)]:block">
           Just talk - it will wait until you&apos;ve finished.
         </p>
       )}
       {!error && (
-        <p className="relative mt-1 text-xs text-ink-muted">
+        <p className="relative mt-1 hidden max-w-sm text-center text-xs text-ink-muted [@media(min-height:600px)]:block">
           Answers on a call aren&apos;t cited. Ask in the chat when you need the evidence.
         </p>
       )}
 
-      <div className="relative mt-10 flex items-center gap-3">
+      <div className="relative mt-6 flex shrink-0 items-center gap-3 sm:mt-10">
         <button
           type="button"
           onClick={() => {

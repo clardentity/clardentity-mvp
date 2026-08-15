@@ -363,3 +363,30 @@ body {
     animation: none;
   }
 }
+
+/* Mode carousel geometry.
+   
+   Track width, the step between tracks and the edge fade all have to change
+   together at the breakpoint: a full-width track must advance by a full
+   width, and a peek offset for neighbours that aren't visible would push the
+   active track off centre. Kept here rather than in the inline transform
+   because a calc() cannot be written responsively in a style attribute. */
+.carousel-track {
+  --track-step: 100%;
+  --track-peek: 0%;
+}
+
+@media (min-width: 640px) {
+  .carousel-track {
+    --track-step: 78%;
+    --track-peek: 11%;
+  }
+
+  /* Only fades where there is actually a neighbour to fade. Below sm the
+     tracks are full width, and masking the edges would just clip the
+     conversation. */
+  .carousel-viewport {
+    mask-image: linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%);
+  }
+}

@@ -53,11 +53,18 @@ export function ModeSelector({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+    // min-w-0 so the pill row can shrink inside the flex parent instead of
+    // forcing it wider; without it a 320px screen pushes the avatar beside it
+    // onto its own line, or off the edge entirely.
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
       <div
         role="radiogroup"
         aria-label="Cognitive mode"
-        className="inline-flex rounded-lg border border-hairline-strong bg-surface-muted p-0.5"
+        // Four pills already fill 375px edge to edge. Rather than wrap them
+        // into a ragged second row or shrink the text below legibility, the
+        // row scrolls: every mode stays one tap away and the control keeps
+        // its shape at any width.
+        className="scroll-slim inline-flex max-w-full overflow-x-auto rounded-lg border border-hairline-strong bg-surface-muted p-0.5"
       >
         {COGNITIVE_MODES.map((mode) => {
           const selected = value === mode.value;
@@ -70,7 +77,7 @@ export function ModeSelector({
               disabled={disabled}
               onClick={() => onChange(mode.value)}
               title={mode.when}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 ${
                 selected
                   ? "bg-brand text-white"
                   : "text-ink-secondary hover:bg-surface-hover hover:text-ink"

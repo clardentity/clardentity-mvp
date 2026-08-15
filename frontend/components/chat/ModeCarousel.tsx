@@ -228,21 +228,15 @@ export function ModeCarousel({
 
       <div
         className={cx(
-          "relative min-h-0 flex-1 overflow-hidden",
+          // The neighbouring tracks are meant to say "there is more this
+          // way", not to be read - the edge fade turns them into a hint
+          // rather than a watermark. It lives in CSS because it only applies
+          // at widths where neighbours are actually visible.
+          "carousel-viewport relative min-h-0 flex-1 overflow-hidden",
           // Only while a drag is live: killing selection permanently would
           // make it impossible to copy anything out of a message.
           dragging && "select-none",
         )}
-        style={{
-          // The neighbouring tracks are meant to say "there is more this way",
-          // not to be read. Left legible they sat either side of the answer
-          // like a watermark, competing with the column you're actually in.
-          // Fading the outer edges to nothing turns them back into a hint.
-          maskImage:
-            "linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%)",
-        }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -251,16 +245,17 @@ export function ModeCarousel({
       >
         <div
           className={cx(
-            "flex h-full",
+            "carousel-track flex h-full",
             // No transition mid-drag: the track should follow the finger, and
             // an eased transform lagging behind a pointer feels broken.
             !dragging && "transition-transform duration-300 ease-out",
           )}
           style={{
-            // Each track is 78% wide, so ~11% of each neighbour shows on
-            // either side. Translating by 78% per step keeps the active one
-            // centred: the 11% offset places its left edge correctly.
-            transform: `translateX(calc(${-activeIndex * 78 + 11}% + ${dragOffset}px))`,
+            // Step and peek come from CSS custom properties so they can
+            // change at the breakpoint with the track width - a full-width
+            // track has to advance by a full width, and a peek offset for
+            // neighbours that aren't rendered would push it off centre.
+            transform: `translateX(calc(${-activeIndex} * var(--track-step) + var(--track-peek) + ${dragOffset}px))`,
           }}
         >
           {tracks.map((track, index) => {
@@ -270,7 +265,11 @@ export function ModeCarousel({
                 key={track.mode}
                 aria-hidden={!isActive}
                 className={cx(
-                  "flex h-full w-[78%] shrink-0 flex-col px-2 transition-all duration-300",
+                  // Full width below sm: at 375px a 78% track leaves ~290px
+                  // of readable column with blurred content either side, and
+                  // the peek costs more than the "there is more this way" it
+                  // buys. The arrows above already say that.
+                  "flex h-full w-full shrink-0 flex-col px-1 transition-all duration-300 sm:w-[78%] sm:px-2",
                   isActive ? "opacity-100" : "pointer-events-none opacity-20",
                 )}
                 style={

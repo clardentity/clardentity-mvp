@@ -24,7 +24,11 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
         How to think about this
       </h4>
 
-      <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+      {/* Two columns at every width. The contrast *is* the panel - stacking
+          it puts "goes wrong" below the fold and turns a comparison into two
+          lists. Narrow screens pay for it in type size rather than in
+          losing the side-by-side. */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-band-high">
             Holds up
@@ -32,8 +36,8 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
           <ul className="mt-1.5 space-y-2">
             {review.sound.map((entry, i) => (
               <li key={i}>
-                <p className="text-xs font-medium leading-relaxed text-ink">{entry.approach}</p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-secondary">
+                <p className="text-[11px] font-medium leading-relaxed text-ink sm:text-xs">{entry.approach}</p>
+                <p className="mt-0.5 text-[10px] leading-relaxed text-ink-secondary sm:text-[11px]">
                   {entry.why}
                 </p>
               </li>
@@ -48,11 +52,11 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
           <ul className="mt-1.5 space-y-2">
             {review.biased.map((entry, i) => (
               <li key={i}>
-                <p className="text-xs font-medium leading-relaxed text-ink">{entry.approach}</p>
+                <p className="text-[11px] font-medium leading-relaxed text-ink sm:text-xs">{entry.approach}</p>
                 {entry.bias_name && (
                   <p className="mt-0.5 text-[11px] font-medium text-caution">{entry.bias_name}</p>
                 )}
-                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-secondary">
+                <p className="mt-0.5 text-[10px] leading-relaxed text-ink-secondary sm:text-[11px]">
                   {entry.why}
                 </p>
               </li>
