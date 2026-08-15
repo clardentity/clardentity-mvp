@@ -206,3 +206,52 @@ class TestReconciliationRescoring:
     def test_confirming_verdicts_and_empty_evidence_change_nothing(self):
         assert rescore_after_reconciliation([self._gray(0.7, 0.5)], "genuinely_developing") is None
         assert rescore_after_reconciliation([], "understated") is None
+
+
+class TestUnmeasuredRelevance:
+    """Web sources gathered before generation carry no credibility judgement -
+    the supervisor only runs per claim, once there is something to check.
+
+    Coercing that unknown to 0.0 capped every claim they supported at exactly
+    70/100 and labelled it "Unverifiable", no matter how completely the sources
+    backed it. Two government sources stating a constitutional fact verbatim
+    read as unverifiable.
+    """
+
+    def test_unknown_relevance_does_not_cap_a_fully_supported_claim(self):
+        score, tier = compute_claim_score([ev(1.0, None), ev(1.0, None)])
+        assert score == 100.0
+        assert tier == "verifiable_fact"
+
+    def test_the_old_behaviour_is_what_produced_seventy(self):
+        # Kept as the counter-example: a *measured* zero still scores 70.
+        score, _ = compute_claim_score([ev(1.0, 0.0)])
+        assert score == 70.0
+
+    def test_unknown_relevance_renormalises_onto_support(self):
+        for support in (0.0, 0.25, 0.6, 1.0):
+            score, _ = compute_claim_score([ev(support, None)])
+            assert score == support * 100
+
+    def test_measured_relevance_is_unaffected(self):
+        score, _ = compute_claim_score([ev(1.0, 0.8)])
+        assert round(score) == 94
+
+    def test_tier_still_agrees_with_the_score(self):
+        for support in (0.0, 0.3, 0.55, 0.81, 1.0):
+            score, tier = compute_claim_score([ev(support, None)])
+            assert tier == veracity_tier(score)
+
+    def test_message_rollup_ignores_unmeasured_relevance(self):
+        # Averaging None as zero would drag the message score down the same way.
+        claim = ScoredClaim(
+            claim_index=1,
+            claim_text="c",
+            claim_score=100.0,
+            entailment_label="verifiable_fact",
+            distortion_flag=None,
+            distortion_explanation=None,
+            evidence=[ev(1.0, None)],
+        )
+        measured = ScoredClaim(**{**claim.__dict__, "evidence": [ev(1.0, 1.0)]})
+        assert compute_message_score([claim]).score == compute_message_score([measured]).score

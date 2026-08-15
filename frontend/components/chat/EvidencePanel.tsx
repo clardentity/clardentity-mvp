@@ -153,6 +153,7 @@ function ExternalLinkIcon() {
 
 function EvidenceRow({ e }: { e: Evidence }) {
   const isWeb = e.source_type === "web" && e.url;
+  const secondary = isWeb ? e.credibility_score : e.relevance_score;
   const facts = [
     supportPhrase(e),
     isWeb ? credibilityPhrase(e.credibility_score) : relevancePhrase(e.relevance_score),
@@ -195,10 +196,16 @@ function EvidenceRow({ e }: { e: Evidence }) {
           {e.support_score !== null ? e.support_score.toFixed(2) : "?"}
         </span>
         <span>{facts.join(" · ")}</span>
-        <span className="tabular-nums">
-          ({isWeb ? "credibility" : "relevance"}{" "}
-          {(isWeb ? e.credibility_score : e.relevance_score)?.toFixed(2) ?? "?"})
-        </span>
+        {/* Only shown when it was actually measured. A bare "credibility ?"
+            advertised a gap in our own pipeline as if it were a property of
+            the source - web results found before the answer exists have not
+            been judged yet, because there was nothing to judge them against.
+            The claim score no longer counts that gap as a zero either. */}
+        {secondary !== null && (
+          <span className="tabular-nums">
+            ({isWeb ? "credibility" : "relevance"} {secondary.toFixed(2)})
+          </span>
+        )}
       </p>
 
       {e.credibility_note && (

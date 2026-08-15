@@ -37,7 +37,12 @@ class ScoredEvidence:
     document_filename: str
     excerpt: str
     support_score: float
-    relevance_score: float
+    # None when genuinely unmeasured, which is not the same as zero. Web
+    # sources gathered before generation have no credibility judgement yet -
+    # the supervisor only runs per claim, after there is something to check -
+    # and coercing that unknown to 0.0 silently capped every claim it
+    # supported at 70/100, "Unverifiable", however perfectly it was backed.
+    relevance_score: float | None
     entailment_label: str
     source_type: str = "document"
     url: str | None = None
@@ -110,7 +115,8 @@ def build_scored_evidence(
                     # so its relevance is the supervisor's credibility judgement
                     # - the number that actually governs whether it should have
                     # been cited at all.
-                    relevance_score=source.credibility_score or 0.0,
+                    # Not `or 0.0`: an unjudged source is unjudged.
+                    relevance_score=source.credibility_score,
                     entailment_label=verification.entailment_label,
                     source_type="web",
                     url=source.url,
@@ -226,19 +232,42 @@ def rescore_after_reconciliation(
     if support is None or not evidence:
         return None
 
-    best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
-    score = 100 * (0.7 * support + 0.3 * best.relevance_score)
+    best = max(evidence, key=_weight)
+    if best.relevance_score is None:
+        score = 100 * support
+    else:
+        score = 100 * (0.7 * support + 0.3 * best.relevance_score)
     return score, veracity_tier(score)
+
+
+def _weight(e: ScoredEvidence) -> float:
+    """Ranking key. Unmeasured relevance contributes nothing to the ranking
+    but doesn't drag the item below one that scored a real zero."""
+    return 0.7 * e.support_score + 0.3 * (e.relevance_score or 0.0)
+
+
+def score_of(e: ScoredEvidence) -> float:
+    """0-100 for one piece of evidence.
+
+    When relevance is unmeasured the score is renormalised onto support
+    alone rather than treating the gap as a zero. Scoring what you did not
+    measure as the worst possible value is not caution, it is a wrong number
+    with a confident label on it.
+    """
+    if e.relevance_score is None:
+        return 100 * e.support_score
+    return 100 * (0.7 * e.support_score + 0.3 * e.relevance_score)
 
 
 def compute_claim_score(
     evidence: list[ScoredEvidence], distorted: bool = False
 ) -> tuple[float, str]:
     """claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
-    evidence item best supports the claim. No evidence -> 0 (fabricated tier -
-    see the module docstring note in chat.py's caller about what that does and
-    doesn't imply). The 0.7/0.3 per-claim split isn't admin-configurable,
-    unlike the message-level weights below.
+    evidence item best supports the claim, renormalised to support alone when
+    relevance was never measured. No evidence -> 0 (fabricated tier - see the
+    module docstring note in chat.py's caller about what that does and doesn't
+    imply). The 0.7/0.3 per-claim split isn't admin-configurable, unlike the
+    message-level weights below.
 
     `distorted` is whether the verification agent flagged this claim's
     reasoning for cognitive bias - when true, the score is capped so the tier
@@ -247,8 +276,7 @@ def compute_claim_score(
     if not evidence:
         score = 0.0
     else:
-        best = max(evidence, key=lambda e: 0.7 * e.support_score + 0.3 * e.relevance_score)
-        score = 100 * (0.7 * best.support_score + 0.3 * best.relevance_score)
+        score = score_of(max(evidence, key=_weight))
 
     if distorted:
         score = min(score, _DISTORTION_CAP)
@@ -271,14 +299,30 @@ def compute_message_score(
     citation_coverage = cited / total
     mean_claim_score = sum(c.claim_score for c in claims) / total
 
-    all_relevances = [e.relevance_score for c in claims for e in c.evidence]
-    mean_relevance = sum(all_relevances) / len(all_relevances) if all_relevances else 0.0
-
+    all_relevances = [
+        e.relevance_score
+        for c in claims
+        for e in c.evidence
+        if e.relevance_score is not None
+    ]
     score = (
         weights.claim_score_weight * mean_claim_score
         + weights.citation_coverage_weight * (100 * citation_coverage)
-        + weights.relevance_weight * (100 * mean_relevance)
     )
+
+    if all_relevances:
+        mean_relevance = sum(all_relevances) / len(all_relevances)
+        score += weights.relevance_weight * (100 * mean_relevance)
+    else:
+        # Nothing measured relevance at all - every source was a pre-generation
+        # web result, which carries no credibility judgement. Its weight is
+        # redistributed across the components that *were* measured rather than
+        # silently contributing zero, which capped such a message at 85 however
+        # well every claim in it was supported. Same principle as the per-claim
+        # renormalisation above: score what you measured.
+        measured = weights.claim_score_weight + weights.citation_coverage_weight
+        if measured > 0:
+            score *= (measured + weights.relevance_weight) / measured
 
     distortion_applied = any(c.distortion_flag for c in claims)
     if distortion_applied:

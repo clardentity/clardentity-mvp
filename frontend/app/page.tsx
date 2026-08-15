@@ -81,11 +81,13 @@ export default function Home() {
         <h1 className="mx-auto mt-4 max-w-4xl text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink sm:text-7xl">
           Your lifelong
           <br />
-          thinking companion.
+          wise companion.
         </h1>
+        {/* Wording from the client's linguistic recommendations. Their copy
+            uses an em dash here; house rule converts it to a hyphen. */}
         <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary sm:text-xl">
-          Anything can sound certain. Clardentity gives you the evidence behind
-          every claim - and tells you plainly when there isn&apos;t any.
+          Most AI sounds certain. Clardentity doesn&apos;t just give answers -
+          it shows you the evidence, and admits when there isn&apos;t any.
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
           <Link
@@ -98,7 +100,7 @@ export default function Home() {
             href="#modes"
             className="text-[15px] font-medium text-brand transition-opacity hover:opacity-70"
           >
-            See how it thinks ›
+            See how it helps ›
           </Link>
         </div>
       </section>
@@ -107,14 +109,17 @@ export default function Home() {
       <section className="border-y border-hairline bg-surface px-6 py-24">
         <div className="mx-auto max-w-3xl text-center">
           <p className="text-3xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl">
-            An answer you can&apos;t check
+            An answer you can&apos;t verify
             <br />
-            is just a confident guess.
+            is just a confident assumption.
           </p>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary">
-            Fluent writing reads as authority. That&apos;s the problem. When
-            everything arrives in the same assured voice, the things worth
-            trusting look exactly like the things that aren&apos;t.
+            Fluent writing creates the illusion of authority. That&apos;s the
+            dangerous trap. When every reply uses the same confident voice, the
+            reliable and the unreliable look identical.
+          </p>
+          <p className="mx-auto mt-4 max-w-xl text-lg font-medium leading-relaxed text-ink">
+            Clardentity removes the illusion.
           </p>
         </div>
       </section>
@@ -124,14 +129,14 @@ export default function Home() {
         <div className="mx-auto max-w-5xl">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-              One companion, four modes
+              One companion. Four modes of companionship.
             </p>
             <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-5xl">
-              You decide how it thinks.
+              You decide how it helps.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
-              Different questions deserve different treatment. You choose the
-              mode - it never guesses which one you meant.
+              Different questions deserve a different approach. You choose the
+              mode - Clardentity never assumes.
             </p>
           </div>
 
@@ -142,11 +147,11 @@ export default function Home() {
             {COGNITIVE_MODES.map((mode, i) => (
               <BentoCard
                 key={mode.value}
-                name={mode.label}
+                name={mode.companion}
                 description={mode.when}
                 className={i === 0 ? "lg:col-span-2" : ""}
                 href={primaryHref}
-                cta={`Try ${mode.label} mode`}
+                cta={mode.cta}
                 background={
                   <div className="absolute right-0 top-0 p-6 text-right">
                     <span className="text-sm font-medium text-brand">{mode.hint}</span>
