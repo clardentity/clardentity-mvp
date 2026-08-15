@@ -1,5 +1,10 @@
 from app.models import Message
 from app.services.retrieval import RetrievedChunk
+from app.services.thinking_framework import (
+    decision_tree_block,
+    monitoring_block,
+    thinking_framework_block,
+)
 
 # Identity and confidentiality. Prepended to every generation.
 #
@@ -102,24 +107,21 @@ def build_system_instructions(
                 f"{REASONING_LENS_INSTRUCTIONS[reasoning_lens]}"
             )
         else:
-            # Nobody is asked to pick one any more. Choosing well is part of
-            # thinking well, and a dropdown of eleven epistemic stances is a
-            # question most people can't answer about a problem they haven't
-            # worked through yet.
-            menu = "\n".join(
-                f"- {name}: {text}" for name, text in REASONING_LENS_INSTRUCTIONS.items()
-            )
-            parts.append(
-                "Choose the reasoning approach that actually fits this problem, "
-                "and apply it. The choice is yours alone and is never shown to "
-                "the user: do not name it, announce it, label a section with "
-                "it, or refer to having picked one - not at the start, not in "
-                "passing, not in a closing note. Terms from the list below must "
-                "not appear in your answer as descriptions of your own method. "
-                "Just reason that way.\n" + menu
-            )
+            # Nobody is asked to pick a lens any more, and as of the client's
+            # Thinking Framework Matrix the model is not asked to pick one
+            # either. A flat list of eleven stances invites choosing exactly
+            # one, which is the failure the matrix is written against: the
+            # value is in combining them, sequencing them, and counterbalancing
+            # whichever dominates.
+            parts.append(thinking_framework_block())
+            parts.append(monitoring_block())
 
-    # Decision mode only: the domain-specific bias watch-list (§ bias taxonomy).
+    # Decision mode only: the domain-specific bias watch-list (§ bias taxonomy),
+    # plus the framework's selection tree - comparing options is a different
+    # job from reasoning about a problem, and gets different guidance.
+    if mode == "decision":
+        parts.append(decision_tree_block())
+        parts.append(monitoring_block())
     if bias_guidance:
         parts.append(bias_guidance)
 

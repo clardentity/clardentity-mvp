@@ -8,6 +8,11 @@ commit history.
 
 from app.services import taxonomy
 from app.services.claim_parser import ClaimTagStripper
+from app.services.thinking_framework import (
+    decision_tree_block,
+    monitoring_block,
+    thinking_framework_block,
+)
 from app.services.prompt_builder import (
     IDENTITY,
     MODE_INSTRUCTIONS,
@@ -49,15 +54,26 @@ class TestModes:
 
 
 class TestReasoningLensStaysHidden:
-    def test_thinking_mode_forbids_naming_the_lens(self):
-        instructions = build_system_instructions("thinking")
-        assert "do not name it" in instructions.lower()
-        assert "never shown to" in instructions.lower()
+    """The rule survived the Thinking Framework Matrix; only its wording moved.
 
-    def test_the_lens_menu_is_offered_when_none_is_chosen(self):
+    These two used to assert the flat eleven-lens menu and its "do not name
+    it" sentence. The framework replaced that block wholesale - the model now
+    combines and sequences rather than picking one - so the assertions follow
+    the instruction to its new home rather than being dropped.
+    """
+
+    def test_thinking_mode_forbids_naming_the_approach(self):
         instructions = build_system_instructions("thinking")
+        lowered = instructions.lower()
+        assert "do not name these types" in lowered
+        assert "the method is never the subject" in lowered
+
+    def test_the_model_is_told_how_to_choose_when_the_user_has_not(self):
+        instructions = build_system_instructions("thinking")
+        assert "DEMAND -> COMBINATION" in instructions
+        # Every lens it may combine is still named somewhere in the guidance.
         for lens in REASONING_LENS_INSTRUCTIONS:
-            assert lens in instructions
+            assert lens.replace("_", "-") in instructions.lower()
 
     def test_other_modes_do_not_mention_lenses(self):
         for mode in ("knowing", "decision", "learning"):
@@ -107,3 +123,68 @@ class TestTaxonomy:
     def test_describe_bias_is_safe_on_unknown_input(self):
         described = taxonomy.describe_bias("nope", None)
         assert described["bias_name"] is None
+
+
+class TestThinkingFramework:
+    """The client's Thinking Framework Matrix, as embedded.
+
+    Its thesis is that one-need-one-style is the wrong model, so the guards
+    here are mostly about *not* reverting to picking a single lens, and about
+    the method never becoming the subject of the answer.
+    """
+
+    def test_thinking_mode_gets_combinations_not_a_single_lens(self):
+        instructions = build_system_instructions("thinking")
+        assert "Do not pick a single mode of thinking" in instructions
+        assert "DEMAND -> COMBINATION" in instructions
+
+    def test_counterbalancing_is_present(self):
+        block = thinking_framework_block()
+        for pair in ("creative <-> critical", "divergent <-> convergent", "abstract <-> concrete"):
+            assert pair in block
+
+    def test_the_method_is_never_the_subject(self):
+        block = thinking_framework_block()
+        assert "Do not name these types" in block
+        # Thinking mode still forbids narrating the approach, as before.
+        assert "never the subject" in build_system_instructions("thinking")
+
+    def test_monitoring_and_escalation_reach_both_reasoning_modes(self):
+        for mode in ("thinking", "decision"):
+            instructions = build_system_instructions(mode)
+            assert "would show this is working" in instructions
+            assert "qualified professional" in instructions
+
+    def test_decision_mode_gets_the_selection_tree(self):
+        instructions = build_system_instructions("decision")
+        assert "SELECTING BETWEEN OPTIONS" in instructions
+        assert "argue the strongest case against it" in instructions
+
+    def test_knowing_and_learning_are_untouched(self):
+        # The framework is about reasoning and selection. A factual lookup
+        # does not need a counterbalance, and paying for one on every turn
+        # would be prompt spent on nothing.
+        for mode in ("knowing", "learning"):
+            instructions = build_system_instructions(mode)
+            assert "DEMAND -> COMBINATION" not in instructions
+            assert "SELECTING BETWEEN OPTIONS" not in instructions
+
+    def test_an_explicit_user_lens_still_wins(self):
+        # The framework replaces the model's *own* choice, not the user's.
+        instructions = build_system_instructions("thinking", reasoning_lens="critical")
+        assert "chosen explicitly by the user" in instructions
+        assert "DEMAND -> COMBINATION" not in instructions
+
+    def test_every_demand_rule_names_real_lenses(self):
+        # The matrix's eleven types are our eleven lenses; a typo here would
+        # instruct the model in a vocabulary it was never given.
+        known = set(REASONING_LENS_INSTRUCTIONS) | {"non-linear", "meta-cognitive"}
+        block = thinking_framework_block().lower()
+        for lens in REASONING_LENS_INSTRUCTIONS:
+            plain = lens.replace("_", "-")
+            assert plain in block or lens in block, f"{lens} missing from the framework block"
+        assert known  # sanity
+
+    def test_blocks_carry_no_em_dashes(self):
+        for block in (thinking_framework_block(), monitoring_block(), decision_tree_block()):
+            assert "\u2014" not in block and "\u2013" not in block
