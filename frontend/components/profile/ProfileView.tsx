@@ -129,9 +129,13 @@ export function ProfileView() {
   // A profile now exists as soon as there is anything in it, inferred or
   // written by hand. Gating on personality_md hid the add form from exactly
   // the people who had nothing yet and most wanted to write something.
-  const hasProfile = Boolean(
-    profile && (profile.aspects.length > 0 || profile.roles.length > 0),
-  );
+  // Optional chaining rather than a direct read. A response missing either
+  // array - an older backend, a partial payload, a proxy that dropped a field
+  // - took the whole page down to a runtime error, which is a strictly worse
+  // outcome than rendering the empty state and letting them add something.
+  const aspects = profile?.aspects ?? [];
+  const roles = profile?.roles ?? [];
+  const hasProfile = aspects.length > 0 || roles.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -175,7 +179,7 @@ export function ProfileView() {
               description="Each line is a separate fact you can remove on its own. Anything you add yourself survives the next rebuild."
             />
             <AspectList
-              aspects={profile?.aspects ?? []}
+              aspects={aspects}
               busy={busy !== null}
               onAdd={handleAddAspect}
               onRemove={handleRemoveAspect}
@@ -187,9 +191,9 @@ export function ProfileView() {
               title="Life roles"
               description="The positions you appear to occupy, and what suggested each one."
             />
-            {profile && profile.roles.length > 0 ? (
+            {roles.length > 0 ? (
               <ul className="divide-y divide-hairline">
-                {profile.roles.map((r) => (
+                {roles.map((r) => (
                   <li key={r.role_id} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-sm font-medium text-ink">{r.label}</span>

@@ -677,9 +677,13 @@ function Breadcrumbs({
     return <span className="text-sm font-medium text-ink">Home</span>;
   }
 
+  // Any route not listed here falls through to its raw path segment, which
+  // is how /profile was rendering as a lowercase "profile" in a bar where
+  // every other entry is a proper name.
   const LABELS: Record<string, string> = {
     workspace: "Rooms",
     chat: "Conversation",
+    profile: "Your profile",
   };
 
   const crumbs: Array<{ label: string; href?: string }> = [];
