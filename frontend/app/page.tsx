@@ -16,11 +16,14 @@ import { WordRotator } from "@/components/marketing/WordRotator";
 function Nav({ signedIn }: { signedIn: boolean }) {
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-surface/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-between px-6">
-        <Link href="/" className="text-[15px] font-semibold tracking-tight text-ink">
+      <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-between gap-2 px-4 sm:px-6">
+        <Link href="/" className="shrink-0 text-[15px] font-semibold tracking-tight text-ink">
           Clardentity
         </Link>
-        <nav className="flex items-center gap-1 text-[13px]">
+        {/* whitespace-nowrap throughout: at 320px "Log in" broke across two
+            lines and pushed the header to 96px tall, which is a third of the
+            fold spent on chrome. */}
+        <nav className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[13px] sm:gap-1">
           <ThemeToggle className="mr-1" />
           {signedIn ? (
             <Link
@@ -33,13 +36,13 @@ function Nav({ signedIn }: { signedIn: boolean }) {
             <>
               <Link
                 href="/login"
-                className="rounded-full px-3 py-1.5 text-ink-secondary transition-colors hover:text-ink"
+                className="rounded-full px-2 py-1.5 text-ink-secondary transition-colors hover:text-ink sm:px-3"
               >
                 Log in
               </Link>
               <Link
                 href="/register"
-                className="rounded-full bg-brand px-4 py-1.5 font-medium text-white transition-colors hover:bg-brand-dark"
+                className="rounded-full bg-brand px-3 py-1.5 font-medium text-white transition-colors hover:bg-brand-dark sm:px-4"
               >
                 Get started
               </Link>
@@ -66,7 +69,7 @@ export default function Home() {
       <Nav signedIn={!!user} />
 
       {/* Hero ------------------------------------------------------------ */}
-      <section className="px-6 pb-20 pt-24 text-center sm:pt-32">
+      <section className="px-5 pb-14 pt-16 text-center sm:px-6 sm:pb-20 sm:pt-32">
         {/* The name is three words folded together, which nobody gets from
             reading it once. Rotating them in the eyebrow slot says so without
             a sentence explaining the pun. */}
@@ -78,14 +81,17 @@ export default function Home() {
           />
         </p>
 
-        <h1 className="mx-auto mt-4 max-w-4xl text-5xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink sm:text-7xl">
+        {/* The forced break is a desktop composition - on a phone it turns
+            an already-large heading into three lines that fill the fold
+            before the sentence explaining the product is even reached. */}
+        <h1 className="mx-auto mt-4 max-w-4xl text-[2rem] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-5xl sm:leading-[1.05] lg:text-7xl">
           Your lifelong
-          <br />
+          <br className="hidden sm:inline" />{" "}
           wise companion.
         </h1>
         {/* Wording from the client's linguistic recommendations. Their copy
             uses an em dash here; house rule converts it to a hyphen. */}
-        <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary sm:text-xl">
+        <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-ink-secondary sm:mt-6 sm:text-lg lg:text-xl">
           Most AI sounds certain. Clardentity doesn&apos;t just give answers -
           it shows you the evidence, and admits when there isn&apos;t any.
         </p>
@@ -108,7 +114,7 @@ export default function Home() {
       {/* The problem, named without naming anyone --------------------------- */}
       <section className="border-y border-hairline bg-surface px-6 py-24">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-3xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl">
+          <p className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-3xl lg:text-4xl">
             An answer you can&apos;t verify
             <br />
             is just a confident assumption.
@@ -131,7 +137,7 @@ export default function Home() {
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
               One companion. Four modes of companionship.
             </p>
-            <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-5xl">
+            <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
@@ -167,7 +173,7 @@ export default function Home() {
       <section className="border-y border-hairline bg-surface px-6 py-24">
         <div className="mx-auto grid max-w-5xl items-center gap-14 lg:grid-cols-2">
           <div>
-            <h2 className="text-4xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-5xl">
+            <h2 className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               Every claim,
               <br />
               openly audited.
@@ -231,7 +237,7 @@ export default function Home() {
       {/* Memory ----------------------------------------------------------- */}
       <section className="px-6 py-24">
         <div className="mx-auto max-w-3xl text-center">
-          <h2 className="text-4xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-5xl">
+          <h2 className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
             It remembers you.
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-secondary">
@@ -249,7 +255,7 @@ export default function Home() {
 
       {/* Close ------------------------------------------------------------ */}
       <section className="border-t border-hairline bg-surface px-6 py-24 text-center">
-        <h2 className="mx-auto max-w-2xl text-4xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-5xl">
+        <h2 className="mx-auto max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
           Start with a question.
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-ink-secondary">

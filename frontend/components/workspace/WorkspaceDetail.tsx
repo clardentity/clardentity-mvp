@@ -21,6 +21,18 @@ type Workspace = {
   created_at: string;
 };
 
+/** "14 Aug, 08:17" rather than "14/08/2026, 08:17:19".
+ *
+ *  The full timestamp is ~150px of a row that also carries a title, a mode
+ *  badge and a delete button; at 360px it left the title about a dozen
+ *  characters. The exact value stays in the tooltip for anyone who wants it. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+    + ", "
+    + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 type Conversation = {
   id: string;
   title: string | null;
@@ -155,18 +167,26 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
               >
                 <Link
                   href={`/chat/${conv.id}`}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-5"
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-ink">
                       {conv.title || "Untitled conversation"}
                     </span>
-                    <span className="block text-xs text-ink-muted">
-                      {new Date(conv.created_at).toLocaleString()}
+                    <span
+                      className="block truncate text-xs text-ink-muted"
+                      title={new Date(conv.created_at).toLocaleString()}
+                    >
+                      {shortDate(conv.created_at)}
                     </span>
                   </span>
+                  {/* Capped rather than hidden. The title has min-w-0 and
+                      truncates first, so the badge can stay at every width
+                      without squeezing the thing you are actually scanning
+                      for - and a mode label is worth keeping when it is the
+                      only way to tell two similarly-named chats apart. */}
                   {conv.default_mode && (
-                    <Badge tone="neutral" className="shrink-0 uppercase">
+                    <Badge tone="neutral" className="max-w-[5.5rem] shrink-0 truncate uppercase">
                       {conv.default_mode}
                     </Badge>
                   )}
@@ -233,7 +253,7 @@ function DeleteConversation({
       onBlur={() => setConfirming(false)}
       title={`Delete "${label}"`}
       aria-label={`Delete "${label}"`}
-      className="mr-3 shrink-0 rounded-md p-1.5 text-ink-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-band-low focus-visible:opacity-100 group-hover/row:opacity-100"
+      className="mr-2 shrink-0 rounded-md p-1.5 sm:mr-3 text-ink-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-band-low focus-visible:opacity-100 group-hover/row:opacity-100"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-3.5 w-3.5">
