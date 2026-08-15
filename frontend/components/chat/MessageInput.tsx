@@ -119,13 +119,21 @@ export function MessageInput({
           accent colour every time the caret lands there was decoration that
           fired constantly and told you nothing you didn't already know. The
           caret is the indicator. */}
-      <div className="flex items-end gap-2 rounded-xl border border-hairline-strong bg-surface p-2">
-        <ModelPicker disabled={disabled} />
+      <div className="flex flex-col gap-1.5 rounded-xl border border-hairline-strong bg-surface p-2 sm:flex-row sm:items-end sm:gap-2">
+        {/* On a phone the five controls and the textarea competed for one
+            390px row, and the textarea lost - "Ask a question..." wrapped
+            onto three lines inside a box two words wide. Stacked, the
+            textarea gets the full width and the controls get their own row
+            underneath. `sm:contents` dissolves this wrapper from the small
+            breakpoint up, so the desktop layout is still one flat flex row
+            rather than a nested one that would align differently. */}
+        <div className="order-2 flex items-center gap-1 sm:contents">
+          <ModelPicker disabled={disabled} />
 
-        <AudioRecorder
-          disabled={disabled}
-          onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
-        />
+          <AudioRecorder
+            disabled={disabled}
+            onTranscribed={(text) => handleChange((value ? value + " " : "") + text)}
+          />
 
         {/* Next to the mic, because they are the same intention at two
             lengths: dictate one message, or have a conversation. */}
@@ -174,13 +182,30 @@ export function MessageInput({
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handleImageSelected}
-          className="hidden"
-        />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageSelected}
+            className="hidden"
+          />
+
+          {/* Pushed to the right edge of the control row on mobile; on
+              desktop `sm:contents` has removed this wrapper, so the margin
+              would misalign it against the textarea - hence sm:ml-0. */}
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={disabled || !value.trim()}
+            className="ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50 sm:order-last sm:ml-0"
+          >
+            {/* "Ask", not "Send". Send is what you do to a message; this is a
+                product where every mode is framed as a question and the whole
+                value is in the answer coming back. "Submit" is form language -
+                it belongs on a tax return. */}
+            Ask
+          </button>
+        </div>
 
         <textarea
           ref={textareaRef}
@@ -192,25 +217,22 @@ export function MessageInput({
           placeholder={
             disabled
               ? disabledReason ?? "Select a mode to start typing"
-              : "Ask a question…  (Enter to ask, Shift+Enter for a new line)"
+              : "Ask a question…"
           }
-          className="flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
+          className="order-1 w-full flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
         />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={disabled || !value.trim()}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {/* "Ask", not "Send". Send is what you do to a message; this is a
-              product where every mode is framed as a question and the whole
-              value is in the answer coming back. "Submit" is form language -
-              it belongs on a tax return. */}
-          Ask
-        </button>
       </div>
       {disabled && disabledReason && (
         <p className="text-xs text-ink-muted">{disabledReason}</p>
+      )}
+      {/* The keyboard hint left the placeholder, where it cost two of the
+          three visible lines on a phone to explain a chord that phone has no
+          way to type. Kept for pointer devices, where it is discoverable and
+          free. */}
+      {!disabled && (
+        <p className="hidden text-[11px] text-ink-muted sm:block">
+          Enter to ask, Shift+Enter for a new line
+        </p>
       )}
     </div>
   );
