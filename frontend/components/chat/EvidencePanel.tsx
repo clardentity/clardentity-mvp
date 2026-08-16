@@ -321,7 +321,11 @@ export function EvidencePanel({
         >
           <path d="m9 18 6-6-6-6" />
         </svg>
-        <span className="truncate">
+        {/* Wraps rather than truncates. At 320px this row is about ten pixels
+            short of fitting alongside "worth checking", and `truncate` spent
+            those pixels on the claim count - "Evidence 10 cla..." - which is
+            the one part of the line the comment above says has to survive. */}
+        <span className="min-w-0">
           {expanded ? "Hide evidence" : "Evidence"}
           <span className="ml-1.5 text-ink-muted">
             {claims.length} claim{claims.length === 1 ? "" : "s"}
