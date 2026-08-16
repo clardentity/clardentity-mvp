@@ -149,13 +149,13 @@ function RecentConversations({
       </p>
       <ul className="scroll-slim min-h-0 flex-1 overflow-y-auto">
         {items.map((c) => (
-          <li key={c.id} className="group/recent relative flex items-center">
+          <li key={c.id} className="group/recent flex items-center">
             <Link
               href={`/chat/${c.id}`}
               onClick={onNavigate}
               aria-current={c.id === activeId ? "page" : undefined}
               className={cx(
-                "min-w-0 flex-1 truncate rounded-lg py-1.5 pl-2.5 pr-7 text-[13px] transition-colors",
+                "min-w-0 flex-1 truncate rounded-lg py-1.5 pl-2.5 pr-1.5 text-[13px] transition-colors",
                 c.id === activeId
                   ? "bg-surface-hover font-medium text-ink"
                   : "text-ink-secondary hover:bg-surface-hover hover:text-ink",
@@ -163,13 +163,17 @@ function RecentConversations({
             >
               {c.title || "Untitled conversation"}
             </Link>
+            {/* Both controls sit in the row rather than over it. The trash icon
+                fitted the reserved padding; "Sure?" is nearly twice as wide and
+                printed straight over the end of the title. Held in flow, the
+                title just truncates earlier - which is what truncation is for. */}
             {confirming === c.id ? (
               <button
                 type="button"
                 onClick={() => remove(c.id)}
                 onBlur={() => setConfirming(null)}
                 autoFocus
-                className="absolute right-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-band-low"
+                className="mr-1 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-band-low"
               >
                 Sure?
               </button>
@@ -179,7 +183,7 @@ function RecentConversations({
                 onClick={() => setConfirming(c.id)}
                 title="Delete conversation"
                 aria-label={`Delete ${c.title || "Untitled conversation"}`}
-                className="absolute right-1 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-band-low focus-visible:opacity-100 group-hover/recent:opacity-100"
+                className="mr-1 shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-band-low focus-visible:opacity-100 group-hover/recent:opacity-100"
               >
                 <Icon path={icons.trash} className="h-3.5 w-3.5" />
               </button>

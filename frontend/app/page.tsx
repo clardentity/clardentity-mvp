@@ -158,11 +158,7 @@ export default function Home() {
                 className={i === 0 ? "lg:col-span-2" : ""}
                 href={primaryHref}
                 cta={mode.cta}
-                background={
-                  <div className="absolute right-0 top-0 p-6 text-right">
-                    <span className="text-sm font-medium text-brand">{mode.hint}</span>
-                  </div>
-                }
+                eyebrow={mode.hint}
               />
             ))}
           </BentoGrid>

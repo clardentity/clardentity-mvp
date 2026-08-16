@@ -33,6 +33,11 @@ interface BentoCardProps extends Omit<ComponentPropsWithoutRef<"div">, "title" |
   background?: ReactNode;
   Icon?: React.ElementType;
   description: string;
+  /** Short label shown beside the name. A real slot rather than something the
+   *  caller absolutely-positions into `background`: text pinned over flowing
+   *  text has no way to know the name wrapped, so the two collide the moment
+   *  the card is narrow. Flex layout can't overlap by construction. */
+  eyebrow?: string;
   /** Navigation target. Mutually exclusive with onClick. */
   href?: string;
   /** For cards whose CTA performs an action (creating something) rather than
@@ -89,9 +94,13 @@ function ArrowRight({ className }: { className?: string }) {
  *  and the smaller one is only visible on hover. */
 function Cta({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand">
-      {label}
-      <ArrowRight className="h-3.5 w-3.5" />
+    // Inline rather than inline-flex: as a flex row the label is one item and
+    // the arrow another, so a label that wraps leaves the arrow stranded at the
+    // far edge, vertically centred against two lines of text. Inline keeps it
+    // attached to the last word.
+    <span className="text-sm font-medium text-brand">
+      {label}{" "}
+      <ArrowRight className="ml-0.5 inline-block h-3.5 w-3.5 align-[-0.15em]" />
     </span>
   );
 }
@@ -102,6 +111,7 @@ export function BentoCard({
   background,
   Icon,
   description,
+  eyebrow,
   href,
   onClick,
   cta,
@@ -132,6 +142,13 @@ export function BentoCard({
           {Icon && (
             <Icon className="mb-2 h-8 w-8 origin-left transform-gpu text-brand transition-transform duration-300 ease-in-out group-hover:scale-90" />
           )}
+          {/* Above the name at every width, not beside it. Measured: a card is
+              ~280px of content even on a wide screen, and "Learning Companion"
+              plus "Expand your knowledge and skills" wants ~400px - so a shared
+              line squeezes the name to nothing. It only looked survivable
+              before because the label was absolutely positioned and simply
+              printed over the name instead of admitting it didn't fit. */}
+          {eyebrow && <span className="text-sm font-medium text-brand">{eyebrow}</span>}
           <h3 className="text-lg font-semibold tracking-[-0.01em] text-ink">{name}</h3>
           <p className="max-w-lg text-sm leading-relaxed text-ink-muted">
             {description}
