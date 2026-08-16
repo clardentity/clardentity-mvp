@@ -327,7 +327,7 @@ export function EvidencePanel({
             the one part of the line the comment above says has to survive. */}
         <span className="min-w-0">
           {expanded ? "Hide evidence" : "Evidence"}
-          <span className="ml-1.5 text-ink-muted">
+          <span className="ml-1.5 whitespace-nowrap text-ink-muted">
             {claims.length} claim{claims.length === 1 ? "" : "s"}
           </span>
         </span>
