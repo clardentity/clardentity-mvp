@@ -37,6 +37,14 @@ export function clearTokens(): void {
 
 type TokenResponse = { access_token: string; refresh_token: string };
 
+/** Only the server saying "these credentials are not valid" should end a
+ *  session. A network failure means we do not know - and this backend sleeps
+ *  when idle, so a first request that times out is the ordinary case, not the
+ *  rare one. Treating the two alike signed people out for opening the app. */
+function isCredentialRejection(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 let inFlightRefresh: Promise<string | null> | null = null;
 
 export async function refreshAccessToken(): Promise<string | null> {
@@ -52,7 +60,8 @@ export async function refreshAccessToken(): Promise<string | null> {
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
         if (!res.ok) {
-          clearTokens();
+          // A 502 from a container still booting is not a rejected token.
+          if (res.status === 401 || res.status === 403) clearTokens();
           return null;
         }
         const data = (await res.json()) as TokenResponse;
@@ -109,8 +118,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await apiFetch<User>("/auth/me");
         if (!cancelled) setUser(me);
-      } catch {
-        clearTokens();
+      } catch (error) {
+        // Keep the tokens when the backend simply could not be reached: the
+        // next load, once it is awake, restores the session instead of
+        // presenting a login form to someone who never logged out.
+        if (isCredentialRejection(error)) clearTokens();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -164,9 +176,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       setUser(await apiFetch<User>("/auth/me"));
-    } catch {
-      clearTokens();
-      setUser(null);
+    } catch (error) {
+      // Same rule on an explicit refresh: a failed round trip is not grounds
+      // for throwing away a session that was working a moment ago.
+      if (isCredentialRejection(error)) {
+        clearTokens();
+        setUser(null);
+      }
     }
   }, []);
 
