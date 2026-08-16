@@ -307,7 +307,7 @@ export function EvidencePanel({
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="group -mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
+        className="group -mx-1 flex w-[calc(100%+0.5rem)] flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md px-1 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
       >
         <svg
           viewBox="0 0 24 24"
@@ -321,11 +321,14 @@ export function EvidencePanel({
         >
           <path d="m9 18 6-6-6-6" />
         </svg>
-        {/* Wraps rather than truncates. At 320px this row is about ten pixels
-            short of fitting alongside "worth checking", and `truncate` spent
-            those pixels on the claim count - "Evidence 10 cla..." - which is
-            the one part of the line the comment above says has to survive. */}
-        <span className="min-w-0">
+        {/* At 320px this row is about ten pixels short of fitting alongside
+            "worth checking". `truncate` spent those pixels on the claim count
+            - "Evidence 10 cla..." - which is the one part the comment above
+            says has to survive. The row wraps instead, so the label stays
+            whole and the band label drops to a second line. Splitting the
+            label itself was the first attempt and read worse: "Evidence 10"
+            over "claims". */}
+        <span className="whitespace-nowrap">
           {expanded ? "Hide evidence" : "Evidence"}
           <span className="ml-1.5 whitespace-nowrap text-ink-muted">
             {claims.length} claim{claims.length === 1 ? "" : "s"}
