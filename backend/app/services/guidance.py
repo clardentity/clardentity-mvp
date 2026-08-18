@@ -34,7 +34,7 @@ import logging
 import re
 
 from app.models.conversation import COGNITIVE_MODES
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.guidance")

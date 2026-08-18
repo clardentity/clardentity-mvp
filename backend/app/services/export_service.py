@@ -26,7 +26,7 @@ def _message_header(message: MessageOut) -> str:
 
 def build_markdown_export(conversation_title: str | None, messages: list[MessageOut]) -> str:
     lines: list[str] = [
-        f"# {conversation_title or 'Conversation'}",
+        f"# {conversation_title or 'Chat'}",
         "",
         f"_Exported {_exported_at()}_",
         "",
@@ -108,7 +108,7 @@ def build_pdf_export(conversation_title: str | None, messages: list[MessageOut])
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 16)
-    _line(pdf, 10, conversation_title or "Conversation")
+    _line(pdf, 10, conversation_title or "Chat")
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(120, 120, 120)
     _line(pdf, 6, f"Exported {_exported_at()}")

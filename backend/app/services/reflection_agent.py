@@ -1,5 +1,5 @@
 from app.services.claim_parser import extract_claims
-from app.services.openai_client import generate_text
+from app.services.anthropic_client import generate_text
 from app.services.prompt_builder import MODE_INSTRUCTIONS
 
 _NO_CHANGES_SENTINEL = "NO_CHANGES_NEEDED"

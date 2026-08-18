@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 from app.services.output_cleanup import replace_dashes
 
 # Listing every screenable bias inline would dominate the prompt, so the model

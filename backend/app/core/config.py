@@ -30,6 +30,21 @@ class Settings(BaseSettings):
     # latency. "low" still reasons, it just doesn't deliberate.
     openai_reasoning_effort: str = "low"
     openai_embedding_model: str = "text-embedding-3-small"
+
+    # Claude powers everything the product reasons with. OpenAI is retained
+    # above only for embeddings, transcription, speech and the realtime call -
+    # Anthropic has no equivalent of any of those.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-opus-5"
+    # Auxiliary judgements (guidance, clarifier, verification, reviews) run on
+    # this one. It defaults to the same model rather than quietly picking a
+    # cheaper tier - which model an answer is worth is not ours to decide - but
+    # every one of these sits between the user and something they are waiting
+    # for, so it is the first dial to turn if turns feel slow.
+    anthropic_fast_model: str = "claude-opus-5"
+    # Depth and spend per call. "low" preserves the latency posture the
+    # previous provider was tuned to; blank leaves the model's own default.
+    anthropic_effort: str = "low"
     openai_stt_model: str = "whisper-1"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"

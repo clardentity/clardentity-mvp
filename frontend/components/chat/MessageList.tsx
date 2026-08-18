@@ -64,7 +64,7 @@ export function MessageList({
   onAskRefined?: (question: string) => void;
   /** History is still being fetched. Distinct from "there is nothing here" -
    *  showing the empty state first made every reopened chat flash
-   *  "Start a conversation" before its messages arrived. */
+   *  "Start a chat" before its messages arrived. */
   loading?: boolean;
   onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
@@ -109,7 +109,7 @@ export function MessageList({
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
         {emptyStateAvatar}
         <div className="mt-4">
-          <ThinkingIndicator label="Opening the conversation" />
+          <ThinkingIndicator label="Opening the chat" />
         </div>
       </div>
     );
@@ -120,7 +120,7 @@ export function MessageList({
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
         {emptyStateAvatar}
         <div className="mt-4 max-w-sm text-center">
-          <p className="text-sm font-medium text-ink">Start a conversation</p>
+          <p className="text-sm font-medium text-ink">Start a chat</p>
           <p className="mt-1 text-sm text-ink-muted">
             Pick a cognitive mode below, then ask your question. Every answer is
             broken into claims and checked against your attachments, so you can

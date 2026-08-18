@@ -19,7 +19,7 @@ time is one people stop reading.
 import logging
 
 from app.services import taxonomy
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.decision_review")

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ConversationMemory, Message
-from app.services.openai_client import generate_text
+from app.services.anthropic_client import generate_text
 
 # SRS §13 defaults.
 HISTORY_WINDOW = 20

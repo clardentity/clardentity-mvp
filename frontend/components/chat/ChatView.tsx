@@ -43,7 +43,7 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
 export function ChatView({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Distinct from "no messages". Without it, reopening a chat rendered the
-  // "Start a conversation" empty state for the second or two the fetch took.
+  // "Start a chat" empty state for the second or two the fetch took.
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);

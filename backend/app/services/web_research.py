@@ -29,7 +29,7 @@ decorative link under it.
 import logging
 from dataclasses import dataclass, field
 
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 
 logger = logging.getLogger("clardentity.web_research")
 

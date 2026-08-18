@@ -18,7 +18,7 @@ to check the reasoning they were given, including against us.
 import logging
 
 from app.services import taxonomy
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.thinking_review")

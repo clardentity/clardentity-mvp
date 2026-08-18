@@ -16,7 +16,7 @@ Generated only when asked for, and cached on the message afterwards. It is a
 full second generation and most answers are never compared.
 """
 
-from app.services.openai_client import generate_text
+from app.services.anthropic_client import generate_text
 from app.services.taxonomy import describe_bias
 
 _INSTRUCTIONS = (

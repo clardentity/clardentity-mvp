@@ -1,7 +1,7 @@
 import re
 
 from app.models import Message
-from app.services.openai_client import generate_text
+from app.services.anthropic_client import generate_text
 
 # Words that make a message depend on what came before it. Anything without
 # one of these is already a standalone query, and rewriting it costs a full

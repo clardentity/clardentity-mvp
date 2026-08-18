@@ -61,6 +61,6 @@ async def get_conversation_for_user(
 ) -> Conversation:
     conversation = await db.get(Conversation, conversation_id)
     if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
     await require_workspace_member(db, conversation.workspace_id, user_id)
     return conversation

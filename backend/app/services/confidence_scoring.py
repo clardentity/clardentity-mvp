@@ -165,8 +165,8 @@ VERACITY_TIER_LABELS: dict[str, str] = {
     "verifiable_fact": "Verifiable Fact",
     "probable_fact": "Probable Fact",
     "gray_area": "Unverifiable (Gray Area)",
-    "distorted": "Distorted / Misinformed",
-    "fabricated": "Fabricated / Malicious",
+    "distorted": "Appears distorted / misinformed",
+    "fabricated": "Appears fabricated / malicious",
 }
 
 # A claim whose reasoning was flagged for cognitive distortion cannot read as

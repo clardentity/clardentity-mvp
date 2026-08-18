@@ -67,10 +67,10 @@ export function AttachmentSearch({
     <div className="space-y-3">
       {!compact && (
         <CardHeader
-          title={scoped ? "Search this conversation's sources" : "Search attachments"}
+          title={scoped ? "Search this chat's sources" : "Search attachments"}
           description={
             scoped
-              ? "Only the attachments this conversation cited."
+              ? "Only the attachments this chat cited."
               : "Every attachment in this room."
           }
         />
@@ -98,7 +98,7 @@ export function AttachmentSearch({
 
       {result && result.total === 0 && (
         <p className="rounded-lg border border-dashed border-hairline-strong bg-surface-muted px-3 py-6 text-center text-sm text-ink-muted">
-          Nothing in {scoped ? "this conversation's sources" : "your attachments"} matches
+          Nothing in {scoped ? "this chat's sources" : "your attachments"} matches
           &ldquo;{result.query}&rdquo;.
         </p>
       )}

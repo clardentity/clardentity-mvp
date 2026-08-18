@@ -47,7 +47,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which mode is being started, so only the card you clicked shows a
-  // pending label. `"any"` covers the plain "New conversation" button.
+  // pending label. `"any"` covers the plain "New chat" button.
   const [creating, setCreating] = useState<CognitiveMode | "any" | null>(null);
 
   useEffect(() => {
@@ -128,7 +128,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
             onClick={() => handleNewConversation()}
             disabled={creating !== null}
           >
-            {creating === "any" ? "Creating…" : "New conversation"}
+            {creating === "any" ? "Creating…" : "New chat"}
           </Button>
         }
       />
@@ -141,10 +141,10 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           to do and the list of what you did before. */}
       <Card padded={false}>
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:px-5">
-          <h2 className="text-sm font-semibold text-ink">Conversations</h2>
+          <h2 className="text-sm font-semibold text-ink">Chats</h2>
           <span className="text-xs text-ink-muted">
             {conversations.length}{" "}
-            {conversations.length === 1 ? "conversation" : "conversations"}
+            {conversations.length === 1 ? "chat" : "chats"}
           </span>
         </div>
 
@@ -171,7 +171,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-ink">
-                      {conv.title || "Untitled conversation"}
+                      {conv.title || "Untitled chat"}
                     </span>
                     <span
                       className="block truncate text-xs text-ink-muted"
@@ -221,7 +221,7 @@ function DeleteConversation({
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const label = title || "Untitled conversation";
+  const label = title || "Untitled chat";
 
   if (confirming) {
     return (

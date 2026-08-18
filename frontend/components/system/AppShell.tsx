@@ -161,7 +161,7 @@ function RecentConversations({
                   : "text-ink-secondary hover:bg-surface-hover hover:text-ink",
               )}
             >
-              {c.title || "Untitled conversation"}
+              {c.title || "Untitled chat"}
             </Link>
             {/* Both controls sit in the row rather than over it. The trash icon
                 fitted the reserved padding; "Sure?" is nearly twice as wide and
@@ -181,8 +181,8 @@ function RecentConversations({
               <button
                 type="button"
                 onClick={() => setConfirming(c.id)}
-                title="Delete conversation"
-                aria-label={`Delete ${c.title || "Untitled conversation"}`}
+                title="Delete chat"
+                aria-label={`Delete ${c.title || "Untitled chat"}`}
                 className="mr-1 shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-band-low focus-visible:opacity-100 group-hover/recent:opacity-100"
               >
                 <Icon path={icons.trash} className="h-3.5 w-3.5" />

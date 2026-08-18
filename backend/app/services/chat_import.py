@@ -147,7 +147,7 @@ def parse_export(raw: bytes) -> ImportedHistory:
                 break
 
     if not isinstance(data, list) or not data:
-        raise UnreadableExport("That file doesn't contain a conversation list.")
+        raise UnreadableExport("That file doesn't contain a chat list.")
 
     if _looks_like(data, "mapping"):
         source, (messages, conversations) = "ChatGPT", _parse_chatgpt(data)

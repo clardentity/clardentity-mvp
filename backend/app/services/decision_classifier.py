@@ -12,7 +12,7 @@ degrades to the unscoped vocabulary - it never changes the user's mode.
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 
 _INSTRUCTIONS = (
     "Classify the kind of real-world decision a user's message is about.\n\n"

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, Document, Message, UserProfile, WorkspaceMember
 from app.services import taxonomy
-from app.services.openai_client import generate_structured
+from app.services.anthropic_client import generate_structured
 from app.services.output_cleanup import clean_output
 
 # Enough of the user's own words to characterise them without sending an

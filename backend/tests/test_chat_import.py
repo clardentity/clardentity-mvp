@@ -131,8 +131,8 @@ class TestRejections:
         "payload,fragment",
         [
             (b"not json at all", "valid JSON"),
-            (as_bytes([]), "conversation list"),
-            (as_bytes({"nothing": "useful"}), "conversation list"),
+            (as_bytes([]), "chat list"),
+            (as_bytes({"nothing": "useful"}), "chat list"),
             (as_bytes([{"unrecognised": 1}]), "ChatGPT, Claude or Gemini"),
         ],
     )

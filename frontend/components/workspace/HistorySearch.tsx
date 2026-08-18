@@ -46,7 +46,7 @@ export function HistorySearch({ workspaceId }: { workspaceId: string }) {
     <div className="space-y-3">
       <CardHeader
         title="Chats"
-        description="Search everything said across every conversation in this room."
+        description="Search everything said across every chat in this room."
       />
 
       <form onSubmit={handleSearch} className="flex gap-2">
@@ -54,8 +54,8 @@ export function HistorySearch({ workspaceId }: { workspaceId: string }) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search across all conversations…"
-          aria-label="Search conversation history"
+          placeholder="Search across all chats…"
+          aria-label="Search chat history"
           className="flex-1"
         />
         <Button type="submit" disabled={loading || !query.trim()}>
@@ -82,7 +82,7 @@ export function HistorySearch({ workspaceId }: { workspaceId: string }) {
                 >
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium text-ink-muted">
                     <span className="truncate">
-                      {r.conversation_title || "Untitled conversation"}
+                      {r.conversation_title || "Untitled chat"}
                     </span>
                     <span className="shrink-0 uppercase tracking-wide">
                       {r.role} · {r.mode_used}

@@ -202,7 +202,7 @@ export function ModeCarousel({
           filled accent-coloured chip above every answer; the name alone says
           where you are, and the arrows say there is more. */}
       <nav
-        aria-label="Modes in this conversation"
+        aria-label="Modes in this chat"
         className="flex shrink-0 items-center justify-center gap-2 py-1.5"
       >
         <StepButton

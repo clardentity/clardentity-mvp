@@ -53,7 +53,7 @@ from app.services.memory_service import (
     get_memory_summary,
     should_rebuild_memory,
 )
-from app.services.openai_client import stream_generation
+from app.services.anthropic_client import stream_generation
 from app.services.prompt_builder import (
     build_context_block,
     build_conversation_input,
@@ -143,7 +143,7 @@ def _derive_title(first_message: str) -> str:
 
     text = text.rstrip(" ,;:.-\u2013\u2014")
     if not text:
-        return "Conversation"
+        return "Chat"
 
     text = text[0].upper() + text[1:]
     return f"{text}…" if truncated else text
@@ -265,8 +265,8 @@ async def export_conversation(
     messages_out = [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
 
     filename_base = "".join(
-        ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (conversation.title or "conversation")
-    ).strip("_") or "conversation"
+        ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (conversation.title or "chat")
+    ).strip("_") or "chat"
 
     if format == "markdown":
         content = build_markdown_export(conversation.title, messages_out)
@@ -482,7 +482,7 @@ async def send_message(
     conversation.default_mode = mode
 
     # Title the conversation from its opening question. Without this every row
-    # in the workspace list reads "Untitled conversation", which is
+    # in the workspace list reads "Untitled chat", which is
     # indistinguishable from the conversation not having been saved at all.
     if conversation.title is None and not history:
         conversation.title = _derive_title(payload.content)

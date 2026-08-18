@@ -141,7 +141,7 @@ export function ProfileView() {
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
       <PageHeader
         title="Your profile"
-        description="Built from your own conversations and documents, so the companion knows who it's talking to. Yours to correct or delete."
+        description="Built from your own chats and documents, so the companion knows who it's talking to. Yours to correct or delete."
         actions={
           <div className="flex items-center gap-2">
             <Button onClick={() => setReloadKey((k) => k + 1)} disabled={busy !== null}>

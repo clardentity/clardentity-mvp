@@ -12,13 +12,16 @@ import { cleanMessageText } from "@/lib/text";
    (full/moderate/partial/none/unsupported) are kept so claims scored before
    the tier system shipped still render something.
 
-   The tier names come from the client's scoring framework and are kept as it
-   words them, minus internal parentheticals like "(Gray Area)" that name the
-   slab rather than describe the claim. Renaming them properly would change
-   what the score says, not just how it reads - so instead each tier carries a
-   plain-language line underneath, which is what stops "Fabricated /
-   Malicious" landing as an accusation against a claim that is merely
-   uncited. */
+   The tier names come from the client's scoring framework and keep its
+   vocabulary, minus internal parentheticals like "(Gray Area)" that name the
+   slab rather than describe the claim.
+
+   The two harshest tiers are stated as appearances, not findings. A score is
+   evidence about how a claim reads against the sources at hand; "Fabricated /
+   Malicious" asserts an intent we cannot observe, and lands as an accusation
+   against a claim that may simply be uncited. "Appears fabricated" says the
+   same thing about the evidence without pronouncing on the author. Each tier
+   also carries a plain-language line underneath. */
 const TIERS: Record<string, { label: string; meaning: string; text: string; rail: string }> = {
   verifiable_fact: {
     label: "Verifiable Fact",
@@ -39,18 +42,17 @@ const TIERS: Record<string, { label: string; meaning: string; text: string; rail
     rail: "border-band-mid-border",
   },
   distorted: {
-    label: "Distorted",
+    label: "Appears distorted",
     meaning: "Rests on something real, but the framing overstates it.",
     text: "text-caution",
     rail: "border-caution-border",
   },
   fabricated: {
-    // The framework's own name for the 0-20 slab. Left verbatim rather than
-    // softened to "Unsupported": it is the client's taxonomy, and quietly
-    // renaming the harshest tier is a change to what the score *says*, not
-    // to how it is worded. The meaning line below is what stops it reading
-    // as an accusation against a claim that is merely uncited.
-    label: "Fabricated / Malicious",
+    // Hedged rather than renamed. The slab is still the framework's 0-20
+    // "Fabricated / Malicious" and the score is unchanged; what changed is
+    // that the label reports how the claim appears against these sources
+    // instead of asserting the author's intent.
+    label: "Appears fabricated / malicious",
     meaning: "Nothing found here backs this up. Worth checking yourself.",
     text: "text-band-low",
     rail: "border-band-low-border",
