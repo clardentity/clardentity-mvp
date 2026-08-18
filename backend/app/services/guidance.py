@@ -1,9 +1,9 @@
-"""Two nudges the answer can offer without interrupting itself.
+"""Three judgements about the question, made before the answer exists.
 
-Both are suggestions *about* the question rather than answers to it, which is
-why neither lives in the answer generation: a model asked to answer and to
-critique the asking does the second one in prose, at the top, before getting
-to the point.
+All are *about* the question rather than answers to it, which is why none of
+them live in the answer generation: a model asked to answer and to critique
+the asking does the second one in prose, at the top, before getting to the
+point.
 
 **Mode.** The user picks a mode and we never override it - that is the
 product's promise. But a question that wants Decision asked in Knowing gets a
@@ -14,11 +14,24 @@ says so, once, and leaves the switch to them.
 the missing specifics filled in, offered when a vague ask is the reason the
 answer had to hedge. Not a correction - the original is always still valid.
 
-Both are frequently null, and should be. A suggestion that fires on every turn
-is chrome, and gets ignored exactly as fast as it gets repetitive.
+**Context.** "I want to divorce my wife" has no useful answer until you know
+why. Neither does "should I quit my job". A person worth asking would ask what
+is going on before saying anything; a model that skips that step produces
+advice fitted to a situation it invented. So when the message is about the
+user's own life and the reasons are absent, this asks for them, and the turn
+stops there - the same pre-answer stop the mode nudge uses, for the same
+reason: advice built on a guess has already been built by the time you find
+out the guess was wrong.
+
+This is not a safety refusal and must not read as one. It is the ordinary
+opening move of anyone who has been asked for their opinion.
+
+All three are frequently null, and should be. A suggestion that fires on every
+turn is chrome, and gets ignored exactly as fast as it gets repetitive.
 """
 
 import logging
+import re
 
 from app.models.conversation import COGNITIVE_MODES
 from app.services.openai_client import generate_structured
@@ -28,6 +41,15 @@ logger = logging.getLogger("clardentity.guidance")
 
 _MAX_REASON_CHARS = 140
 _MAX_QUESTION_CHARS = 220
+# Twenty words of plain English. A "why" that needs more room than this has
+# stopped being the question a person would ask and started being a form.
+_MAX_CONTEXT_QUESTION_CHARS = 140
+
+_CONJUNCTION = re.compile(r"\s+(?:and|or)\s+|;")
+_INTERROGATIVE = re.compile(
+    r"(?:why|what|how|when|where|who|which|do|did|does|have|has|are|is|was|were"
+    r"|can|could|would|should|will)\b"
+)
 
 _MODE_SUMMARY = (
     "knowing: retrieve and state facts precisely, with sources.\n"
@@ -37,7 +59,7 @@ _MODE_SUMMARY = (
 )
 
 _INSTRUCTIONS = (
-    "A user asked a question in a chosen cognitive mode. Judge two things "
+    "A user asked a question in a chosen cognitive mode. Judge three things "
     "about the question - not about the answer.\n\n"
     f"THE MODES:\n{_MODE_SUMMARY}\n\n"
     "1) suggested_mode: if a different mode genuinely fits the question "
@@ -60,6 +82,35 @@ _INSTRUCTIONS = (
     "   Return null when the question already names its subject and scope, "
     "which is most of the time. Never rewrite merely to add formality, "
     "structure, or extra requirements the user did not ask for.\n\n"
+    "3) context_question: when the message is about the user's own life - a "
+    "decision they are weighing, an action they intend to take, a situation "
+    "they are in - and the reasons or circumstances behind it are absent, ask "
+    "for them. Do not answer a question whose answer depends entirely on facts "
+    "you would have to invent.\n"
+    "   'I want to divorce my wife' is the clearest case: there is no useful "
+    "response until you know why. So are 'should I quit my job', 'I am "
+    "thinking of moving abroad', 'I want to cut my father out of my life'.\n"
+    "   Ask ONE open question - the one a person who actually cared would ask "
+    "first, usually some form of what is going on or why. Address them as "
+    "'you', in their own words where you can. At most 20 words.\n"
+    "   Exactly one question. Never join two with 'and' or 'or' - 'what is "
+    "going on, and what have you tried' is two questions and reads as an "
+    "interrogation. Ask the first one only.\n"
+    "   It must not offer options, open with "
+    "sympathy or a diagnosis, or imply they should reconsider. You are asking "
+    "what their situation is, not arguing with it, and not refusing to help. "
+    "Do not mention being an AI or being unable to advise.\n"
+    "   Return null when: the question is factual, technical, or a task to "
+    "carry out; the user already gave their reasons, even briefly; or they "
+    "have clearly already thought it through and asking would only stall "
+    "them.\n"
+    "   Return null for ordinary goals with no weight to them - 'I want to "
+    "learn Spanish', 'I want to get fitter'. Nothing turns on why, and the "
+    "practical details (time, budget, current level) are asked for after the "
+    "answer by a different mechanism that can offer options. This one is for "
+    "consequential and hard to reverse things: relationships, family, health, "
+    "money at risk, leaving something behind.\n"
+    "   Null is the common case - most messages are not this.\n\n"
     "Reasons are one short clause each, addressed to the user, explaining what "
     "they would gain. Plain text only: no markdown, no em dashes."
 )
@@ -84,12 +135,20 @@ _SCHEMA = {
             "type": ["string", "null"],
             "description": "One clause on what the original left open, or null.",
         },
+        "context_question": {
+            "type": ["string", "null"],
+            "description": (
+                "One open question asking for the circumstances behind a "
+                "personal decision, or null when the message does not need it."
+            ),
+        },
     },
     "required": [
         "suggested_mode",
         "mode_reason",
         "refined_question",
         "refinement_reason",
+        "context_question",
     ],
     "additionalProperties": False,
 }
@@ -111,6 +170,46 @@ def _clip(value: object, limit: int) -> str | None:
         return cleaned
     head = cleaned[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return f"{head}…" if head else None
+
+
+def _validate_context_question(text: str | None) -> str | None:
+    """Drop anything that is not one plain open question.
+
+    The guards are cheap and the failure modes are not: a stacked question
+    ("why do you want this, and what have you tried?") reads as an intake
+    form, and an opening apology or a refusal turns a human reflex into the
+    thing users hate most about chatbots. Anything malformed degrades to no
+    question, which just means the answer proceeds as it always did.
+    """
+    if not text:
+        return None
+    if "?" not in text:
+        return None
+    # More than one question mark is more than one question.
+    if text.count("?") > 1:
+        return None
+    # ...and so is one question mark with two questions under it. "What is
+    # driving your decision to quit, and what outcome are you hoping for?"
+    # punctuates as a single question and lands as an interrogation.
+    #
+    # Keep the first half rather than dropping the whole thing. The smaller
+    # model that makes this judgement stacks a second clause often enough that
+    # discarding those cost most of the real hits - and the first clause is
+    # reliably the question worth asking, because the model leads with it.
+    parts = _CONJUNCTION.split(text)
+    if len(parts) > 1 and sum(1 for c in parts if _INTERROGATIVE.match(c.strip().lower())) > 1:
+        head = parts[0].strip().rstrip(" ,;:-")
+        if len(head) < 15 or not _INTERROGATIVE.match(head.lower()):
+            return None
+        text = f"{head}?"
+    if "[" in text or "{" in text:
+        return None
+    lowered = text.lower()
+    refusals = ("i can't", "i cannot", "as an ai", "i'm not able", "i am not able",
+                "i'm sorry", "i am sorry", "seek professional", "consult a")
+    if any(phrase in lowered for phrase in refusals):
+        return None
+    return text
 
 
 def _reject_placeholders(text: str | None) -> str | None:
@@ -160,7 +259,12 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
     if refined and (refined.endswith("…") or len(refined) > len(question) * 3 + 40):
         refined = None
 
+    context_question = _validate_context_question(
+        _clip(parsed.get("context_question"), _MAX_CONTEXT_QUESTION_CHARS)
+    )
+
     result = {
+        "context_question": context_question,
         "suggested_mode": suggested,
         "mode_reason": _clip(parsed.get("mode_reason"), _MAX_REASON_CHARS) if suggested else None,
         "refined_question": refined,
@@ -169,6 +273,10 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
         ),
     }
 
-    if not result["suggested_mode"] and not result["refined_question"]:
+    if (
+        not result["suggested_mode"]
+        and not result["refined_question"]
+        and not result["context_question"]
+    ):
         return None
     return result

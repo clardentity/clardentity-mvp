@@ -186,3 +186,97 @@ class TestFullAuthFlow:
                 await db.execute(delete(Workspace).where(Workspace.id == wsid))
                 await db.execute(delete(User).where(User.id == uid))
                 await db.commit()
+
+
+class TestContextQuestionGate:
+    """The pre-answer "why" stops the turn and writes nothing.
+
+    The invariant is the same one the mode gate depends on: if a message were
+    saved here, the transcript would show the user's question with a question
+    back under it and no answer, forever. Needs a database.
+    """
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"ctxgate-{uuid.uuid4().hex[:8]}@example.com"
+        password = "gate-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.commit()
+            return email, password, user.id, convo.id
+
+    async def test_it_asks_and_saves_nothing(self, monkeypatch):
+        from app.models import Message
+        from app.api import chat as chat_api
+
+        try:
+            email, password, user_id, convo_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            # Only a missing database is a skip. A broken fixture used to skip
+            # too, which meant this test reported "passed (skipped)" while
+            # never having run - the failure mode a contract test exists to
+            # prevent.
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        asked = "What is going on that has led you to want a divorce?"
+
+        async def fake_guidance(question, mode):
+            return {
+                "context_question": asked,
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+            }
+
+        monkeypatch.setattr(chat_api, "propose_guidance", fake_guidance)
+
+        try:
+            async with client() as c:
+                login = await c.post(
+                    f"{API}/auth/login", json={"email": email, "password": password}
+                )
+                if login.status_code != 200:
+                    pytest.skip("login unavailable")
+                token = login.json()["access_token"]
+
+                res = await c.post(
+                    f"{API}/chat/{convo_id}/messages",
+                    json={"content": "I want to divorce my wife", "mode": "decision"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                body = res.text
+
+            assert "context_question" in body
+            assert asked in body
+
+            async with AsyncSessionLocal() as db:
+                rows = await db.execute(
+                    delete(Message).where(Message.conversation_id == convo_id).returning(Message.id)
+                )
+                saved = list(rows.scalars().all())
+                await db.commit()
+            # Nothing at all: not the user's message, not an empty answer.
+            assert saved == [], f"gate persisted {len(saved)} message(s)"
+        finally:
+            from app.models import Conversation as _Conversation
+
+            async with AsyncSessionLocal() as db:
+                # Foreign keys first, owner last.
+                await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+                await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+                await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+                await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()

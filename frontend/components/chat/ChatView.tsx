@@ -15,6 +15,7 @@ import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { ModeSuggestionCard } from "@/components/chat/ModeSuggestionCard";
+import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
 import { cx } from "@/components/ui/primitives";
 import {
   AvatarPanel,
@@ -72,6 +73,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     images: PendingImage[];
     mode: CognitiveMode;
   } | null>(null);
+  // The server asked why before answering. Holds the original send so the
+  // user's reply can be appended to it rather than replacing it.
+  const [pendingContext, setPendingContext] = useState<{
+    question: string;
+    content: string;
+    images: PendingImage[];
+    mode: CognitiveMode;
+  } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -117,10 +126,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // The user has answered the mode question, either way. Stops the server
     // asking again about a question it already asked about.
     modeConfirmed = false,
+    // Same contract for the pre-answer "why": set once it has been asked,
+    // whether they answered it or skipped it.
+    contextAcknowledged = false,
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
     setPendingMode(null);
+    setPendingContext(null);
 
     setError(null);
     setSending(true);
@@ -159,6 +172,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           mime_type: img.mimeType,
         })),
         mode_confirmed: modeConfirmed,
+        context_acknowledged: contextAcknowledged,
       },
       {
         onStatus: setStatus,
@@ -208,6 +222,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // rolled back too - it will be re-sent for real once they choose.
           setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
           setPendingMode({ suggestion, content, images, mode: sendMode });
+          setStreaming(null);
+          setSending(false);
+          setStatus(null);
+        },
+        onContextQuestion: (asked) => {
+          // Nothing was written server-side, so the optimistic user message is
+          // rolled back the same way the mode gate rolls it back.
+          setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          setPendingContext({ question: asked.question, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
           setStatus(null);
@@ -493,6 +516,34 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             }}
             onContinue={() =>
               void handleSend(pendingMode.content, pendingMode.images, pendingMode.mode, true)
+            }
+          />
+        )}
+
+        {pendingContext && (
+          <ContextQuestionCard
+            question={pendingContext.question}
+            busy={sending}
+            onAnswer={(context) =>
+              // Their answer joins the original message rather than replacing
+              // it, so the transcript keeps both halves of what they said and
+              // the model sees the whole thing as one turn.
+              void handleSend(
+                `${pendingContext.content}\n\n${context}`,
+                pendingContext.images,
+                pendingContext.mode,
+                false,
+                true,
+              )
+            }
+            onSkip={() =>
+              void handleSend(
+                pendingContext.content,
+                pendingContext.images,
+                pendingContext.mode,
+                false,
+                true,
+              )
             }
           />
         )}

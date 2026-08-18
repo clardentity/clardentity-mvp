@@ -420,6 +420,26 @@ async def send_message(
     # nothing from retrieval and runs while the history and memory load.
     guidance = await guidance_task
 
+    # Asking why comes before suggesting a mode, and before answering. The
+    # order is the point: a question like "I want to divorce my wife" has no
+    # useful answer until the reasons are on the table, and an answer written
+    # without them is advice fitted to a situation we invented. Stopping here
+    # costs one round trip; retracting a confident answer costs the user's
+    # trust in every answer after it.
+    #
+    # Persists nothing, exactly like the mode gate below - the message is not
+    # saved and no answer is generated, so the transcript never shows a
+    # question with nothing under it.
+    if not payload.context_acknowledged and guidance and guidance.get("context_question"):
+
+        async def context_gate() -> AsyncIterator[dict]:
+            yield {
+                "event": "context_question",
+                "data": json.dumps({"question": guidance["context_question"]}),
+            }
+
+        return EventSourceResponse(context_gate())
+
     if not payload.mode_confirmed and guidance and guidance.get("suggested_mode"):
         # Nothing is persisted on this path. The user message is not saved,
         # no answer is generated, and the turn is exactly where it was - so

@@ -108,6 +108,12 @@ export type ChatFinalEvent = {
  *  question better. Nothing was saved; the turn is exactly where it was. */
 export type ModeSuggestion = { suggested_mode: string; mode_reason: string | null };
 
+/** The server stopped before generating because the message is about the
+ *  user's own life and the reasons behind it were not given. One open
+ *  question, no options - a menu would be grotesque on "why do you want to
+ *  divorce your wife". Nothing was saved. */
+export type ContextQuestion = { question: string };
+
 /** Named phase of the work in progress, for the waiting indicator. */
 export type ChatStatus = { phase: string; label: string };
 
@@ -123,6 +129,10 @@ export type ChatStreamHandlers = {
   /** Fires *instead of* everything else: no answer was generated and nothing
    *  was written. The caller re-sends once the user has chosen. */
   onModeSuggestion?: (suggestion: ModeSuggestion) => void;
+  /** Also fires instead of everything else. The caller re-sends with the
+   *  user's context appended, or with `context_acknowledged` alone if they
+   *  would rather just have the answer. */
+  onContextQuestion?: (question: ContextQuestion) => void;
   onError: (detail: string) => void;
 };
 
@@ -141,6 +151,9 @@ export type SendMessageBody = {
   /** Set when re-sending after a mode suggestion, either way the user
    *  answered, so the same question is never stopped twice. */
   mode_confirmed?: boolean;
+  /** Set when re-sending after the pre-answer "why", whether they answered it
+   *  or skipped it. Asking twice is an interrogation. */
+  context_acknowledged?: boolean;
 };
 
 async function openStream(
@@ -230,6 +243,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
     else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);
     else if (eventType === "mode_suggestion") handlers.onModeSuggestion?.(parsed);
+    else if (eventType === "context_question") handlers.onContextQuestion?.(parsed);
     else if (eventType === "error") handlers.onError(parsed.detail);
   } catch {
     // ignore malformed frame

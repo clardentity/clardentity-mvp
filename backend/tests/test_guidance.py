@@ -123,3 +123,87 @@ class TestDecisionReviewGuards:
 
         monkeypatch.setattr(decision_review, "generate_structured", fake)
         assert await decision_review.review_decisions("should I move?") is None
+
+
+class TestContextQuestionGuards:
+    """The "why" asked before answering.
+
+    The judgement itself is the model's; these are the guards around it. Each
+    one encodes a way the question is worse than no question at all.
+    """
+
+    def test_a_statement_is_not_a_question(self):
+        from app.services.guidance import _validate_context_question
+
+        assert _validate_context_question("Tell me why you want this.") is None
+
+    def test_a_stacked_question_is_trimmed_to_the_first(self):
+        from app.services.guidance import _validate_context_question
+
+        # Used to return None. Measured against the live model, the small
+        # model that makes this judgement appends a second clause often
+        # enough that dropping the whole thing cost most of the real hits,
+        # and the clause it leads with is the one worth asking.
+        stacked = "Why do you want to divorce her, and what have you tried?"
+        assert _validate_context_question(stacked) == "Why do you want to divorce her?"
+
+    def test_a_stacked_question_with_no_usable_head_is_dropped(self):
+        from app.services.guidance import _validate_context_question
+
+        assert _validate_context_question("Why, and what have you tried?") is None
+
+    def test_one_open_question_passes(self):
+        from app.services.guidance import _validate_context_question
+
+        asked = "What has been going on between you two?"
+        assert _validate_context_question(asked) == asked
+
+    def test_refusals_are_dropped(self):
+        from app.services.guidance import _validate_context_question
+
+        # A "why" that opens by declining is the chatbot reflex this feature
+        # exists to replace, not an instance of it.
+        for text in (
+            "I'm sorry to hear that. What happened?",
+            "I can't advise on this, but why do you feel that way?",
+            "As an AI, may I ask what prompted this?",
+            "Have you considered you should consult a lawyer?",
+        ):
+            assert _validate_context_question(text) is None
+
+    def test_placeholders_are_dropped(self):
+        from app.services.guidance import _validate_context_question
+
+        assert _validate_context_question("Why do you want to leave [person]?") is None
+
+    async def test_a_context_question_alone_is_enough_to_return_guidance(self, monkeypatch):
+        from app.services import guidance
+
+        async def fake(**_):
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "context_question": "What has been going on between you two?",
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        result = await guidance.propose_guidance("I want to divorce my wife", "decision")
+        assert result is not None
+        assert result["context_question"] == "What has been going on between you two?"
+
+    async def test_nothing_to_say_still_returns_none(self, monkeypatch):
+        from app.services import guidance
+
+        async def fake(**_):
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "context_question": None,
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        assert await guidance.propose_guidance("what is the capital of France", "knowing") is None

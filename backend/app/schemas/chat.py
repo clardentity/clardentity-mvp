@@ -52,6 +52,11 @@ class MessageCreate(BaseModel):
     # question cannot be stopped twice - and so choosing "stay in this mode"
     # is respected rather than re-argued.
     mode_confirmed: bool = False
+    # Set when re-sending after the pre-answer "why" - either because the user
+    # answered it (their answer is appended to `content`) or because they asked
+    # for the answer anyway. One question, never two: being asked to explain
+    # yourself twice is an interrogation, not a conversation.
+    context_acknowledged: bool = False
 
 
 class EvidenceOut(BaseModel):
