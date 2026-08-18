@@ -160,6 +160,14 @@ class ResearchResult:
         return self.verdict == "accept" and bool(self.sources)
 
 
+# The server-side search tool, which runs on the provider's infrastructure -
+# there is nothing to execute here. The type is version-pinned by this API and
+# is not the bare {"type": "web_search"} the previous provider took; that shape
+# is a 400 here, which degraded to "no sources found" on every claim rather
+# than to an error anyone would notice.
+_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
+
+
 async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
     prompt = f"CLAIM:\n{claim}"
     if guidance:
@@ -173,7 +181,7 @@ async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
             input_text=prompt,
             schema=_SEARCH_SCHEMA,
             schema_name="web_sources",
-            tools=[{"type": "web_search"}],
+            tools=[_WEB_SEARCH_TOOL],
         )
     except Exception:
         logger.exception("web search round failed")
