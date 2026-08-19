@@ -148,7 +148,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
             // No overflow-hidden: the detail card is positioned outside this
             // box, and clipping the corners it doesn't need cost the whole
             // card. Rows carry their own rounding.
-            className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-hairline bg-surface p-1 shadow-xl"
+            className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-hairline bg-surface-raised p-1 shadow-xl"
           >
             {MODELS.map((model) => (
               <button
@@ -215,7 +215,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
             {described && (
               <div
                 role="tooltip"
-                className="absolute bottom-0 left-full ml-2 hidden w-60 rounded-xl border border-hairline bg-surface p-3 shadow-xl lg:block"
+                className="absolute bottom-0 left-full ml-2 hidden w-60 rounded-xl border border-hairline bg-surface-raised p-3 shadow-xl lg:block"
               >
                 <p className="text-xs font-semibold text-ink">{described.label}</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">

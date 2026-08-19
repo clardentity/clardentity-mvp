@@ -47,7 +47,7 @@ export function CitationPopover({
            inherited rather than declared, so it is worth naming here before
            someone removes the flip card and wonders why citations started
            escaping. */
-        <span className="fixed inset-x-4 bottom-28 z-30 rounded-lg border border-hairline bg-surface p-2.5 text-left text-[11px] normal-case shadow-lg sm:absolute sm:inset-x-auto sm:bottom-full sm:left-1/2 sm:z-20 sm:mb-1.5 sm:w-64 sm:-translate-x-1/2">
+        <span className="fixed inset-x-4 bottom-28 z-30 rounded-lg border border-hairline bg-surface-raised p-2.5 text-left text-[11px] normal-case shadow-lg sm:absolute sm:inset-x-auto sm:bottom-full sm:left-1/2 sm:z-20 sm:mb-1.5 sm:w-64 sm:-translate-x-1/2">
           <span className="block font-medium text-ink">
             {evidence.document_filename}
           </span>

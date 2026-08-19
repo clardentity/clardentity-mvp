@@ -24,6 +24,11 @@
   --surface-muted: #f5f5f7;
   --surface-hover: #ebebed;
   --surface-sunken: #f5f5f7;
+  /* Things that float above the page rather than sit in it: the composer,
+     menus, popovers, dialogs. On light this is the same white as a panel -
+     elevation there is carried by the shadow. On dark it is the only step
+     away from black, which is what makes it read as raised. */
+  --surface-raised: #ffffff;
 
   --border: #d2d2d7;
   --border-strong: #c7c7cc;
@@ -84,20 +89,28 @@
    stamps data-theme before first paint (from localStorage, falling back to the
    OS preference), so there is no flash and no duplicated token block. */
 :root[data-theme="dark"] {
-  /* True black behind everything, with surfaces raised in small neutral
-     steps. #000 for the canvas rather than a near-black: on an OLED display
-     the difference is the pixels being off, and next to a lit surface it is
-     what makes the surface read as raised. #1d1d1f is the panel colour Apple
-     raises onto black, and it is a big enough step to be seen without ever
-     looking like a grey theme. */
+  /* Black, and then almost nothing else.
+     The previous palette raised panels to #1d1d1f on a #000 canvas, which is
+     a defensible Apple arrangement but leaves the app reading as a grey theme
+     on a black page - five distinct greys before you count borders. Here the
+     page, the panels and the insets are all black or within a few points of
+     it, and separation is carried by a hairline rather than by fill. One step
+     away from black is reserved for things that genuinely float: the
+     composer, menus, popovers, dialogs.
+     #000 rather than a near-black is the point on an OLED panel - the pixels
+     are off, and the single lifted surface is the only thing that lights. */
   --canvas: #000000;
-  --surface: #1d1d1f;
-  --surface-muted: #161618;
-  --surface-hover: #2c2c2e;
+  --surface: #0b0b0d;
+  --surface-muted: #000000;
+  --surface-hover: #161618;
   --surface-sunken: #000000;
+  --surface-raised: #1c1c1e;
 
-  --border: #38383a;
-  --border-strong: #48484a;
+  /* Dimmer than the fills they separate. A hairline doing the work of a fill
+     has to be visible, but at #38383a it was the brightest thing on a black
+     page and every card read as an outlined box. */
+  --border: #212124;
+  --border-strong: #2e2e31;
 
   /* Not pure white on pure black - that pairing buzzes at small sizes. */
   --text: #f5f5f7;
@@ -148,6 +161,7 @@
   --color-surface-muted: var(--surface-muted);
   --color-surface-hover: var(--surface-hover);
   --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
 
   --color-hairline: var(--border);
   --color-hairline-strong: var(--border-strong);
