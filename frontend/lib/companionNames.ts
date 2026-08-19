@@ -61,12 +61,27 @@ export function useCompanionNames(): Names {
 
 /** Set locally and push to the server. Optimistic: renaming your own
  *  companion should feel instant, and a failed save leaves the old name in
- *  place on the next load rather than losing anything. */
+ *  place on the next load rather than losing anything.
+ *
+ *  The response is checked rather than assumed. An API that does not know
+ *  this field yet accepts the request and ignores it - a 200 with the name
+ *  dropped on the floor - so "Saved." would be a lie the user only discovers
+ *  on their next visit. Confirming the round trip turns a silent no-op into
+ *  an error the caller can show. */
 export async function saveCompanionNames(next: Names): Promise<void> {
   snapshot = next;
   loaded = true;
   emit();
-  await apiFetch("/profile", { method: "PUT", body: { companion_names: next } });
+  const saved = await apiFetch<{ companion_names?: Names }>("/profile", {
+    method: "PUT",
+    body: { companion_names: next },
+  });
+  const echoed = saved.companion_names ?? {};
+  const kept = Object.keys(next).every((k) => echoed[k] === next[k]);
+  const extra = Object.keys(echoed).some((k) => !(k in next));
+  if (!kept || extra) {
+    throw new Error("The server did not store these names.");
+  }
 }
 
 /** The name to show for a mode: the user's, or the mode's own label. */
