@@ -42,7 +42,7 @@ const TIERS: Record<string, { label: string; meaning: string; text: string; rail
     rail: "border-band-mid-border",
   },
   distorted: {
-    label: "Appears distorted",
+    label: "Appears as distorted",
     meaning: "Rests on something real, but the framing overstates it.",
     text: "text-caution",
     rail: "border-caution-border",
@@ -52,7 +52,7 @@ const TIERS: Record<string, { label: string; meaning: string; text: string; rail
     // "Fabricated / Malicious" and the score is unchanged; what changed is
     // that the label reports how the claim appears against these sources
     // instead of asserting the author's intent.
-    label: "Appears fabricated / malicious",
+    label: "Appears as fabricated / malicious",
     meaning: "Nothing found here backs this up. Worth checking yourself.",
     text: "text-band-low",
     rail: "border-band-low-border",
@@ -98,6 +98,18 @@ const SUPPORT_BANDS: [number, string][] = [
   [0.26, "text-band-mid"],
   [0, "text-band-low"],
 ];
+
+/** Every score in this panel is a percentage of factual evidence, worded the
+ *  same way wherever it appears. "only" is the qualifier that carries the
+ *  meaning: a claim at 0 has no factual evidence and one at 100 has it
+ *  outright, but anything in between rests on *only* that much - which is the
+ *  part a reader skimming a number tends to miss. So 0 and 100 read plainly
+ *  and 1-99 are qualified. */
+export function factualEvidence(fraction: number): string {
+  const pct = Math.round(fraction * 100);
+  const qualified = pct > 0 && pct < 100 ? " only" : "";
+  return `${pct}% Factual Evidence${qualified}`;
+}
 
 function supportTone(score: number | null): string {
   if (score === null) return "text-ink-muted";
@@ -195,7 +207,9 @@ function EvidenceRow({ e }: { e: Evidence }) {
 
       <p className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-ink-muted">
         <span className={cx("font-semibold tabular-nums", supportTone(e.support_score))}>
-          {e.support_score !== null ? e.support_score.toFixed(2) : "?"}
+          {e.support_score !== null
+            ? `${factualEvidence(e.support_score)} to support this information`
+            : "Not yet measured"}
         </span>
         <span>{facts.join(" · ")}</span>
         {/* Only shown when it was actually measured. A bare "credibility ?"
@@ -205,7 +219,7 @@ function EvidenceRow({ e }: { e: Evidence }) {
             The claim score no longer counts that gap as a zero either. */}
         {secondary !== null && (
           <span className="tabular-nums">
-            ({isWeb ? "credibility" : "relevance"} {secondary.toFixed(2)})
+            ({isWeb ? "credibility" : "relevance"} {Math.round(secondary * 100)}%)
           </span>
         )}
       </p>
@@ -233,7 +247,7 @@ function ClaimBlock({ claim }: { claim: Claim }) {
         <span className={cx("text-xs font-semibold", tier.text)}>{tier.label}</span>
         {claim.claim_score !== null && (
           <span className="text-xs tabular-nums text-ink-muted">
-            {Math.round(claim.claim_score)}/100
+            {factualEvidence(claim.claim_score / 100)}
           </span>
         )}
       </div>

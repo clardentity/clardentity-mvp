@@ -121,7 +121,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
         title={workspace.name}
-        description="Attachments added here ground every answer in this room."
+        description="Attachments added here ground every answer in this workspace."
         actions={
           <Button
             variant="primary"

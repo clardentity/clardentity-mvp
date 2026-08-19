@@ -82,22 +82,22 @@ export function WorkspaceList() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <PageHeader
-        title="Rooms"
-        description="Each room keeps its own attachments, conversations and history."
+        title="Workspaces"
+        description="Each workspace keeps its own attachments, chats and history."
       />
 
       <Card className="mb-6">
         <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2">
           <Input
             type="text"
-            placeholder="New room name"
-            aria-label="New room name"
+            placeholder="New workspace name"
+            aria-label="New workspace name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="min-w-48 flex-1"
           />
           <Button type="submit" variant="primary" disabled={creating || !name.trim()}>
-            {creating ? "Creating…" : "Create room"}
+            {creating ? "Creating…" : "Create workspace"}
           </Button>
         </form>
       </Card>
@@ -114,8 +114,8 @@ export function WorkspaceList() {
         </div>
       ) : workspaces.length === 0 ? (
         <EmptyState
-          title="No rooms yet"
-          description="Create your first room above to start adding attachments and asking questions."
+          title="No workspaces yet"
+          description="Create your first workspace above to start adding attachments and asking questions."
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">

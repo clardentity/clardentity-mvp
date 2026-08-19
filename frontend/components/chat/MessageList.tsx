@@ -123,8 +123,8 @@ export function MessageList({
           <p className="text-sm font-medium text-ink">Start a chat</p>
           <p className="mt-1 text-sm text-ink-muted">
             Pick a cognitive mode below, then ask your question. Every answer is
-            broken into claims and checked against your attachments, so you can
-            see what each part of it rests on.
+            broken into claims and checked against its sources, so you can see
+            what each part of it rests on.
           </p>
         </div>
       </div>
@@ -466,7 +466,7 @@ function MessageBubble({
           // doesn't look like it changed on its own.
           <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-muted">
             <Spinner className="h-3 w-3" />
-            Checking claims against your attachments…
+            Checking claims…
           </p>
         )}
 

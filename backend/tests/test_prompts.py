@@ -188,3 +188,55 @@ class TestThinkingFramework:
     def test_blocks_carry_no_em_dashes(self):
         for block in (thinking_framework_block(), monitoring_block(), decision_tree_block()):
             assert "\u2014" not in block and "\u2013" not in block
+
+
+class TestClarifierInHistory:
+    """The clarifying question has to reach the model, or the answer to it is
+    a non-sequitur.
+
+    The question is structured data on the assistant message, so it never
+    appeared in the serialised transcript. The user's next turn was then a bare
+    option - "Just curious about the topic" - with nothing above it saying what
+    the topic was, and the model answered a question nobody asked.
+    """
+
+    def _message(self, role, content, clarifier=None):
+        class M:
+            pass
+
+        m = M()
+        m.role, m.content, m.clarifier = role, content, clarifier
+        return m
+
+    def test_the_question_is_serialised_with_the_answer(self):
+        from app.services.prompt_builder import build_conversation_input
+
+        history = [
+            self._message("user", "How do I make money fast?"),
+            self._message(
+                "assistant",
+                "Here are some legal options.",
+                {"question": "What's driving the need for fast money?", "options": ["a", "b"]},
+            ),
+        ]
+        out = build_conversation_input("(none)", None, history, "Just curious about the topic")
+        assert "What's driving the need for fast money?" in out
+        # And it is attributed to the assistant, not folded into the answer.
+        assert "Assistant (asked):" in out
+
+    def test_messages_without_a_clarifier_are_unchanged(self):
+        from app.services.prompt_builder import build_conversation_input
+
+        history = [self._message("assistant", "Plain answer.", None)]
+        out = build_conversation_input("(none)", None, history, "next")
+        assert "Assistant: Plain answer." in out
+        assert "(asked)" not in out
+
+    def test_a_user_message_carrying_one_is_ignored(self):
+        from app.services.prompt_builder import build_conversation_input
+
+        # Only the assistant asks. A clarifier on a user row would be data
+        # corruption, and echoing it would put words in their mouth.
+        history = [self._message("user", "hi", {"question": "should not appear", "options": []})]
+        out = build_conversation_input("(none)", None, history, "next")
+        assert "should not appear" not in out

@@ -25,6 +25,7 @@ export function ClarifierCard({
   disabled?: boolean;
 }) {
   const [dismissed, setDismissed] = useState(false);
+  const [answered, setAnswered] = useState<string | null>(null);
   const [custom, setCustom] = useState("");
 
   useEffect(() => {
@@ -41,12 +42,23 @@ export function ClarifierCard({
       const index = Number(event.key) - 1;
       if (Number.isInteger(index) && index >= 0 && index < options.length) {
         event.preventDefault();
+        setAnswered(options[index]);
         onAnswer(options[index]);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [dismissed, disabled, options, onAnswer]);
+
+  // Answered, not gone. The question was structured data attached to the
+  // answer, so once the card closed it left the transcript entirely - and the
+  // reply underneath ("Just curious about the topic") read as a non-sequitur
+  // with nothing above it to say what it was answering.
+  if (answered !== null) {
+    return (
+      <p className="mt-2.5 text-[11px] leading-relaxed text-ink-muted">Asked: {question}</p>
+    );
+  }
 
   if (dismissed) return null;
 
@@ -80,7 +92,7 @@ export function ClarifierCard({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => onAnswer(option)}
+              onClick={() => { setAnswered(option); onAnswer(option); }}
               className={cx(
                 "flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors",
                 "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50",
@@ -100,7 +112,7 @@ export function ClarifierCard({
         onSubmit={(event) => {
           event.preventDefault();
           const trimmed = custom.trim();
-          if (trimmed) onAnswer(trimmed);
+          if (trimmed) { setAnswered(trimmed); onAnswer(trimmed); }
         }}
       >
         <input

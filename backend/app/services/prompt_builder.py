@@ -195,7 +195,17 @@ def build_conversation_input(
     lines = [f"CONTEXT:\n{context_block}", "", "CONVERSATION_HISTORY:"]
     if memory_summary:
         lines.append(f"(summary of earlier turns) {memory_summary}")
-    lines += [f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}" for m in history]
+    for m in history:
+        speaker = "User" if m.role == "user" else "Assistant"
+        lines.append(f"{speaker}: {m.content}")
+        # A clarifying question is stored as structured data on the message, so
+        # it never reached the transcript the model reads. The user's next turn
+        # was then a bare answer - "Just curious about the topic" - with the
+        # question it answered nowhere in sight, and the model had to guess
+        # what the topic was. It usually guessed wrong.
+        asked = (m.clarifier or {}).get("question") if m.role == "assistant" else None
+        if asked:
+            lines.append(f"Assistant (asked): {asked}")
     lines.append("")
     lines.append(f"USER:\n{current_message}")
     return "\n".join(lines)

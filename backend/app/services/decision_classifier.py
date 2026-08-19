@@ -107,10 +107,13 @@ def build_bias_guidance(classification: DecisionClassification, limit: int = 8) 
     return (
         f"This looks like a decision in the domain of {category.name} "
         f"({category.scenario})\n"
-        "Decisions of this kind are commonly distorted by the cognitive biases below. "
-        "Where one of them plausibly bears on the user's situation, name it explicitly "
-        "and explain how it might be affecting the choice - as a brief 'Bias watch' "
-        "section after your recommendation. Do not force it: mention only the biases "
-        "that genuinely apply.\n"
+        "Decisions of this kind are commonly distorted by the cognitive biases "
+        "below. Let them inform how you weigh the options - where one plausibly "
+        "bears on this situation, account for it in the reasoning itself.\n"
+        "Do not write a 'Bias watch' section, do not list the biases, and do not "
+        "name them as a labelled aside at the end. The screening that is worth "
+        "showing the reader is already surfaced beside the answer as structured "
+        "output; repeating it in prose says the same thing twice, the second "
+        "time as a lecture.\n"
         f"{lines}"
     )

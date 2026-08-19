@@ -71,7 +71,7 @@ export function AttachmentSearch({
           description={
             scoped
               ? "Only the attachments this chat cited."
-              : "Every attachment in this room."
+              : "Every attachment in this workspace."
           }
         />
       )}

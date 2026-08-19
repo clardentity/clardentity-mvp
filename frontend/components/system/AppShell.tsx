@@ -269,7 +269,7 @@ function WorkspaceSwitcher({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">
-            {active?.name ?? "Select a room"}
+            {active?.name ?? "Select a workspace"}
           </span>
         </span>
         <Icon path={icons.chevron} className="h-3.5 w-3.5 text-ink-muted" />
@@ -281,7 +281,7 @@ function WorkspaceSwitcher({
           className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-hairline bg-surface p-1 shadow-lg scroll-slim"
         >
           {workspaces.length === 0 && (
-            <p className="px-2.5 py-2 text-xs text-ink-muted">No rooms yet</p>
+            <p className="px-2.5 py-2 text-xs text-ink-muted">No workspaces yet</p>
           )}
           {workspaces.map((w) => (
             <Link
@@ -359,7 +359,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // /workspace/<id> carries the workspace in the URL; /chat/<id> doesn't, so
   // it's resolved from the conversation. Without this the sidebar reads
-  // "Select a room" while you are inside one of its conversations, and the
+  // "Select a workspace" while you are inside one of its conversations, and the
   // Artifacts/Chats links point at the workspace *list* - which makes it easy
   // to upload a document into one workspace and then ask questions in another,
   // and conclude that grounding is broken.
@@ -685,7 +685,7 @@ function Breadcrumbs({
   // is how /profile was rendering as a lowercase "profile" in a bar where
   // every other entry is a proper name.
   const LABELS: Record<string, string> = {
-    workspace: "Rooms",
+    workspace: "Workspaces",
     chat: "Conversation",
     profile: "Your profile",
   };
@@ -697,7 +697,7 @@ function Breadcrumbs({
   // bare "Conversation" with no way back to the documents it is grounded in.
   if (root === "chat") {
     const ws = workspaces.find((w) => w.id === activeWorkspaceId);
-    crumbs.push({ label: "Rooms", href: "/workspace" });
+    crumbs.push({ label: "Workspaces", href: "/workspace" });
     if (ws) crumbs.push({ label: ws.name, href: `/workspace/${ws.id}` });
     // The chat page no longer has a title bar of its own, so this crumb is
     // where the conversation is named. It falls back to the generic label
@@ -712,7 +712,7 @@ function Breadcrumbs({
     const id = segments[1];
     if (root === "workspace") {
       const ws = workspaces.find((w) => w.id === id);
-      const name = ws?.name ?? "Room";
+      const name = ws?.name ?? "Workspace";
       const sub = segments[2];
       if (sub) {
         // Keep the workspace clickable when we're a level deeper.
