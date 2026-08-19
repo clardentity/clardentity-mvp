@@ -89,12 +89,25 @@ def build_system_instructions(
     reasoning_lens: str | None = None,
     bias_guidance: str | None = None,
     profile_block: str | None = None,
+    companion_name: str | None = None,
 ) -> str:
     parts = [
         IDENTITY,
         f"You are currently in {mode} mode, selected explicitly by the user.",
         MODE_INSTRUCTIONS[mode],
     ]
+
+    # A name the user chose for this mode. It sits under the identity rules
+    # rather than replacing them: it is what they call you, not a different
+    # system to be, and it does not license discussing what model you are.
+    if companion_name:
+        parts.append(
+            f'In this mode the user calls you "{companion_name}". Answer to that '
+            f"name naturally if they use it. It is a nickname they gave you, "
+            f"not a separate persona and not a different identity: you are "
+            f"still Clardentity AI, and every identity rule above still holds. "
+            f"Do not introduce yourself with it unprompted or sign off with it."
+        )
 
     # Accumulated across sessions so the companion knows who it is talking to.
     if profile_block:

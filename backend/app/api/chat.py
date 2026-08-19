@@ -26,6 +26,7 @@ from app.services.admin_settings_service import get_all_settings
 from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
+from app.services.companion_names import name_for
 from app.services.clarifier import propose_clarifier
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
@@ -547,7 +548,11 @@ async def send_message(
     if location_line:
         profile_block = f"{profile_block}\n\n{location_line}" if profile_block else location_line
     instructions = build_system_instructions(
-        mode, reasoning_lens, bias_guidance, profile_block
+        mode,
+        reasoning_lens,
+        bias_guidance,
+        profile_block,
+        companion_name=name_for(current_user.companion_names, mode),
     )
     context_block = build_context_block(chunks, web_sources)
     input_text = build_conversation_input(context_block, memory_summary, history, payload.content)

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { ImportHistory } from "@/components/profile/ImportHistory";
+import { CompanionNames } from "@/components/profile/CompanionNames";
 import { authErrorMessage } from "@/lib/auth";
 import { AspectList, type Aspect } from "@/components/profile/AspectList";
 import {
@@ -173,6 +174,14 @@ export function ProfileView() {
       {(
         <div className="space-y-5">
           <ImportHistory onImported={() => setReloadKey((k) => k + 1)} />
+
+          <Card>
+            <CardHeader
+              title="Name your companion"
+              description="Each mode can go by a name you choose. Named modes show that name in the mode switcher, and the companion answers to it. Leave one blank to keep its own label."
+            />
+            <CompanionNames />
+          </Card>
           <Card>
             <CardHeader
               title="What it knows about you"

@@ -17,6 +17,7 @@ from app.schemas.profile import (
     RoleQualifierOut,
 )
 from app.services import taxonomy
+from app.services.companion_names import clean_names
 from app.services.output_cleanup import clean_output
 from app.services.chat_import import UnreadableExport, parse_export
 from app.services.profile_service import get_profile
@@ -25,7 +26,7 @@ from app.workers.rebuild_profile import rebuild_profile_task
 router = APIRouter(prefix="/profile", tags=["profile"])
 
 
-def _serialize(profile: UserProfile | None) -> ProfileOut:
+def _serialize(profile: UserProfile | None, companion_names: dict | None = None) -> ProfileOut:
     if profile is None:
         return ProfileOut(personality_md=None, aspects=[], roles=[], user_edited=False)
 
@@ -47,6 +48,7 @@ def _serialize(profile: UserProfile | None) -> ProfileOut:
 
     return ProfileOut(
         personality_md=profile.personality_md,
+        companion_names=clean_names(companion_names),
         aspects=[
             ProfileAspectOut(
                 id=str(a.get("id") or ""),
@@ -68,7 +70,7 @@ async def read_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProfileOut:
-    return _serialize(await get_profile(db, current_user.id))
+    return _serialize(await get_profile(db, current_user.id), current_user.companion_names)
 
 
 @router.get("/roles", response_model=list[RoleOut])
@@ -120,10 +122,16 @@ async def update_profile(
             if taxonomy.get_role(r.role_id) is not None
         ]
 
+    if payload.companion_names is not None:
+        # Stored on the user, not the profile: naming your companion is a
+        # preference about the product, not something inferred about you, and
+        # it must survive a profile rebuild.
+        current_user.companion_names = clean_names(payload.companion_names) or None
+
     profile.user_edited = True
     await db.commit()
     await db.refresh(profile)
-    return _serialize(profile)
+    return _serialize(profile, current_user.companion_names)
 
 
 _MAX_ASPECTS = 40
@@ -169,7 +177,7 @@ async def add_aspect(
 
     await db.commit()
     await db.refresh(profile)
-    return _serialize(profile)
+    return _serialize(profile, current_user.companion_names)
 
 
 @router.delete("/aspects/{aspect_id}", response_model=ProfileOut)
@@ -187,7 +195,7 @@ async def remove_aspect(
     profile.aspects = [a for a in (profile.aspects or []) if a.get("id") != aspect_id]
     await db.commit()
     await db.refresh(profile)
-    return _serialize(profile)
+    return _serialize(profile, current_user.companion_names)
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)

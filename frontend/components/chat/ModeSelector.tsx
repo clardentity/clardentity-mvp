@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { COGNITIVE_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { companionLabel, useCompanionNames } from "@/lib/companionNames";
 
 export { COGNITIVE_MODES };
 export type { CognitiveMode };
@@ -22,6 +23,7 @@ export function ModeSelector({
   onChange: (mode: CognitiveMode) => void;
   disabled?: boolean;
 }) {
+  const names = useCompanionNames();
   const stripRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
 
@@ -59,7 +61,9 @@ export function ModeSelector({
               onClick={() => onChange(mode.value)}
               className="rounded-xl border border-hairline bg-surface p-3 text-left transition-colors hover:border-brand-border hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="block text-sm font-semibold text-ink">{mode.label}</span>
+              <span className="block text-sm font-semibold text-ink">
+                {companionLabel(names, mode.value, mode.label)}
+              </span>
               <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
                 {mode.when}
               </span>
@@ -103,7 +107,7 @@ export function ModeSelector({
                   : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
               }`}
             >
-              {mode.label}
+              {companionLabel(names, mode.value, mode.label)}
             </button>
           );
         })}

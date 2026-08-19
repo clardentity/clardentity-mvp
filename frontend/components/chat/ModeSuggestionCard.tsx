@@ -1,6 +1,7 @@
 "use client";
 
 import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { companionLabel, useCompanionNames } from "@/lib/companionNames";
 import { cx } from "@/components/ui/primitives";
 
 /* Offered before the answer exists, not after.
@@ -32,6 +33,7 @@ export function ModeSuggestionCard({
   onSwitch: () => void;
   onContinue: () => void;
 }) {
+  const names = useCompanionNames();
   const suggested = MODE_BY_VALUE[suggestedMode as CognitiveMode];
   const current = MODE_BY_VALUE[currentMode as CognitiveMode];
   if (!suggested) return null;
@@ -39,7 +41,11 @@ export function ModeSuggestionCard({
   return (
     <div className="mt-2 rounded-xl border border-brand-border bg-brand-soft p-3.5">
       <p className="text-sm font-medium text-ink">
-        {suggested.label} mode suits this better.
+        {/* Named companions are addressed by name - that is the point of
+            naming one. Unnamed modes read exactly as before. */}
+        {names[suggestedMode]
+          ? `This suits your companion ${names[suggestedMode]} (${suggested.label}).`
+          : `${suggested.label} mode suits this better.`}
       </p>
       {reason && (
         <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{reason}</p>
@@ -59,7 +65,7 @@ export function ModeSuggestionCard({
             "transition-colors hover:bg-brand-dark disabled:opacity-60",
           )}
         >
-          {busy ? "Asking…" : `Answer in ${suggested.label}`}
+          {busy ? "Asking…" : `Answer in ${companionLabel(names, suggestedMode, suggested.label)}`}
         </button>
         <button
           type="button"
@@ -67,7 +73,7 @@ export function ModeSuggestionCard({
           disabled={busy}
           className="rounded-full px-3 py-1.5 text-xs text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-60"
         >
-          Stay in {current?.label ?? currentMode}
+          Stay in {companionLabel(names, currentMode, current?.label ?? currentMode)}
         </button>
       </div>
     </div>
