@@ -207,3 +207,91 @@ class TestContextQuestionGuards:
 
         monkeypatch.setattr(guidance, "generate_structured", fake)
         assert await guidance.propose_guidance("what is the capital of France", "knowing") is None
+
+
+class TestDecisionSuggestionSet:
+    """One sound decision beside the wrong calls.
+
+    These guards exist because the failure is silent and the content is
+    dangerous: a list of decisions where the reader cannot tell which one is
+    the recommendation is a list of things to maybe do, some of which are
+    traps.
+    """
+
+    def _item(self, decision, sound, bias=None, why="because"):
+        return {"decision": decision, "why": why, "sound": sound, "bias": bias}
+
+    def test_a_valid_set_is_kept_and_the_sound_one_leads(self):
+        from app.services.decision_review import _build_suggestions
+
+        out = _build_suggestions(
+            [
+                self._item("Wait a week", False, "Wishful Thinking"),
+                self._item("Ask for the numbers first", True),
+                self._item("Go with your gut", False, "Wishful Thinking"),
+            ]
+        )
+        assert len(out) == 3
+        assert out[0]["sound"] is True, "the recommendation must lead"
+        assert out[0]["decision"] == "Ask for the numbers first"
+        assert sum(1 for i in out if i["sound"]) == 1
+
+    def test_no_sound_decision_drops_the_whole_set(self):
+        from app.services.decision_review import _build_suggestions
+
+        out = _build_suggestions(
+            [
+                self._item("A", False, "Wishful Thinking"),
+                self._item("B", False, "Wishful Thinking"),
+                self._item("C", False, "Wishful Thinking"),
+            ]
+        )
+        assert out == []
+
+    def test_two_sound_decisions_drop_the_whole_set(self):
+        from app.services.decision_review import _build_suggestions
+
+        out = _build_suggestions(
+            [
+                self._item("A", True),
+                self._item("B", True),
+                self._item("C", False, "Wishful Thinking"),
+            ]
+        )
+        assert out == []
+
+    def test_fewer_than_three_is_not_a_teaching_set(self):
+        from app.services.decision_review import _build_suggestions
+
+        out = _build_suggestions(
+            [self._item("A", True), self._item("B", False, "Wishful Thinking")]
+        )
+        assert out == []
+
+    def test_an_unsound_decision_with_an_invented_bias_is_removed(self):
+        from app.services.decision_review import _build_suggestions
+
+        # Dropping it takes the set below three, which drops the set - correct:
+        # "do not do this" with no reason is indistinguishable from advice.
+        out = _build_suggestions(
+            [
+                self._item("A", True),
+                self._item("B", False, "Totally Made Up Bias"),
+                self._item("C", False, "Wishful Thinking"),
+            ]
+        )
+        assert out == []
+
+    def test_it_never_exceeds_the_cap(self):
+        from app.services.decision_review import MAX_SUGGESTIONS, _build_suggestions
+
+        items = [self._item("sound", True)] + [
+            self._item(f"bad {n}", False, "Wishful Thinking") for n in range(9)
+        ]
+        assert len(_build_suggestions(items)) == MAX_SUGGESTIONS
+
+    def test_junk_input_is_empty_not_an_exception(self):
+        from app.services.decision_review import _build_suggestions
+
+        for bad in (None, "suggestions", {}, [None, 42, "x"]):
+            assert _build_suggestions(bad) == []

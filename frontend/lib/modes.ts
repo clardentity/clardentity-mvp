@@ -22,8 +22,8 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "thinking",
-    label: "Thinking",
-    companion: "Thinking Companion",
+    label: "Thinking-trainer",
+    companion: "Thinking-trainer Companion",
     hint: "Think correctly",
     when: "When you want to improve your thinking skills, not just the conclusion.",
     cta: "Try thinking it through.",
@@ -32,7 +32,7 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "decision",
-    label: "Decision",
+    label: "Decision-making",
     companion: "Decision-making Companion",
     hint: "Make wise choices",
     when: "When you want to choose between unbiased and biased decisions.",

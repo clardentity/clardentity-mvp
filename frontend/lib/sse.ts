@@ -63,7 +63,16 @@ export type DecisionReviewData = {
   alternative_why: string | null;
   /** Decisions worth considering, best first - present whether or not the
    *  user listed options of their own. */
-  suggestions: { decision: string; why: string }[];
+  /** A teaching set: exactly one sound decision and the rest distorted, each
+   *  with the reasoning error that makes it wrong. The server drops the whole
+   *  set unless that shape holds. */
+  suggestions: {
+    decision: string;
+    why: string;
+    sound: boolean;
+    bias_name: string | null;
+    bias_definition: string | null;
+  }[];
 };
 
 /** Thinking mode's replacement for claims and evidence: the reasoning that

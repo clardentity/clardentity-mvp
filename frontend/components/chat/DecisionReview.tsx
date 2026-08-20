@@ -110,25 +110,52 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
         // decision question is decisions, and there is nothing to cite.
         <div className={hasOptions ? "mt-3 border-t border-hairline pt-3" : ""}>
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
-            Decisions worth considering
+            One decision that holds up, and the ones that don&apos;t
           </h4>
-          <ol className="mt-2 space-y-2">
+          {/* Not numbered. A numbered list of decisions reads as a ranking,
+              and three of these are things not to do - the reader has to be
+              able to tell which is which at a glance, before reading a word
+              of the reasoning. Tick or warning, colour, and the label do that
+              job; position does not. */}
+          <ul className="mt-2 space-y-2">
             {review.suggestions.map((s, i) => (
               <li key={i} className="flex gap-2">
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-surface-hover text-[10px] font-semibold tabular-nums text-ink-secondary">
-                  {i + 1}
+                <span
+                  className={cx("mt-0.5 shrink-0", s.sound ? "text-band-high" : "text-caution")}
+                >
+                  {s.sound ? <Tick /> : <Warn />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-xs font-medium leading-relaxed text-ink">
+                  <span
+                    className={cx(
+                      "block text-xs font-medium leading-relaxed",
+                      // A struck-through decision cannot be misread as advice
+                      // if someone skims only the bold line.
+                      s.sound ? "text-ink" : "text-ink-secondary line-through decoration-caution/50",
+                    )}
+                  >
                     {s.decision}
+                  </span>
+                  <span
+                    className={cx(
+                      "mt-0.5 block text-[10px] font-semibold uppercase tracking-wide",
+                      s.sound ? "text-band-high" : "text-caution",
+                    )}
+                  >
+                    {s.sound ? "Holds up" : (s.bias_name ?? "Does not hold up")}
                   </span>
                   <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">
                     {s.why}
                   </span>
+                  {!s.sound && s.bias_definition && (
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-muted">
+                      {s.bias_definition}
+                    </span>
+                  )}
                 </span>
               </li>
             ))}
-          </ol>
+          </ul>
         </div>
       )}
     </section>

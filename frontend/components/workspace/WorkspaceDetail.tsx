@@ -135,7 +135,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
 
       {/* The mode cards used to open this page - six tiles asking you to pick
           a cognitive stance before you had a question. The mode belongs to the
-          message, not to the room, and is chosen in the composer where you can
+          message, not to the workspace, and is chosen in the composer where you can
           see what you're asking; attachments and search moved to the sidebar,
           where navigation lives. What's left is the one thing you came here
           to do and the list of what you did before. */}
@@ -152,7 +152,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           <div className="px-5 py-10 text-center">
             <p className="text-sm font-medium text-ink">No conversations yet</p>
             <p className="mt-1 text-sm text-ink-muted">
-              Start one to ask questions against this room.
+              Start one to ask questions against this workspace.
             </p>
           </div>
         ) : (

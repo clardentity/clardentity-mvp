@@ -316,7 +316,7 @@ function WorkspaceSwitcher({
             className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink"
           >
             <Icon path={icons.plus} />
-            All rooms
+            All workspaces
           </Link>
         </div>
       )}
@@ -470,7 +470,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           active={pathname === "/workspace"}
           onNavigate={close}
         >
-          Rooms
+          Workspaces
         </NavItem>
         <NavItem
           href={activeWorkspaceId ? `/workspace/${activeWorkspaceId}/documents` : "/workspace"}
