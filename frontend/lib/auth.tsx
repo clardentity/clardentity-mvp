@@ -201,10 +201,25 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
+/** A network failure has no server message, so `fetch` supplies its own -
+ *  "Failed to fetch" - and showing that to a user tells them nothing they can
+ *  act on. It is also the single most likely error this app produces: the
+ *  backend sleeps when idle and the first request after a quiet spell can take
+ *  the better part of a minute, which the browser gives up on. Name that. */
+export function networkErrorMessage(err: unknown): string | null {
+  const message = err instanceof Error ? err.message : "";
+  const isNetwork =
+    err instanceof TypeError ||
+    /failed to fetch|networkerror|load failed|network request failed/i.test(message);
+  return isNetwork
+    ? "Couldn't reach the server. It may be waking up after being idle - try again in a moment."
+    : null;
+}
+
 export function authErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     const detail = (err.body as { detail?: string } | null)?.detail;
     return detail ?? err.message;
   }
-  return err instanceof Error ? err.message : "Something went wrong";
+  return networkErrorMessage(err) ?? (err instanceof Error ? err.message : "Something went wrong");
 }

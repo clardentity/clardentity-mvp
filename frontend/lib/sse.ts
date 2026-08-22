@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/apiClient";
-import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/auth";
+import { getAccessToken, networkErrorMessage, getRefreshToken, refreshAccessToken } from "@/lib/auth";
 
 export type Evidence = {
   citation_marker: number;
@@ -189,7 +189,9 @@ export async function streamChatMessage(
   try {
     res = await openStream(conversationId, body);
   } catch (err) {
-    handlers.onError(err instanceof Error ? err.message : "Network error");
+    handlers.onError(
+      networkErrorMessage(err) ?? (err instanceof Error ? err.message : "Network error"),
+    );
     return;
   }
 

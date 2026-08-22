@@ -72,13 +72,26 @@ export default function Home() {
       <section className="px-5 pb-14 pt-16 text-center sm:px-6 sm:pb-20 sm:pt-32">
         {/* The name is three words folded together, which nobody gets from
             reading it once. Rotating them in the eyebrow slot says so without
-            a sentence explaining the pun. */}
-        <p className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-widest text-ink-muted">
+            a sentence explaining the pun; the line under it gives the meaning
+            as an assembly - the parts, then what they add up to - because
+            spelled out as prose ("clarity on the facts of the identity of an
+            entity") it reads like a mission statement and nobody finishes it.
+            Both lines stay short on purpose: the rotator cannot wrap, so a
+            long phrase in that slot would overflow a 320px screen. */}
+        <p className="flex flex-wrap items-center justify-center gap-x-2 text-sm font-semibold uppercase tracking-widest text-ink-muted">
           <span>Clardentity is</span>
           <WordRotator
             words={["clarity", "identity", "entity"]}
             className="text-brand"
           />
+        </p>
+        <p className="mx-auto mt-3 max-w-md text-balance text-[13px] leading-relaxed text-ink-muted sm:text-sm">
+          <span className="text-ink-secondary">clarity</span>
+          {" + "}
+          <span className="text-ink-secondary">identity</span>
+          {" + "}
+          <span className="text-ink-secondary">entity</span>
+          {" : the facts of who or what, made checkable."}
         </p>
 
         {/* The forced break is a desktop composition - on a phone it turns
@@ -111,27 +124,11 @@ export default function Home() {
         </div>
       </section>
 
-      {/* The problem, named without naming anyone --------------------------- */}
-      <section className="border-y border-hairline bg-surface px-6 py-24">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-3xl lg:text-4xl">
-            An answer you can&apos;t verify
-            <br />
-            is just a confident assumption.
-          </p>
-          <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary">
-            Fluent writing creates the illusion of authority. That&apos;s the
-            dangerous trap. When every reply uses the same confident voice, the
-            reliable and the unreliable look identical.
-          </p>
-          <p className="mx-auto mt-4 max-w-xl text-lg font-medium leading-relaxed text-ink">
-            Clardentity removes the illusion.
-          </p>
-        </div>
-      </section>
-
-      {/* Four modes - the centrepiece --------------------------------------- */}
-      <section id="modes" className="scroll-mt-16 px-6 py-24">
+      {/* Four modes - the centrepiece, and now the first thing after the
+          hero. It used to sit behind the problem statement, which meant a
+          visitor read two screens of argument before seeing what the thing
+          does. The case for it lands better once you know what it is. */}
+      <section id="modes" className="scroll-mt-16 px-6 py-20 sm:py-24">
         <div className="mx-auto max-w-5xl">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
@@ -162,6 +159,25 @@ export default function Home() {
               />
             ))}
           </BentoGrid>
+        </div>
+      </section>
+
+      {/* The problem, named without naming anyone --------------------------- */}
+      <section className="border-y border-hairline bg-surface px-6 py-20 sm:py-24">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-3xl lg:text-4xl">
+            An answer you can&apos;t verify
+            <br />
+            is just a confident assumption.
+          </p>
+          <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-secondary">
+            Fluent writing creates the illusion of authority. That&apos;s the
+            dangerous trap. When every reply uses the same confident voice, the
+            reliable and the unreliable look identical.
+          </p>
+          <p className="mx-auto mt-4 max-w-xl text-lg font-medium leading-relaxed text-ink">
+            Clardentity removes the illusion.
+          </p>
         </div>
       </section>
 
