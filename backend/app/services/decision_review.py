@@ -19,7 +19,7 @@ time is one people stop reading.
 import logging
 
 from app.services import taxonomy
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.decision_review")
@@ -197,7 +197,7 @@ async def review_decisions(question: str, bias_category_id: str | None = None) -
     menu of options to review. Never raises."""
     try:
         parsed = await generate_structured(
-            instructions=_build_instructions(bias_category_id),
+            instructions=cached(_build_instructions(bias_category_id)),
             input_text=f"THEIR MESSAGE:\n{question}",
             schema=_SCHEMA,
             schema_name="decision_review",

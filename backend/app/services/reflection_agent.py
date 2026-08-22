@@ -1,5 +1,5 @@
 from app.services.claim_parser import extract_claims
-from app.services.anthropic_client import generate_text
+from app.services.anthropic_client import cached, generate_text
 from app.services.prompt_builder import MODE_INSTRUCTIONS
 
 _NO_CHANGES_SENTINEL = "NO_CHANGES_NEEDED"
@@ -29,7 +29,7 @@ async def reflect_and_revise(mode: str, draft_text: str) -> tuple[str, bool]:
 
     try:
         result = await generate_text(
-            instructions=instructions, input_text=f"DRAFT:\n{draft_text}", fast=True
+            instructions=cached(instructions), input_text=f"DRAFT:\n{draft_text}", fast=True
         )
     except Exception:
         return draft_text, False

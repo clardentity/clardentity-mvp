@@ -662,6 +662,18 @@ async def send_message(
         clarifier_task = asyncio.create_task(
             propose_clarifier(payload.content, draft_display_text)
         )
+        # `decision_task` has been running since earlier in this function, so
+        # awaiting it here is normally immediate - not a new blocking call.
+        # It has to happen before review_task/thinking_task below, which need
+        # its result: both take bias_category_id as a plain argument, so
+        # Python needs a value the moment the coroutine is constructed, not
+        # merely by the time it runs.
+        try:
+            decision_result = await decision_task
+        except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
+            decision_result = NO_DECISION
+        bias_category_id = decision_result.bias_category_id
+
         # Looks only at the question and the chosen mode, so it does not wait
         # on the answer - it is in this fan-out purely so its latency lands
         # inside the post-answer window rather than after it.
@@ -684,12 +696,6 @@ async def send_message(
             if draft_display_text
             else None
         )
-
-        try:
-            decision_result = await decision_task
-        except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
-            decision_result = NO_DECISION
-        bias_category_id = decision_result.bias_category_id
 
         # Markers 1..len(chunks) are documents; anything above continues into
         # the web sources, in the order build_context_block numbered them.

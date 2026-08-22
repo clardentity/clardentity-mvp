@@ -48,6 +48,23 @@ _AUXILIARY_MAX_TOKENS = 4096
 
 _DATA_URI = re.compile(r"^data:(?P<media_type>[^;,]+);base64,(?P<data>.+)$", re.DOTALL)
 
+# A "system prompt" here is never one thing - every call site composes a
+# static rulebook with something that varies (the user's profile, this turn's
+# bias category, this claim's flagged biases). Sent as one joined string, the
+# whole block is billed at full price on every single call, forever, because
+# byte-for-byte identity is what the API's cache keys off and the variable
+# tail breaks it. `cached()` marks the *static* part so it can be written
+# once and read at roughly a tenth of the price on every call after - the
+# caller is responsible for knowing which part of its own prompt is actually
+# static; this only supplies the block shape the API needs to see that.
+#
+# Anthropic flagged this directly: caching repeated system-prompt content was
+# estimated to cut this account's direct API spend by up to 55%. Everywhere
+# in this codebase that passed a bare, unchanging instructions constant
+# straight through now wraps it in this.
+def cached(text: str) -> list[dict]:
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
 
 class CircuitBreakerOpenError(RuntimeError):
     pass
@@ -151,7 +168,7 @@ def _content_blocks(input_text: str, input_images: list[str] | None) -> list | s
 
 def _base_kwargs(
     model: str | None,
-    instructions: str,
+    instructions: str | list[dict],
     input_text: str,
     input_images: list[str] | None = None,
     effort: str | None = None,
@@ -196,7 +213,7 @@ StreamEvent = DeltaEvent | DoneEvent
 
 async def stream_generation(
     *,
-    instructions: str,
+    instructions: str | list[dict],
     input_text: str,
     model: str | None = None,
     temperature: float | None = None,
@@ -235,7 +252,7 @@ async def stream_generation(
 
 async def generate_text(
     *,
-    instructions: str,
+    instructions: str | list[dict],
     input_text: str,
     model: str | None = None,
     temperature: float | None = None,
@@ -300,7 +317,7 @@ class StructuredOutputError(RuntimeError):
 
 async def generate_structured(
     *,
-    instructions: str,
+    instructions: str | list[dict],
     input_text: str,
     schema: dict,
     schema_name: str,

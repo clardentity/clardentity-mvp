@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, Document, Message, UserProfile, WorkspaceMember
 from app.services import taxonomy
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 from app.services.output_cleanup import clean_output
 
 # Enough of the user's own words to characterise them without sending an
@@ -177,7 +177,7 @@ async def infer_profile(evidence: str) -> InferredProfile | None:
 
     try:
         parsed = await generate_structured(
-            instructions=_INSTRUCTIONS + taxonomy.role_vocabulary(),
+            instructions=cached(_INSTRUCTIONS + taxonomy.role_vocabulary()),
             input_text=evidence,
             schema=_SCHEMA,
             schema_name="user_profile",

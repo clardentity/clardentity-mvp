@@ -29,7 +29,7 @@ decorative link under it.
 import logging
 from dataclasses import dataclass, field
 
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 
 logger = logging.getLogger("clardentity.web_research")
 
@@ -177,7 +177,7 @@ async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
         )
     try:
         payload = await generate_structured(
-            instructions=_SEARCH_INSTRUCTIONS,
+            instructions=cached(_SEARCH_INSTRUCTIONS),
             input_text=prompt,
             schema=_SEARCH_SCHEMA,
             schema_name="web_sources",
@@ -212,7 +212,7 @@ async def _supervise(claim: str, sources: list[WebSource]) -> dict:
     )
     try:
         return await generate_structured(
-            instructions=_SUPERVISOR_INSTRUCTIONS,
+            instructions=cached(_SUPERVISOR_INSTRUCTIONS),
             input_text=f"CLAIM:\n{claim}\n\nSOURCES:\n{listing}",
             schema=_SUPERVISOR_SCHEMA,
             schema_name="source_audit",

@@ -35,3 +35,7 @@ celerybeat.pid
 
 # Uploaded/generated local data
 backend/uploads/
+
+# Evals
+evals/.eval_creds.json
+evals/reports/

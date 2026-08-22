@@ -21,7 +21,7 @@ absorbed rather than added.
 
 import logging
 
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.clarifier")
@@ -74,7 +74,7 @@ async def propose_clarifier(user_message: str, answer: str) -> dict | None:
     """
     try:
         result = await generate_structured(
-            instructions=_INSTRUCTIONS,
+            instructions=cached(_INSTRUCTIONS),
             input_text=f"USER ASKED:\n{user_message}\n\nANSWER GIVEN:\n{answer[:4000]}",
             schema=_SCHEMA,
             schema_name="clarifier",

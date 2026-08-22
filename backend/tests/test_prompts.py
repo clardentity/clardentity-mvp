@@ -23,10 +23,22 @@ from app.services.prompt_builder import (
 MODES = ("knowing", "thinking", "decision", "learning")
 
 
+def _flat(*args, **kwargs) -> str:
+    """`build_system_instructions` returns Anthropic content blocks now, not
+    a string - the split into a cached stable block and an uncached variable
+    one is the point (see prompt_builder.py). Every test below only cares
+    about which words are present somewhere in the prompt, not which block
+    they're in, so this flattens back to a single string for that purpose.
+    `TestPromptCaching` below is the one place the block structure itself is
+    the thing under test.
+    """
+    return "\n\n".join(b["text"] for b in build_system_instructions(*args, **kwargs))
+
+
 class TestIdentity:
     def test_every_mode_carries_the_identity_block(self):
         for mode in MODES:
-            assert IDENTITY in build_system_instructions(mode)
+            assert IDENTITY in _flat(mode)
 
     def test_names_clardentity_and_no_vendor(self):
         assert "Clardentity AI" in IDENTITY
@@ -50,7 +62,7 @@ class TestModes:
 
     def test_the_selected_mode_is_stated(self):
         for mode in MODES:
-            assert f"in {mode} mode" in build_system_instructions(mode)
+            assert f"in {mode} mode" in _flat(mode)
 
 
 class TestReasoningLensStaysHidden:
@@ -63,13 +75,13 @@ class TestReasoningLensStaysHidden:
     """
 
     def test_thinking_mode_forbids_naming_the_approach(self):
-        instructions = build_system_instructions("thinking")
+        instructions = _flat("thinking")
         lowered = instructions.lower()
         assert "do not name these types" in lowered
         assert "the method is never the subject" in lowered
 
     def test_the_model_is_told_how_to_choose_when_the_user_has_not(self):
-        instructions = build_system_instructions("thinking")
+        instructions = _flat("thinking")
         assert "DEMAND -> COMBINATION" in instructions
         # Every lens it may combine is still named somewhere in the guidance.
         for lens in REASONING_LENS_INSTRUCTIONS:
@@ -77,18 +89,18 @@ class TestReasoningLensStaysHidden:
 
     def test_other_modes_do_not_mention_lenses(self):
         for mode in ("knowing", "decision", "learning"):
-            instructions = build_system_instructions(mode)
+            instructions = _flat(mode)
             assert "reasoning lens" not in instructions.lower()
 
 
 class TestNoSelfLabelling:
     def test_forbids_writing_the_verdict_words_into_prose(self):
-        instructions = build_system_instructions("knowing")
+        instructions = _flat("knowing")
         assert "Unsupported" in instructions  # named only to forbid it
         assert "do not write anything about the claim's own evidential" in instructions
 
     def test_forbids_markdown(self):
-        assert "No Markdown" in build_system_instructions("knowing")
+        assert "No Markdown" in _flat("knowing")
 
 
 class TestClaimTagStripper:
@@ -134,7 +146,7 @@ class TestThinkingFramework:
     """
 
     def test_thinking_mode_gets_combinations_not_a_single_lens(self):
-        instructions = build_system_instructions("thinking")
+        instructions = _flat("thinking")
         assert "Do not pick a single mode of thinking" in instructions
         assert "DEMAND -> COMBINATION" in instructions
 
@@ -147,16 +159,16 @@ class TestThinkingFramework:
         block = thinking_framework_block()
         assert "Do not name these types" in block
         # Thinking mode still forbids narrating the approach, as before.
-        assert "never the subject" in build_system_instructions("thinking")
+        assert "never the subject" in _flat("thinking")
 
     def test_monitoring_and_escalation_reach_both_reasoning_modes(self):
         for mode in ("thinking", "decision"):
-            instructions = build_system_instructions(mode)
+            instructions = _flat(mode)
             assert "would show this is working" in instructions
             assert "qualified professional" in instructions
 
     def test_decision_mode_gets_the_selection_tree(self):
-        instructions = build_system_instructions("decision")
+        instructions = _flat("decision")
         assert "SELECTING BETWEEN OPTIONS" in instructions
         assert "argue the strongest case against it" in instructions
 
@@ -165,13 +177,13 @@ class TestThinkingFramework:
         # does not need a counterbalance, and paying for one on every turn
         # would be prompt spent on nothing.
         for mode in ("knowing", "learning"):
-            instructions = build_system_instructions(mode)
+            instructions = _flat(mode)
             assert "DEMAND -> COMBINATION" not in instructions
             assert "SELECTING BETWEEN OPTIONS" not in instructions
 
     def test_an_explicit_user_lens_still_wins(self):
         # The framework replaces the model's *own* choice, not the user's.
-        instructions = build_system_instructions("thinking", reasoning_lens="critical")
+        instructions = _flat("thinking", reasoning_lens="critical")
         assert "chosen explicitly by the user" in instructions
         assert "DEMAND -> COMBINATION" not in instructions
 
@@ -240,3 +252,76 @@ class TestClarifierInHistory:
         history = [self._message("user", "hi", {"question": "should not appear", "options": []})]
         out = build_conversation_input("(none)", None, history, "next")
         assert "should not appear" not in out
+
+
+class TestPromptCaching:
+    """The split that makes caching possible: content byte-identical for
+    every user in a mode goes in one cached block; content that differs per
+    user or per turn goes in a second, uncached one. Get this wrong in either
+    direction and caching either does nothing (variable content leaks into
+    the cached block, so the "stable" prefix is never actually identical
+    twice) or breaks correctness (stable content ends up only in the
+    variable block and is silently dropped whenever nothing variable exists).
+    """
+
+    def test_returns_content_blocks_not_a_string(self):
+        blocks = build_system_instructions("knowing")
+        assert isinstance(blocks, list)
+        assert all(isinstance(b, dict) and "text" in b for b in blocks)
+
+    def test_the_first_block_is_cached(self):
+        blocks = build_system_instructions("knowing")
+        assert blocks[0].get("cache_control") == {"type": "ephemeral"}
+
+    def test_with_nothing_variable_there_is_only_the_cached_block(self):
+        blocks = build_system_instructions("knowing")
+        assert len(blocks) == 1
+
+    def test_identical_calls_produce_a_byte_identical_cached_block(self):
+        # This is the property caching actually depends on: two users asking
+        # in the same mode, with no personalisation, must render the exact
+        # same bytes up to the breakpoint, or the cache never hits.
+        a = build_system_instructions("decision")
+        b = build_system_instructions("decision")
+        assert a[0]["text"] == b[0]["text"]
+
+    def test_profile_and_nickname_land_only_in_the_uncached_block(self):
+        blocks = build_system_instructions(
+            "knowing", profile_block="User works in finance.", companion_name="Gale"
+        )
+        assert len(blocks) == 2
+        assert "cache_control" not in blocks[1]
+        assert "User works in finance." in blocks[1]["text"]
+        assert "Gale" in blocks[1]["text"]
+        # And neither leaked into the cached half, which would make it a
+        # different cache entry for every user - the whole point defeated.
+        assert "User works in finance." not in blocks[0]["text"]
+        assert "Gale" not in blocks[0]["text"]
+
+    def test_the_cached_block_is_unaffected_by_who_is_asking(self):
+        # Two different users, one with a profile and nickname, one without -
+        # the cached (first) block must still be identical, so both hit the
+        # same cache entry. Only variable_parts should differ.
+        plain = build_system_instructions("knowing")
+        personalised = build_system_instructions(
+            "knowing", profile_block="User works in finance.", companion_name="Gale"
+        )
+        assert plain[0]["text"] == personalised[0]["text"]
+
+    def test_bias_guidance_is_variable_not_cached(self):
+        blocks = build_system_instructions("decision", bias_guidance="Watch for anchoring.")
+        assert "Watch for anchoring." in blocks[-1]["text"]
+        assert "Watch for anchoring." not in blocks[0]["text"]
+
+    def test_an_explicit_lens_moves_out_of_the_cached_block(self):
+        # Regression guard for the exact bug this refactor could introduce:
+        # the lens branch and the framework-block branch are mutually
+        # exclusive, and it would be easy to leave the framework block in the
+        # stable half while also adding the lens to the variable half,
+        # sending both at once.
+        with_lens = build_system_instructions("thinking", reasoning_lens="critical")
+        without_lens = build_system_instructions("thinking")
+        assert "DEMAND -> COMBINATION" not in with_lens[0]["text"]
+        assert "critical" in with_lens[-1]["text"].lower()
+        assert "DEMAND -> COMBINATION" in without_lens[0]["text"]
+        assert len(without_lens) == 1  # no variable content when no lens chosen

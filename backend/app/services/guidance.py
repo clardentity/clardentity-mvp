@@ -34,7 +34,7 @@ import logging
 import re
 
 from app.models.conversation import COGNITIVE_MODES
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 from app.services.output_cleanup import clean_output
 
 logger = logging.getLogger("clardentity.guidance")
@@ -232,7 +232,7 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
     """
     try:
         parsed = await generate_structured(
-            instructions=_INSTRUCTIONS,
+            instructions=cached(_INSTRUCTIONS),
             input_text=f"CHOSEN MODE: {mode}\n\nQUESTION:\n{question}",
             schema=_SCHEMA,
             schema_name="turn_guidance",

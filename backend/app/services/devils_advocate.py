@@ -16,7 +16,7 @@ Generated only when asked for, and cached on the message afterwards. It is a
 full second generation and most answers are never compared.
 """
 
-from app.services.anthropic_client import generate_text
+from app.services.anthropic_client import cached, generate_text
 from app.services.taxonomy import describe_bias
 
 _INSTRUCTIONS = (
@@ -72,7 +72,16 @@ async def generate_counterfactual(
     answer_text: str,
     flagged: list[tuple[str | None, str | None]] | None = None,
 ) -> str:
-    instructions = _INSTRUCTIONS + _bias_note(flagged or [])
+    # _INSTRUCTIONS never changes; the bias note is specific to whichever
+    # distortions this particular answer was flagged for, so only the
+    # constant half is cacheable. Sent as one concatenated string, the whole
+    # block would need to match byte-for-byte to hit the cache - which it
+    # almost never would, since the flagged combination differs per answer -
+    # so it's split into a cached block and an uncached one instead.
+    note = _bias_note(flagged or [])
+    instructions = [*cached(_INSTRUCTIONS)]
+    if note:
+        instructions.append({"type": "text", "text": note})
     result = await generate_text(
         instructions=instructions, input_text=f"ANSWER:\n{answer_text}"
     )

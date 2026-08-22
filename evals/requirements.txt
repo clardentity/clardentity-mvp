@@ -1,0 +1,5 @@
+anthropic==1.0.0
+httpx==0.28.1
+langfuse==4.14.4
+python-dotenv==1.2.3
+rich==15.0.0

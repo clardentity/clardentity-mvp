@@ -50,19 +50,32 @@ class TestNameFor:
         assert name_for({"learning": "Nick"}, "learning") == "Nick"
 
 
+def _flat(*args, **kwargs) -> str:
+    """`build_system_instructions` returns cache-annotated content blocks,
+    not a string - see prompt_builder.py. These tests only care what text is
+    present, not which block it landed in."""
+    return "\n\n".join(b["text"] for b in build_system_instructions(*args, **kwargs))
+
+
 class TestPromptWiring:
     def test_the_name_reaches_the_system_prompt(self):
-        out = build_system_instructions("learning", companion_name="Nick")
+        out = _flat("learning", companion_name="Nick")
         assert '"Nick"' in out
 
     def test_a_name_does_not_displace_the_identity_rules(self):
         # The nickname is what they call it, not permission to be something
         # else - the whole identity block has to survive alongside it.
-        out = build_system_instructions("learning", companion_name="Nick")
+        out = _flat("learning", companion_name="Nick")
         assert IDENTITY in out
         assert "still Clardentity AI" in out
 
     def test_no_name_leaves_the_prompt_untouched(self):
-        assert build_system_instructions("learning") == build_system_instructions(
-            "learning", companion_name=None
-        )
+        assert _flat("learning") == _flat("learning", companion_name=None)
+
+    def test_a_name_lands_in_the_uncached_block_only(self):
+        # The nickname is per-user; it must never sit in the cached half, or
+        # every distinctly-named user becomes a distinct, mostly-wasted cache
+        # entry instead of one shared one.
+        blocks = build_system_instructions("learning", companion_name="Nick")
+        assert "Nick" not in blocks[0]["text"]
+        assert "Nick" in blocks[-1]["text"]

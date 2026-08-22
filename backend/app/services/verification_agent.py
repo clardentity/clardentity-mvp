@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 from app.services.output_cleanup import replace_dashes
 
 # Listing every screenable bias inline would dominate the prompt, so the model
@@ -190,7 +190,7 @@ async def verify_claim(
         # "partial / 0.5" verdict used to quietly flatten a whole message's
         # scoring, and looked identical to genuine uncertainty.
         parsed = await generate_structured(
-            instructions=_build_instructions(bias_category_id),
+            instructions=cached(_build_instructions(bias_category_id)),
             input_text=input_text,
             schema=_SCHEMA,
             schema_name="claim_verification",
@@ -311,7 +311,7 @@ async def reconcile_gray_area(claim_text: str, evidence_texts: list[str]) -> Rec
 
     try:
         parsed = await generate_structured(
-            instructions=_RECONCILIATION_INSTRUCTIONS,
+            instructions=cached(_RECONCILIATION_INSTRUCTIONS),
             input_text=input_text,
             schema=_RECONCILIATION_SCHEMA,
             schema_name="gray_area_reconciliation",

@@ -12,7 +12,7 @@ degrades to the unscoped vocabulary - it never changes the user's mode.
 from dataclasses import dataclass
 
 from app.services import taxonomy
-from app.services.anthropic_client import generate_structured
+from app.services.anthropic_client import cached, generate_structured
 
 _INSTRUCTIONS = (
     "Classify the kind of real-world decision a user's message is about.\n\n"
@@ -68,7 +68,7 @@ async def classify_decision(message: str) -> DecisionClassification:
         # and casing off the answer, and anything it missed silently became
         # "no domain", which is indistinguishable from a real "none".
         parsed = await generate_structured(
-            instructions=_build_instructions(),
+            instructions=cached(_build_instructions()),
             input_text=message.strip()[:2000],
             schema=_schema(),
             schema_name="decision_category",

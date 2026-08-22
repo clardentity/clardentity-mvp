@@ -84,24 +84,76 @@ REASONING_LENS_INSTRUCTIONS: dict[str, str] = {
 }
 
 
+# The final formatting rulebook - identical for every mode, every user, every
+# turn. Pulled out to a constant because it now belongs in the *stable* half
+# of the system prompt (see below) rather than trailing after whatever the
+# turn's variable content happened to be.
+_FORMATTING_RULES = (
+    # No instruction to ask anything. Clarifying questions are a separate
+    # structured call (services/clarifier.py) precisely because a single
+    # generation told to answer *and* to ask ends up doing both in prose.
+    "Answer what was asked. Do not end with questions or offers to the "
+    "user - no 'Quick check: can you...', no 'Would you like me to...', "
+    "no 'If you want, I can do A, B or C'. If something genuinely "
+    "unstated would change your answer, say what you assumed and carry "
+    "on.\n\n"
+    "Write in plain text. No Markdown and no HTML: no **bold**, no #, no "
+    "<strong>, no bullet characters other than a plain hyphen. The reader "
+    "sees your output verbatim, so any markup arrives as literal "
+    "characters in the middle of a sentence. Use short paragraphs and "
+    "sentence structure for emphasis instead.\n"
+    "Use hyphens, never em dashes or en dashes.\n"
+    "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"
+    "Break your answer into discrete, independently-checkable claims. Tag every claim "
+    'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
+    "context with [n] referring to the numbered CONTEXT item. A single claim may cite "
+    "more than one source - use multiple [n] markers in that case.\n"
+    "If no supporting context exists for a claim, simply leave that claim uncited - do "
+    "not invent a source, and do not write anything about the claim's own evidential "
+    "status. Never write words like 'Unsupported', 'Unverified', 'no citation' or "
+    "'[no source]' into your prose. The system scores and labels every claim after you "
+    "write it, and the reader sees those labels in a separate panel; putting them in "
+    "the text yourself duplicates the label and reads as broken output.\n"
+    "Number claims sequentially starting at 1. Every sentence of your response must be "
+    "inside some <claim> tag - do not leave prose outside of one."
+)
+
+
 def build_system_instructions(
     mode: str,
     reasoning_lens: str | None = None,
     bias_guidance: str | None = None,
     profile_block: str | None = None,
     companion_name: str | None = None,
-) -> str:
-    parts = [
+) -> list[dict]:
+    """Returns Anthropic content blocks, not a string - the split is the
+    point. Everything in `stable_parts` is byte-identical for every user who
+    asks a question in this mode with no reasoning lens chosen: same
+    identity rules, same mode purpose, same reasoning framework, same
+    formatting rulebook. That block carries `cache_control`, so instead of
+    paying full price for it on every single turn from every user, it is
+    written once and read at roughly a tenth of the cost for the rest of
+    that cache window.
+
+    Everything genuinely different per turn - this user's profile, the
+    nickname they picked, a lens they explicitly chose, the bias category
+    this message classified into - goes in `variable_parts`, after the
+    breakpoint. Content after a cache breakpoint doesn't invalidate what's
+    before it; it just isn't itself cached, which is correct for text that's
+    different on every call anyway.
+    """
+    stable_parts = [
         IDENTITY,
         f"You are currently in {mode} mode, selected explicitly by the user.",
         MODE_INSTRUCTIONS[mode],
     ]
+    variable_parts: list[str] = []
 
     # A name the user chose for this mode. It sits under the identity rules
     # rather than replacing them: it is what they call you, not a different
     # system to be, and it does not license discussing what model you are.
     if companion_name:
-        parts.append(
+        variable_parts.append(
             f'In this mode the user calls you "{companion_name}". Answer to that '
             f"name naturally if they use it. It is a nickname they gave you, "
             f"not a separate persona and not a different identity: you are "
@@ -111,11 +163,11 @@ def build_system_instructions(
 
     # Accumulated across sessions so the companion knows who it is talking to.
     if profile_block:
-        parts.append(profile_block)
+        variable_parts.append(profile_block)
 
     if mode == "thinking":
         if reasoning_lens and REASONING_LENS_INSTRUCTIONS.get(reasoning_lens):
-            parts.append(
+            variable_parts.append(
                 f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): "
                 f"{REASONING_LENS_INSTRUCTIONS[reasoning_lens]}"
             )
@@ -125,50 +177,34 @@ def build_system_instructions(
             # either. A flat list of eleven stances invites choosing exactly
             # one, which is the failure the matrix is written against: the
             # value is in combining them, sequencing them, and counterbalancing
-            # whichever dominates.
-            parts.append(thinking_framework_block())
-            parts.append(monitoring_block())
+            # whichever dominates. Stable: every user with no lens chosen gets
+            # the identical block.
+            stable_parts.append(thinking_framework_block())
+            stable_parts.append(monitoring_block())
 
-    # Decision mode only: the domain-specific bias watch-list (§ bias taxonomy),
-    # plus the framework's selection tree - comparing options is a different
-    # job from reasoning about a problem, and gets different guidance.
+    # Decision mode only: the framework's selection tree - comparing options
+    # is a different job from reasoning about a problem, and gets different
+    # guidance. Stable across every user in this mode.
     if mode == "decision":
-        parts.append(decision_tree_block())
-        parts.append(monitoring_block())
+        stable_parts.append(decision_tree_block())
+        stable_parts.append(monitoring_block())
+    # The domain-scoped bias watch-list, keyed to this turn's classified
+    # category - different per turn, not stable.
     if bias_guidance:
-        parts.append(bias_guidance)
+        variable_parts.append(bias_guidance)
 
-    parts.append(
-        # No instruction to ask anything. Clarifying questions are a separate
-        # structured call (services/clarifier.py) precisely because a single
-        # generation told to answer *and* to ask ends up doing both in prose.
-        "Answer what was asked. Do not end with questions or offers to the "
-        "user - no 'Quick check: can you...', no 'Would you like me to...', "
-        "no 'If you want, I can do A, B or C'. If something genuinely "
-        "unstated would change your answer, say what you assumed and carry "
-        "on.\n\n"
-        "Write in plain text. No Markdown and no HTML: no **bold**, no #, no "
-        "<strong>, no bullet characters other than a plain hyphen. The reader "
-        "sees your output verbatim, so any markup arrives as literal "
-        "characters in the middle of a sentence. Use short paragraphs and "
-        "sentence structure for emphasis instead.\n"
-        "Use hyphens, never em dashes or en dashes.\n"
-        "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"
-        "Break your answer into discrete, independently-checkable claims. Tag every claim "
-        'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
-        "context with [n] referring to the numbered CONTEXT item. A single claim may cite "
-        "more than one source - use multiple [n] markers in that case.\n"
-        "If no supporting context exists for a claim, simply leave that claim uncited - do "
-        "not invent a source, and do not write anything about the claim's own evidential "
-        "status. Never write words like 'Unsupported', 'Unverified', 'no citation' or "
-        "'[no source]' into your prose. The system scores and labels every claim after you "
-        "write it, and the reader sees those labels in a separate panel; putting them in "
-        "the text yourself duplicates the label and reads as broken output.\n"
-        "Number claims sequentially starting at 1. Every sentence of your response must be "
-        "inside some <claim> tag - do not leave prose outside of one."
-    )
+    stable_parts.append(_FORMATTING_RULES)
 
-    return "\n\n".join(parts)
+    blocks = [
+        {
+            "type": "text",
+            "text": "\n\n".join(stable_parts),
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if variable_parts:
+        blocks.append({"type": "text", "text": "\n\n".join(variable_parts)})
+    return blocks
 
 
 def build_context_block(chunks: list[RetrievedChunk], web_sources: list | None = None) -> str:

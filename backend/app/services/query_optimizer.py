@@ -1,7 +1,7 @@
 import re
 
 from app.models import Message
-from app.services.anthropic_client import generate_text
+from app.services.anthropic_client import cached, generate_text
 
 # Words that make a message depend on what came before it. Anything without
 # one of these is already a standalone query, and rewriting it costs a full
@@ -60,7 +60,7 @@ async def optimize_query(history: list[Message], message: str) -> str:
 
     try:
         rewritten = await generate_text(
-            instructions=_INSTRUCTIONS, input_text=input_text, fast=True
+            instructions=cached(_INSTRUCTIONS), input_text=input_text, fast=True
         )
     except Exception:
         # Retrieval quality degrades gracefully to the raw message; this must
