@@ -27,6 +27,16 @@ _CREDS_PATH = Path(__file__).parent / ".eval_creds.json"
 _WORKSPACE_NAME = "Evals"
 
 
+class BackendTurnError(RuntimeError):
+    """The HTTP request succeeded (200, SSE headers sent) but the turn itself
+    failed server-side mid-stream - a circuit breaker open, a crashed
+    generation, anything the server reports via an `error` event rather than
+    an HTTP status. `res.raise_for_status()` cannot see this: the status line
+    was already 200 before the failure happened. Discovered the hard way -
+    the first real eval run "passed" every case as an empty response with no
+    indication anything had gone wrong, because nothing checked for this."""
+
+
 @dataclass
 class SSEResult:
     """Every event the server sent, in order, plus the raw text for anything
@@ -221,18 +231,34 @@ class BackendClient:
         }
         if reasoning_lens:
             body["reasoning_lens"] = reasoning_lens
-        started = time.monotonic()
-        res = self._request(
-            "POST",
-            f"{self.base_url}/chat/{conversation_id}/messages",
-            headers=self._headers,
-            json=body,
-        )
-        elapsed = time.monotonic() - started
-        res.raise_for_status()
-        result = _parse_sse(res.text)
-        result.events.append(("_meta", {"elapsed_seconds": round(elapsed, 1)}))
-        return result
+        last_detail = None
+        for attempt in range(3):
+            started = time.monotonic()
+            res = self._request(
+                "POST",
+                f"{self.base_url}/chat/{conversation_id}/messages",
+                headers=self._headers,
+                json=body,
+            )
+            elapsed = time.monotonic() - started
+            res.raise_for_status()
+            result = _parse_sse(res.text)
+            err = result.first("error")
+            if err is None:
+                result.events.append(("_meta", {"elapsed_seconds": round(elapsed, 1)}))
+                return result
+            last_detail = err.get("detail", "unknown error")
+            # The model circuit breaker (anthropic_client.py) opens after 5
+            # consecutive failures and stays open for its cooldown - a burst
+            # of concurrent eval cases can trip it and then every case behind
+            # it in the queue gets the same short-circuited error, regardless
+            # of what it was actually testing. Worth one retry past the
+            # cooldown before treating this as a genuine per-case failure.
+            if "circuit breaker" in last_detail.lower() and attempt < 2:
+                time.sleep(35)
+                continue
+            break
+        raise BackendTurnError(last_detail)
 
     def delete_conversation(self, conversation_id: str) -> None:
         self._request(
