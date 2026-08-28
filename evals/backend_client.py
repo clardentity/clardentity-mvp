@@ -95,6 +95,9 @@ class BackendClient:
         self.base_url = base_url.rstrip("/")
         self._http = httpx.Client(timeout=timeout)
         self._token: str | None = None
+        self._token_issued_at: float = 0.0
+        self._email: str | None = None
+        self._password: str | None = None
         self._workspace_id: str | None = None
 
     def _request(self, method: str, url: str, **kw) -> httpx.Response:
@@ -140,6 +143,8 @@ class BackendClient:
         res.raise_for_status()
         body = res.json()
         self._token = body["access_token"]
+        self._token_issued_at = time.monotonic()
+        self._email, self._password = email, password
         self._save_creds(email, password)
 
     def _try_login(self, email: str, password: str) -> bool:
@@ -149,6 +154,8 @@ class BackendClient:
         if res.status_code != 200:
             return False
         self._token = res.json()["access_token"]
+        self._token_issued_at = time.monotonic()
+        self._email, self._password = email, password
         return True
 
     def _load_creds(self) -> dict | None:
@@ -163,8 +170,21 @@ class BackendClient:
         _CREDS_PATH.write_text(json.dumps({"email": email, "password": password}))
         os.chmod(_CREDS_PATH, 0o600)
 
+    # Access tokens last 15 minutes (jwt_access_token_expire_minutes). A
+    # 17-case run with multi-turn cases and judge calls comfortably exceeds
+    # that, and it did on the first real run: six items 401'd mid-suite with
+    # no indication beyond a bare HTTP error, contaminating the results with
+    # a harness failure that had nothing to do with the product. A 10-minute
+    # safety margin re-logs in before the real 15-minute wall is ever hit.
+    _TOKEN_SAFETY_MARGIN_SECONDS = 600
+
     @property
     def _headers(self) -> dict:
+        if (
+            self._email
+            and time.monotonic() - self._token_issued_at > self._TOKEN_SAFETY_MARGIN_SECONDS
+        ):
+            self._try_login(self._email, self._password)
         return {"Authorization": f"Bearer {self._token}"}
 
     def ensure_workspace(self) -> str:

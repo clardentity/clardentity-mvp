@@ -91,7 +91,15 @@ CASES: list[dict] = [
             "mode": "decision",
             "message": "Should I confront my colleague about taking credit for my work?",
         },
-        "metadata": {"category": "decision_teaching_set"},
+        "metadata": {
+            "category": "decision_teaching_set",
+            "rubric": (
+                "The main answer (not the suggestions list) does not end with a "
+                "question or an offer back to the user - no 'Would you like me "
+                "to...', no 'Quick check:...', no 'If you want, I can...'. It "
+                "states its recommendation and stops."
+            ),
+        },
     },
     # -- formatting / veracity ------------------------------------------------
     {
@@ -125,11 +133,17 @@ CASES: list[dict] = [
         "metadata": {
             "category": "reasoning_lens",
             "rubric": (
-                "The response reasons through the question but never names or labels "
-                "its own method - no phrase like 'using a critical lens', 'divergent "
-                "then convergent thinking', 'applying analytical reasoning', or any "
-                "similar naming of a thinking style or technique. The reasoning itself "
-                "should be visible in the answer; a label for it should not."
+                "Two things, both required to pass:\n"
+                "1) The response reasons through the question but never names or "
+                "labels its own method - no phrase like 'using a critical lens', "
+                "'divergent then convergent thinking', 'applying analytical "
+                "reasoning', or any similar naming of a thinking style or "
+                "technique. The reasoning itself should be visible; a label for "
+                "it should not.\n"
+                "2) Somewhere in the answer, in its own natural voice (not a "
+                "labelled section), it says what would show the reasoning is "
+                "working or wrong - some concrete thing the person could notice "
+                "- so the advice is checkable rather than a one-shot verdict."
             ),
         },
     },
@@ -151,6 +165,43 @@ CASES: list[dict] = [
                 "GPT, Claude, or similar)."
             ),
         },
+    },
+    # -- mode gate ------------------------------------------------------------
+    {
+        "id": "mode-gate-fires-on-mismatch",
+        "input": {
+            "mode": "knowing",
+            "message": "Should I refinance my mortgage now or wait for rates to drop?",
+        },
+        "metadata": {
+            "category": "mode_gate",
+            "mode_confirmed": False,
+            "expect_mode_suggestion": True,
+        },
+    },
+    {
+        "id": "mode-gate-quiet-on-good-match",
+        "input": {"mode": "knowing", "message": "What is the capital of Mongolia?"},
+        "metadata": {
+            "category": "mode_gate",
+            "mode_confirmed": False,
+            "expect_mode_suggestion": False,
+        },
+    },
+    # -- the context gate cannot re-ask the same question twice ---------------
+    {
+        "id": "context-gate-not-asked-twice",
+        "input": {"mode": "decision", "message": "I want to leave my husband."},
+        "metadata": {"category": "context_gate_not_twice", "context_acknowledged": False},
+    },
+    # -- web research actually grounds the answer it produces ------------------
+    {
+        "id": "web-research-provides-citations",
+        "input": {
+            "mode": "knowing",
+            "message": "What was announced at the most recent major UN climate summit?",
+        },
+        "metadata": {"category": "web_research_grounding"},
     },
     # -- clarifier continuity -----------------------------------------------
     {

@@ -527,9 +527,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onAnswer={(context) =>
               // Their answer joins the original message rather than replacing
               // it, so the transcript keeps both halves of what they said and
-              // the model sees the whole thing as one turn.
+              // the model sees the whole thing as one turn. The question
+              // itself is folded in too - the card asking it unmounts the
+              // instant this fires (pendingContext is cleared at the top of
+              // handleSend), so if the question isn't in the message text
+              // itself it vanishes from the transcript entirely, both on
+              // screen and in what gets saved.
               void handleSend(
-                `${pendingContext.content}\n\n${context}`,
+                `${pendingContext.content}\n\n(You asked: "${pendingContext.question}")\n${context}`,
                 pendingContext.images,
                 pendingContext.mode,
                 false,

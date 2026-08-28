@@ -1,7 +1,8 @@
 """What is still OpenAI, and why.
 
-Text generation moved to Claude (see anthropic_client.py). These four did not,
-because Anthropic has no equivalent API for any of them:
+Text generation moved to Claude (see anthropic_client.py) as the primary
+path. Embeddings, transcription, speech and realtime never moved, because
+Anthropic has no equivalent API for any of them:
 
   embeddings     - retrieval is pgvector over OpenAI embedding vectors. Moving
                    providers changes the vector dimension, which means
@@ -13,13 +14,19 @@ because Anthropic has no equivalent API for any of them:
                    browser (see api/realtime.py); its key never leaves the
                    server.
 
-So this file is now a narrow adapter for the capabilities Claude does not
-offer, not the model layer.
+Text generation (stream_generation/generate_text/generate_structured) was
+restored below, not because callers use this module directly - they don't,
+they still import from anthropic_client.py - but as the fallback provider
+that anthropic_client routes to automatically when Claude is unavailable
+(credit exhausted, down, rate-limited). See the routing logic and
+`_should_fallback` in anthropic_client.py.
 """
 
+import json
 import logging
 import time
-from typing import TypedDict
+from collections.abc import AsyncIterator
+from typing import Literal, TypedDict
 
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -85,6 +92,11 @@ async def _create_embeddings(**kwargs):
     return await _client.embeddings.create(**kwargs)
 
 
+@_retry_openai
+async def _create_response(**kwargs):
+    return await _client.responses.create(**kwargs)
+
+
 async def _resilient_call(fn, **kwargs):
     _circuit_breaker.before_call()
     try:
@@ -94,6 +106,145 @@ async def _resilient_call(fn, **kwargs):
         raise
     _circuit_breaker.record_success()
     return result
+
+
+def _build_input(input_text: str, input_images: list[str] | None):
+    """Images ride along as direct vision context for the turn only. Plain
+    string input when there are none, a structured multimodal message when
+    there are - mirrors what Claude's fallback caller already assembled from
+    the same data URIs."""
+    if not input_images:
+        return input_text
+    content: list[dict] = [{"type": "input_text", "text": input_text}]
+    content += [{"type": "input_image", "image_url": img, "detail": "auto"} for img in input_images]
+    return [{"role": "user", "content": content}]
+
+
+def _generation_kwargs(
+    model: str | None,
+    instructions: str,
+    input_text: str,
+    input_images: list[str] | None = None,
+    fast: bool = False,
+) -> dict:
+    resolved = model or (settings.openai_fast_model if fast else settings.openai_model)
+    kwargs: dict = {
+        "model": resolved,
+        "instructions": instructions,
+        "input": _build_input(input_text, input_images),
+    }
+    effort = settings.openai_reasoning_effort
+    if effort and resolved.startswith(("gpt-5", "o1", "o3", "o4")):
+        kwargs["reasoning"] = {"effort": effort}
+    return kwargs
+
+
+class DeltaEvent(TypedDict):
+    type: Literal["delta"]
+    text: str
+
+
+class DoneEvent(TypedDict):
+    type: Literal["done"]
+    full_text: str
+    input_tokens: int
+    output_tokens: int
+
+
+StreamEvent = DeltaEvent | DoneEvent
+
+
+async def stream_generation(
+    *,
+    instructions: str,
+    input_text: str,
+    model: str | None = None,
+    input_images: list[str] | None = None,
+) -> AsyncIterator[StreamEvent]:
+    """Fallback streaming path. Used only when Claude's own stream failed to
+    open at all (see anthropic_client.stream_generation) - never mid-stream,
+    since a generation already in flight cannot be handed to a second
+    provider without duplicating text the user has already seen."""
+    stream = await _resilient_call(
+        _create_response,
+        **_generation_kwargs(model, instructions, input_text, input_images),
+        stream=True,
+    )
+
+    async for event in stream:
+        if event.type == "response.output_text.delta":
+            yield {"type": "delta", "text": event.delta}
+        elif event.type == "response.completed":
+            response = event.response
+            usage = response.usage
+            yield {
+                "type": "done",
+                "full_text": response.output_text,
+                "input_tokens": usage.input_tokens if usage else 0,
+                "output_tokens": usage.output_tokens if usage else 0,
+            }
+        elif event.type in ("response.failed", "error"):
+            message = getattr(getattr(event, "response", None), "error", None) or getattr(
+                event, "message", "OpenAI generation failed"
+            )
+            raise RuntimeError(str(message))
+
+
+async def generate_text(
+    *,
+    instructions: str,
+    input_text: str,
+    model: str | None = None,
+    fast: bool = False,
+) -> str:
+    """Fallback non-streaming path for short auxiliary generations."""
+    response = await _resilient_call(
+        _create_response,
+        **_generation_kwargs(model, instructions, input_text, fast=fast),
+        stream=False,
+    )
+    return response.output_text
+
+
+class StructuredOutputError(RuntimeError):
+    """The model returned something that isn't the requested object."""
+
+
+async def generate_structured(
+    *,
+    instructions: str,
+    input_text: str,
+    schema: dict,
+    schema_name: str,
+    model: str | None = None,
+    fast: bool = True,
+    tools: list[dict] | None = None,
+) -> dict:
+    """Fallback structured path. `strict` requires the schema to name every
+    property in `required` and set additionalProperties: false - the schemas
+    in this codebase were written to satisfy exactly that before the Claude
+    migration, so they're passed through unmodified here."""
+    kwargs = _generation_kwargs(model, instructions, input_text, fast=fast)
+    kwargs["text"] = {
+        "format": {
+            "type": "json_schema",
+            "name": schema_name,
+            "schema": schema,
+            "strict": True,
+        }
+    }
+    if tools:
+        kwargs["tools"] = tools
+
+    response = await _resilient_call(_create_response, **kwargs, stream=False)
+    raw = response.output_text
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise StructuredOutputError(f"{schema_name}: not JSON: {raw[:200]}") from exc
+    if not isinstance(parsed, dict):
+        raise StructuredOutputError(f"{schema_name}: not an object: {raw[:200]}")
+    return parsed
 
 
 _EMBEDDING_BATCH_SIZE = 100

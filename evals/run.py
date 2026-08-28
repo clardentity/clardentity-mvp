@@ -90,6 +90,18 @@ def build_task(client: BackendClient):
                         f"They were asked: {clarifier.get('question')!r} "
                         f"and replied by choosing: {chosen!r}"
                     )
+
+            # The second two-turn case: resend the identical message with
+            # context_acknowledged=True and confirm the gate does not fire a
+            # second time. This is the guarantee the frontend depends on to
+            # avoid an interrogation - one question, never two.
+            if category == "context_gate_not_twice" and output["context_question_fired"]:
+                second = client.send_message(
+                    conv_id, inp["message"], mode, context_acknowledged=True
+                )
+                output["second_context_question_fired"] = second.has("context_question")
+                output["answer_text"] = second.answer_text
+
             return output
         finally:
             client.delete_conversation(conv_id)

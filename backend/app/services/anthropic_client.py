@@ -36,6 +36,7 @@ import anthropic
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
+from app.services import openai_client as _fallback
 
 logger = logging.getLogger("clardentity.anthropic")
 
@@ -130,6 +131,66 @@ async def _resilient_call(fn, **kwargs):
     return result
 
 
+# Automatic Claude -> OpenAI fallback, and back again.
+#
+# Every public function below tries Claude first, unless we're already in
+# fallback mode and it isn't yet time to check whether Claude has recovered.
+# A failure only trips the switch if it looks like Claude itself is
+# unavailable (out of credit, down, rate-limited, unreachable) - never for
+# StructuredOutputError or a genuine 4xx from our own request shape, which
+# are bugs to surface, not outages to route around.
+_PROBE_INTERVAL_SECONDS = 120.0
+
+
+class _ProviderState:
+    def __init__(self) -> None:
+        self.on_fallback = False
+        self.next_probe_at = 0.0
+
+
+_provider_state = _ProviderState()
+
+
+def _should_fallback(exc: Exception) -> bool:
+    if isinstance(exc, CircuitBreakerOpenError):
+        return True
+    if isinstance(exc, anthropic.APIConnectionError):
+        return True
+    status = getattr(exc, "status_code", None)
+    if status in (401, 403, 429, 500, 502, 503, 529):
+        return True
+    if status == 400 and "credit balance" in str(exc).lower():
+        return True
+    return False
+
+
+def _use_claude_first() -> bool:
+    if not _provider_state.on_fallback:
+        return True
+    return time.monotonic() >= _provider_state.next_probe_at
+
+
+def _enter_fallback(exc: Exception) -> None:
+    if not _provider_state.on_fallback:
+        logger.error("Claude unavailable (%s) - switching to OpenAI fallback", exc)
+    _provider_state.on_fallback = True
+    _provider_state.next_probe_at = time.monotonic() + _PROBE_INTERVAL_SECONDS
+
+
+def _exit_fallback() -> None:
+    if _provider_state.on_fallback:
+        logger.warning("Claude is available again - leaving OpenAI fallback")
+    _provider_state.on_fallback = False
+
+
+def _flatten_instructions(instructions: str | list[dict]) -> str:
+    """The fallback provider's Responses API takes a plain string; Claude's
+    cache_control content blocks collapse to their text, in order."""
+    if isinstance(instructions, str):
+        return instructions
+    return "\n\n".join(block["text"] for block in instructions)
+
+
 def _content_blocks(input_text: str, input_images: list[str] | None) -> list | str:
     """§12.2: images ride along as vision context for this turn only.
 
@@ -211,12 +272,11 @@ class DoneEvent(TypedDict):
 StreamEvent = DeltaEvent | DoneEvent
 
 
-async def stream_generation(
+async def _claude_stream_generation(
     *,
     instructions: str | list[dict],
     input_text: str,
     model: str | None = None,
-    temperature: float | None = None,
     input_images: list[str] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Streams the answer, yielding text deltas then one `done` event carrying
@@ -226,7 +286,6 @@ async def stream_generation(
     fails on network, rate-limit or auth errors. Once tokens are arriving there
     is nothing sensible to retry without restarting the whole generation.
     """
-    _drop_temperature(temperature)
     kwargs = _base_kwargs(
         model, instructions, input_text, input_images, max_tokens=_ANSWER_MAX_TOKENS
     )
@@ -250,6 +309,66 @@ async def stream_generation(
     }
 
 
+async def stream_generation(
+    *,
+    instructions: str | list[dict],
+    input_text: str,
+    model: str | None = None,
+    temperature: float | None = None,
+    input_images: list[str] | None = None,
+) -> AsyncIterator[StreamEvent]:
+    """Routes to Claude, falling back to OpenAI if Claude cannot even open the
+    stream. A failure after tokens have started arriving is never retried on
+    a second provider - the user would see duplicated or spliced text - so it
+    just raises, same as before fallback existed.
+    """
+    _drop_temperature(temperature)
+
+    if _use_claude_first():
+        started_yielding = False
+        try:
+            async for event in _claude_stream_generation(
+                instructions=instructions,
+                input_text=input_text,
+                model=model,
+                input_images=input_images,
+            ):
+                if event["type"] == "delta":
+                    started_yielding = True
+                yield event
+            _exit_fallback()
+            return
+        except Exception as exc:
+            if started_yielding or not _should_fallback(exc):
+                raise
+            _enter_fallback(exc)
+
+    async for event in _fallback.stream_generation(
+        instructions=_flatten_instructions(instructions),
+        input_text=input_text,
+        input_images=input_images,
+    ):
+        yield event
+
+
+async def _claude_generate_text(
+    *,
+    instructions: str | list[dict],
+    input_text: str,
+    model: str | None = None,
+    fast: bool = False,
+) -> str:
+    response = await _resilient_call(
+        _create_message,
+        **_base_kwargs(
+            model or (settings.anthropic_fast_model if fast else None),
+            instructions,
+            input_text,
+        ),
+    )
+    return "".join(b.text for b in response.content if b.type == "text")
+
+
 async def generate_text(
     *,
     instructions: str | list[dict],
@@ -264,18 +383,25 @@ async def generate_text(
     `fast=True` routes to the auxiliary model. These calls are judgements about
     text, not the text itself - classifying a query, scoring an excerpt, naming
     a bias - and each one sits between the user and something they are waiting
-    for.
+    for. Falls back to OpenAI on the same terms as stream_generation.
     """
     _drop_temperature(temperature)
-    response = await _resilient_call(
-        _create_message,
-        **_base_kwargs(
-            model or (settings.anthropic_fast_model if fast else None),
-            instructions,
-            input_text,
-        ),
+
+    if _use_claude_first():
+        try:
+            text = await _claude_generate_text(
+                instructions=instructions, input_text=input_text, model=model, fast=fast
+            )
+            _exit_fallback()
+            return text
+        except Exception as exc:
+            if not _should_fallback(exc):
+                raise
+            _enter_fallback(exc)
+
+    return await _fallback.generate_text(
+        instructions=_flatten_instructions(instructions), input_text=input_text, fast=fast
     )
-    return "".join(b.text for b in response.content if b.type == "text")
 
 
 def _portable_schema(node):
@@ -315,7 +441,7 @@ class StructuredOutputError(RuntimeError):
     """The model returned something that isn't the requested object."""
 
 
-async def generate_structured(
+async def _claude_generate_structured(
     *,
     instructions: str | list[dict],
     input_text: str,
@@ -325,17 +451,6 @@ async def generate_structured(
     fast: bool = True,
     tools: list[dict] | None = None,
 ) -> dict:
-    """A call whose answer is an object, not prose.
-
-    Every internal step that needs a *decision* rather than a paragraph -
-    classify this, score that, is a question needed - once asked for JSON in
-    the prompt and parsed it back with a regex, code-fence stripping and a
-    silent fallback to `{}`. The API enforces the shape instead, so a malformed
-    response stops being a thing that happens.
-
-    `schema_name` is retained for call-site readability and logging; this API
-    keys off the schema itself, so there is nothing to send it as.
-    """
     kwargs = _base_kwargs(
         model or (settings.anthropic_fast_model if fast else None),
         instructions,
@@ -364,3 +479,60 @@ async def generate_structured(
     if not isinstance(parsed, dict):
         raise StructuredOutputError(f"{schema_name}: not an object: {raw[:200]}")
     return parsed
+
+
+async def generate_structured(
+    *,
+    instructions: str | list[dict],
+    input_text: str,
+    schema: dict,
+    schema_name: str,
+    model: str | None = None,
+    fast: bool = True,
+    tools: list[dict] | None = None,
+) -> dict:
+    """A call whose answer is an object, not prose.
+
+    Every internal step that needs a *decision* rather than a paragraph -
+    classify this, score that, is a question needed - once asked for JSON in
+    the prompt and parsed it back with a regex, code-fence stripping and a
+    silent fallback to `{}`. The API enforces the shape instead, so a malformed
+    response stops being a thing that happens.
+
+    `schema_name` is retained for call-site readability and logging; this API
+    keys off the schema itself, so there is nothing to send it as.
+
+    Falls back to OpenAI on the same terms as the other two calls - except a
+    `StructuredOutputError` (Claude answered, just not with valid JSON) never
+    triggers it, since a second provider is not going to fix a shape problem
+    in this codebase's own prompt.
+    """
+    if _use_claude_first():
+        try:
+            parsed = await _claude_generate_structured(
+                instructions=instructions,
+                input_text=input_text,
+                schema=schema,
+                schema_name=schema_name,
+                model=model,
+                fast=fast,
+                tools=tools,
+            )
+            _exit_fallback()
+            return parsed
+        except Exception as exc:
+            if not _should_fallback(exc):
+                raise
+            _enter_fallback(exc)
+
+    try:
+        return await _fallback.generate_structured(
+            instructions=_flatten_instructions(instructions),
+            input_text=input_text,
+            schema=schema,
+            schema_name=schema_name,
+            fast=fast,
+            tools=tools,
+        )
+    except _fallback.StructuredOutputError as exc:
+        raise StructuredOutputError(str(exc)) from exc

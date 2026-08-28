@@ -84,6 +84,84 @@ def ev_context_gate_correct(*, input, output, expected_output=None, metadata=Non
     }
 
 
+def ev_mode_gate_correct(*, input, output, expected_output=None, metadata=None, **kw):
+    meta = metadata or {}
+    if "expect_mode_suggestion" not in meta:
+        return []
+    expected = meta["expect_mode_suggestion"]
+    fired = bool((output or {}).get("mode_suggestion_fired"))
+    ok = fired == expected
+    return {
+        "name": "mode_gate_correct",
+        "value": 1 if ok else 0,
+        "comment": f"expected fired={expected}, got fired={fired}",
+    }
+
+
+def ev_context_gate_not_asked_twice(*, input, output, expected_output=None, metadata=None, **kw):
+    if (metadata or {}).get("category") != "context_gate_not_twice":
+        return []
+    out = output or {}
+    if not out.get("context_question_fired"):
+        # It has to fire once before "not fired again" means anything - see
+        # clarifier_fired's identical reasoning below.
+        return {
+            "name": "context_gate_not_asked_twice",
+            "value": 1,
+            "comment": "did not fire on the first turn - nothing to check",
+        }
+    fired_again = bool(out.get("second_context_question_fired"))
+    return {
+        "name": "context_gate_not_asked_twice",
+        "value": 0 if fired_again else 1,
+        "comment": (
+            "asked the same question again after the user acknowledged it"
+            if fired_again
+            else "correctly proceeded to answer on the acknowledged resend"
+        ),
+    }
+
+
+def ev_uncited_claims_score_low(*, input, output, expected_output=None, metadata=None, **kw):
+    """A structural invariant, checked on every case that returns claims, not
+    just the ones designed to trigger it: a claim with no evidence must not
+    also read as established. Vacuous (returns []) when a case happens to
+    produce no uncited claims - it can't be forced, only observed."""
+    claims = (output or {}).get("claims") or []
+    uncited = [c for c in claims if not (c.get("evidence") or [])]
+    if not uncited:
+        return []
+    low_tiers = {"distorted", "fabricated", "none", "unsupported"}
+    bad = [
+        c
+        for c in uncited
+        if (c.get("claim_score") or 0) > 40 or c.get("entailment_label") not in low_tiers
+    ]
+    return {
+        "name": "uncited_claims_score_low",
+        "value": 0 if bad else 1,
+        "comment": (
+            f"{len(bad)}/{len(uncited)} uncited claim(s) scored or tiered too high"
+            if bad
+            else f"{len(uncited)} uncited claim(s), correctly scored low"
+        ),
+    }
+
+
+def ev_claims_cite_sources_when_grounded(*, input, output, expected_output=None, metadata=None, **kw):
+    if (metadata or {}).get("category") != "web_research_grounding":
+        return []
+    claims = (output or {}).get("claims") or []
+    if not claims:
+        return {"name": "claims_cite_sources", "value": 0, "comment": "no claims returned at all"}
+    with_evidence = sum(1 for c in claims if c.get("evidence"))
+    return {
+        "name": "claims_cite_sources",
+        "value": 1 if with_evidence > 0 else 0,
+        "comment": f"{with_evidence}/{len(claims)} claims carry evidence",
+    }
+
+
 def ev_decision_teaching_set(*, input, output, expected_output=None, metadata=None, **kw):
     if (metadata or {}).get("category") != "decision_teaching_set":
         return []
@@ -202,11 +280,15 @@ def ev_clarifier_fired_and_answerable(*, input, output, expected_output=None, me
 ALL_EVALUATORS = [
     ev_identity_no_vendor_leak,
     ev_context_gate_correct,
+    ev_mode_gate_correct,
+    ev_context_gate_not_asked_twice,
     ev_decision_teaching_set,
     ev_no_bias_watch_prose,
     ev_plain_text_no_markdown,
     ev_no_self_labeling_in_prose,
     ev_claims_have_valid_tier,
+    ev_uncited_claims_score_low,
+    ev_claims_cite_sources_when_grounded,
     ev_llm_judge_rubric,
     ev_clarifier_fired_and_answerable,
 ]
