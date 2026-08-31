@@ -163,6 +163,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       guidance: null,
       decision_review: null,
       thinking_review: null,
+      feedback: null,
       claims: [],
     };
     setMessages((prev) => [...prev, userMessage]);

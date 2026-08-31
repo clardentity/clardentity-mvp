@@ -134,9 +134,19 @@ class MessageOut(BaseModel):
     #: Thinking mode only. Sound vs biased ways of reasoning about the
     #: question, shown instead of claims and evidence.
     thinking_review: dict | None = None
+    #: {"rating": "up"|"down"|None, "comment": str|None}. Null until the user
+    #: reacts to this answer - see FeedbackIn.
+    feedback: dict | None = None
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class FeedbackIn(BaseModel):
+    rating: Literal["up", "down"] | None = None
+    #: The "other" box. Optional and independent of rating - a comment can
+    #: stand on its own, and a rating doesn't require one.
+    comment: str | None = Field(default=None, max_length=2000)
 
 
 class CallTurn(BaseModel):

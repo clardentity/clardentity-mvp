@@ -13,7 +13,7 @@ from sqlalchemy import delete
 
 from app.db.session import AsyncSessionLocal
 from app.main import app
-from app.models import User, Workspace, WorkspaceMember
+from app.models import Message, User, Workspace, WorkspaceMember
 from app.core.security import hash_password
 
 API = "/api/v1"
@@ -280,3 +280,146 @@ class TestContextQuestionGate:
                 await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
                 await db.execute(delete(User).where(User.id == user_id))
                 await db.commit()
+
+
+class TestMessageFeedback:
+    """Thumbs up/down plus an optional comment on one answer. Needs a
+    database - a plain assistant row is enough, no generation pipeline."""
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"feedback-{uuid.uuid4().hex[:8]}@example.com"
+        password = "feedback-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.flush()
+            answer = Message(
+                conversation_id=convo.id, role="assistant", content="an answer", mode_used="knowing"
+            )
+            question = Message(
+                conversation_id=convo.id, role="user", content="a question", mode_used="knowing"
+            )
+            db.add_all([answer, question])
+            await db.commit()
+            return email, password, user.id, convo.id, answer.id, question.id
+
+    async def _login(self, c, email, password):
+        login = await c.post(f"{API}/auth/login", json={"email": email, "password": password})
+        if login.status_code != 200:
+            pytest.skip("login unavailable")
+        return login.json()["access_token"]
+
+    async def _cleanup(self, convo_id, user_id):
+        from app.models import Conversation as _Conversation
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+            await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+            await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+            await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+    async def test_records_a_rating_and_comment_on_an_answer(self):
+        try:
+            email, password, user_id, convo_id, answer_id, _question_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                res = await c.put(
+                    f"{API}/chat/{convo_id}/messages/{answer_id}/feedback",
+                    json={"rating": "up", "comment": "This nailed it"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert res.status_code == 200
+                assert res.json()["feedback"] == {"rating": "up", "comment": "This nailed it"}
+
+            async with AsyncSessionLocal() as db:
+                row = await db.get(Message, answer_id)
+                assert row.feedback == {"rating": "up", "comment": "This nailed it"}
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_a_second_call_overwrites_rather_than_accumulates(self):
+        try:
+            email, password, user_id, convo_id, answer_id, _question_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                headers = {"Authorization": f"Bearer {token}"}
+                await c.put(
+                    f"{API}/chat/{convo_id}/messages/{answer_id}/feedback",
+                    json={"rating": "up", "comment": None},
+                    headers=headers,
+                )
+                res = await c.put(
+                    f"{API}/chat/{convo_id}/messages/{answer_id}/feedback",
+                    json={"rating": "down", "comment": "changed my mind"},
+                    headers=headers,
+                )
+                assert res.json()["feedback"] == {"rating": "down", "comment": "changed my mind"}
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_rejects_feedback_on_the_users_own_message(self):
+        try:
+            email, password, user_id, convo_id, _answer_id, question_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                res = await c.put(
+                    f"{API}/chat/{convo_id}/messages/{question_id}/feedback",
+                    json={"rating": "up"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert res.status_code == 400
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_404s_on_a_message_from_someone_elses_conversation(self):
+        try:
+            email, password, user_id, convo_id, answer_id, _q = await self._fixture()
+            other_email, other_password, other_user_id, other_convo_id, _a2, _q2 = (
+                await self._fixture()
+            )
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, other_email, other_password)
+                res = await c.put(
+                    f"{API}/chat/{other_convo_id}/messages/{answer_id}/feedback",
+                    json={"rating": "up"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert res.status_code == 404
+        finally:
+            await self._cleanup(convo_id, user_id)
+            await self._cleanup(other_convo_id, other_user_id)

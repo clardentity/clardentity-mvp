@@ -17,6 +17,7 @@ import { ClarifierCard } from "@/components/chat/ClarifierCard";
 import { GuidanceCard } from "@/components/chat/GuidanceCard";
 import { DecisionReview } from "@/components/chat/DecisionReview";
 import { ThinkingReview } from "@/components/chat/ThinkingReview";
+import { FeedbackWidget } from "@/components/chat/FeedbackWidget";
 import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
@@ -154,6 +155,7 @@ export function MessageList({
           guidance={m.guidance}
           decisionReview={m.decision_review}
           thinkingReview={m.thinking_review}
+          feedback={m.feedback}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -230,6 +232,7 @@ function MessageBubble({
   guidance,
   decisionReview,
   thinkingReview,
+  feedback,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -255,6 +258,7 @@ function MessageBubble({
   guidance?: Guidance | null;
   decisionReview?: DecisionReviewData | null;
   thinkingReview?: ThinkingReviewData | null;
+  feedback?: { rating: "up" | "down" | null; comment: string | null } | null;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -504,6 +508,10 @@ function MessageBubble({
             onAskRefined={onAskRefined}
             disabled={busy}
           />
+        )}
+
+        {!isUser && !isStreaming && conversationId && (
+          <FeedbackWidget conversationId={conversationId} messageId={id} feedback={feedback ?? null} />
         )}
 
         {!isStreaming && !editing && (

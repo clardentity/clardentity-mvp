@@ -20,6 +20,7 @@ from app.schemas.chat import (
     ConversationCreate,
     ConversationOut,
     EvidenceOut,
+    FeedbackIn,
     MessageCreate,
     MessageOut,
 )
@@ -171,6 +172,7 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         guidance=message.guidance,
         decision_review=message.decision_review,
         thinking_review=message.thinking_review,
+        feedback=message.feedback,
         claims=claims,
     )
 
@@ -338,6 +340,40 @@ async def devils_advocate(
     message.counterfactual_content = text
     await db.commit()
     return {"counterfactual_content": text}
+
+
+@router.put("/{conversation_id}/messages/{message_id}/feedback")
+async def set_message_feedback(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    payload: FeedbackIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Thumbs up/down plus an optional free-text comment on one answer.
+
+    Set, not appended: this is one person's current verdict on one message,
+    not a thread, so a changed mind overwrites rather than accumulates. Both
+    fields are independent - a comment alone with no rating is a valid thing
+    to leave, and vice versa - so an empty body clears whichever wasn't sent
+    the way any other partial update would.
+    """
+    await check_rate_limit(f"chat:feedback:{current_user.id}", max_requests=30, window_seconds=60)
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+
+    message = await db.get(Message, message_id)
+    if message is None or message.conversation_id != conversation.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    if message.role != "assistant":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Feedback only applies to an answer, not your own message",
+        )
+
+    feedback = {"rating": payload.rating, "comment": payload.comment}
+    message.feedback = feedback
+    await db.commit()
+    return {"feedback": feedback}
 
 
 @router.delete(

@@ -92,6 +92,12 @@ class Message(Base):
     # because a reasoning chain is sound or unsound rather than cited or
     # uncited. {"sound": [...], "biased": [...]} - see thinking_review.py.
     thinking_review: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Whether the user found this specific answer helpful, plus anything they
+    # wanted to say beyond the tap - {"rating": "up"|"down"|None, "comment":
+    # str|None}. Assistant messages only; set once and overwritten on a
+    # change of mind rather than accumulated, since it's one person's verdict
+    # on one answer, not a discussion.
+    feedback: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

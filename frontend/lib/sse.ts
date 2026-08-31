@@ -100,6 +100,8 @@ export type ChatMessage = {
   guidance: Guidance | null;
   decision_review: DecisionReviewData | null;
   thinking_review: ThinkingReviewData | null;
+  /** The user's own reaction to this answer - null until they tap something. */
+  feedback: { rating: "up" | "down" | null; comment: string | null } | null;
   claims: Claim[];
 };
 
