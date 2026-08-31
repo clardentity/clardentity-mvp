@@ -164,6 +164,28 @@ def _should_fallback(exc: Exception) -> bool:
     return False
 
 
+# Public alias: chat.py needs the same "is this a provider outage, not a bug
+# in our own request" judgement for the *other* half of this story - what to
+# tell the user when even the fallback provider has failed the same way.
+# `_openai_should_fallback` below reuses this by structural shape (both SDKs'
+# exceptions carry `status_code` the same way) plus OpenAI's own quota
+# wording, so the "reached today's limit" message covers whichever provider
+# actually ran out.
+def is_provider_unavailable_error(exc: Exception) -> bool:
+    if _should_fallback(exc):
+        return True
+    # The fallback provider's own circuit breaker is a distinct class from
+    # this module's - it opened inside openai_client.py, on OpenAI's own
+    # repeated failures, not Claude's.
+    if isinstance(exc, _fallback.CircuitBreakerOpenError):
+        return True
+    status = getattr(exc, "status_code", None)
+    message = str(exc).lower()
+    if status == 400 and ("insufficient_quota" in message or "exceeded your current quota" in message):
+        return True
+    return False
+
+
 def _use_claude_first() -> bool:
     if not _provider_state.on_fallback:
         return True

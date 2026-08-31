@@ -31,6 +31,7 @@ ENTAILMENT_LABELS = (
     "gray_area",
     "distorted",
     "fabricated",
+    "opinion",
     "full",
     "moderate",
     "partial",

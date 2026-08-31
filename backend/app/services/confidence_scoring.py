@@ -1,4 +1,5 @@
 import math
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -167,7 +168,28 @@ VERACITY_TIER_LABELS: dict[str, str] = {
     "gray_area": "Unverifiable (Gray Area)",
     "distorted": "Appears distorted / misinformed",
     "fabricated": "Appears fabricated / malicious",
+    "opinion": "Stated as Clardentity AI's opinion",
 }
+
+# Matches the exact framing prompt_builder._FORMATTING_RULES instructs the
+# model to use for a claim that has no source of truth to check against -
+# see is_opinion_claim below.
+_OPINION_PREFIX_RE = re.compile(
+    r"^\s*it is (?:also )?the opinion of clardentity ai that\b", re.IGNORECASE
+)
+
+
+def is_opinion_claim(claim_text: str) -> bool:
+    """True when the model explicitly framed this claim as its own stated
+    view rather than an assertion of fact.
+
+    This has to be checked before a bare score decides the tier: an honestly
+    declared opinion and an unsupported claim that reads as fact both end up
+    with zero evidence, but they are not the same thing, and "Appears
+    fabricated / malicious" reads as an accusation of lying about something
+    the claim never claimed to be true in the first place.
+    """
+    return bool(_OPINION_PREFIX_RE.match(claim_text))
 
 # A claim whose reasoning was flagged for cognitive distortion cannot read as
 # an established fact, however well its citations score - the framework
@@ -260,7 +282,7 @@ def score_of(e: ScoredEvidence) -> float:
 
 
 def compute_claim_score(
-    evidence: list[ScoredEvidence], distorted: bool = False
+    evidence: list[ScoredEvidence], distorted: bool = False, opinion: bool = False
 ) -> tuple[float, str]:
     """claim_score = 100 * (0.7*support + 0.3*relevance) of whichever
     evidence item best supports the claim, renormalised to support alone when
@@ -272,6 +294,12 @@ def compute_claim_score(
     `distorted` is whether the verification agent flagged this claim's
     reasoning for cognitive bias - when true, the score is capped so the tier
     can never read higher than "distorted", regardless of how well-cited it is.
+
+    `opinion` is whether the claim was written as Clardentity AI's own stated
+    view (see is_opinion_claim) rather than an assertion of fact. It still
+    scores 0 - there genuinely is no evidence behind it, and that number is
+    honest - but the tier is "opinion", not "fabricated", so it reads as a
+    disclosed view rather than a failed check.
     """
     if not evidence:
         score = 0.0
@@ -280,6 +308,9 @@ def compute_claim_score(
 
     if distorted:
         score = min(score, _DISTORTION_CAP)
+
+    if opinion and not evidence:
+        return score, "opinion"
 
     return score, veracity_tier(score)
 

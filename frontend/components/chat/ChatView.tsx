@@ -73,13 +73,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     images: PendingImage[];
     mode: CognitiveMode;
   } | null>(null);
-  // The server asked why before answering. Holds the original send so the
-  // user's reply can be appended to it rather than replacing it.
+  // The server asked why before answering. Holds the accumulated send so far
+  // (the original message plus any earlier rounds already answered) so a
+  // reply is appended rather than replacing it, and `rounds` so the resend
+  // can tell the server how many rounds have already run - the gate can fire
+  // more than once per turn, up to a cap on the server.
   const [pendingContext, setPendingContext] = useState<{
     question: string;
     content: string;
     images: PendingImage[];
     mode: CognitiveMode;
+    rounds: number;
   } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -126,9 +130,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // The user has answered the mode question, either way. Stops the server
     // asking again about a question it already asked about.
     modeConfirmed = false,
-    // Same contract for the pre-answer "why": set once it has been asked,
-    // whether they answered it or skipped it.
+    // Set once the user explicitly skips the pre-answer "why" ("Answer
+    // without this") - a hard stop, regardless of how many rounds have run.
     contextAcknowledged = false,
+    // How many context-gate rounds have already been answered for this turn.
+    // The server caps further asking at MAX_CONTEXT_ROUNDS.
+    contextRounds = 0,
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
@@ -173,6 +180,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         })),
         mode_confirmed: modeConfirmed,
         context_acknowledged: contextAcknowledged,
+        context_rounds: contextRounds,
       },
       {
         onStatus: setStatus,
@@ -228,9 +236,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         },
         onContextQuestion: (asked) => {
           // Nothing was written server-side, so the optimistic user message is
-          // rolled back the same way the mode gate rolls it back.
+          // rolled back the same way the mode gate rolls it back. `content`
+          // here is already the accumulated text (original message plus any
+          // earlier rounds) since it's what this call was sent with.
           setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-          setPendingContext({ question: asked.question, content, images, mode: sendMode });
+          setPendingContext({
+            question: asked.question,
+            content,
+            images,
+            mode: sendMode,
+            rounds: contextRounds,
+          });
           setStreaming(null);
           setSending(false);
           setStatus(null);
@@ -522,6 +538,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
         {pendingContext && (
           <ContextQuestionCard
+            // A new round is a new question with its own fresh textarea, not
+            // an update to the same one - without a key tied to the round,
+            // the card's own internal draft state would carry over from the
+            // previous round's box.
+            key={pendingContext.rounds}
             question={pendingContext.question}
             busy={sending}
             onAnswer={(context) =>
@@ -533,21 +554,29 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // handleSend), so if the question isn't in the message text
               // itself it vanishes from the transcript entirely, both on
               // screen and in what gets saved.
+              // Not context_acknowledged=true here: answering a round asks to
+              // be evaluated again (the gate may have one more genuine
+              // question), not to be waved through. contextRounds is what
+              // caps that, on the server.
               void handleSend(
                 `${pendingContext.content}\n\n(You asked: "${pendingContext.question}")\n${context}`,
                 pendingContext.images,
                 pendingContext.mode,
                 false,
-                true,
+                false,
+                pendingContext.rounds + 1,
               )
             }
             onSkip={() =>
+              // A hard stop regardless of round count - the only way to cut
+              // the gate off before it decides to stop on its own.
               void handleSend(
                 pendingContext.content,
                 pendingContext.images,
                 pendingContext.mode,
                 false,
                 true,
+                pendingContext.rounds,
               )
             }
           />

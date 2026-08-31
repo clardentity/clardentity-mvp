@@ -52,11 +52,18 @@ class MessageCreate(BaseModel):
     # question cannot be stopped twice - and so choosing "stay in this mode"
     # is respected rather than re-argued.
     mode_confirmed: bool = False
-    # Set when re-sending after the pre-answer "why" - either because the user
-    # answered it (their answer is appended to `content`) or because they asked
-    # for the answer anyway. One question, never two: being asked to explain
-    # yourself twice is an interrogation, not a conversation.
+    # Set when re-sending after the pre-answer "why" because the user asked
+    # for the answer anyway (the "Answer without this" skip) - a hard stop,
+    # regardless of how many rounds have run. Answering a round instead
+    # advances `context_rounds`, not this flag: the gate may still have one
+    # more genuine question worth asking (see guidance.MAX_CONTEXT_ROUNDS),
+    # and skipping is the only way to cut it off early.
     context_acknowledged: bool = False
+    # How many context-gate rounds have already been answered for this turn.
+    # 0 on a fresh message. The client increments it each time it resends
+    # after answering (not skipping) a context_question, so the gate can cap
+    # itself at MAX_CONTEXT_ROUNDS instead of interrogating indefinitely.
+    context_rounds: int = Field(default=0, ge=0, le=10)
 
 
 class EvidenceOut(BaseModel):

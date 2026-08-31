@@ -46,6 +46,7 @@ _VALID_CLAIM_TIERS = {
     "gray_area",
     "distorted",
     "fabricated",
+    "opinion",
     "full",
     "moderate",
     "partial",
@@ -131,7 +132,11 @@ def ev_uncited_claims_score_low(*, input, output, expected_output=None, metadata
     uncited = [c for c in claims if not (c.get("evidence") or [])]
     if not uncited:
         return []
-    low_tiers = {"distorted", "fabricated", "none", "unsupported"}
+    # "opinion" belongs here too: a claim honestly framed as Clardentity AI's
+    # own view is *supposed* to carry no evidence and read as disclosed
+    # rather than established - that is success for this invariant, not an
+    # exception to it.
+    low_tiers = {"distorted", "fabricated", "none", "unsupported", "opinion"}
     bad = [
         c
         for c in uncited

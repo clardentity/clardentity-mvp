@@ -8,7 +8,13 @@ one's, and where getting it wrong fails silently rather than loudly.
 
 import pytest
 
-from app.services.anthropic_client import _content_blocks, _portable_schema
+from app.services import openai_client
+from app.services.anthropic_client import (
+    CircuitBreakerOpenError,
+    _content_blocks,
+    _portable_schema,
+    is_provider_unavailable_error,
+)
 
 
 class TestPortableSchema:
@@ -101,3 +107,51 @@ class TestContentBlocks:
     def test_good_attachments_survive_a_bad_one(self):
         blocks = _content_blocks("q", ["nonsense", self.PNG])
         assert len([b for b in blocks if b["type"] == "image"]) == 1
+
+
+class _FakeAPIError(Exception):
+    """Stands in for anthropic/openai SDK exceptions, both of which carry a
+    `status_code` attribute the same way."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class TestIsProviderUnavailableError:
+    """What chat.py shows the user when a generation fails: this decides
+    whether it's the generic 'reached today's limit' sentence (both Claude
+    and its OpenAI fallback are unavailable) or a plain 'something went
+    wrong' - never the raw exception, which can name a vendor or quote a
+    credit-balance message."""
+
+    def test_this_modules_own_circuit_breaker_counts(self):
+        assert is_provider_unavailable_error(CircuitBreakerOpenError("open"))
+
+    def test_the_fallback_providers_circuit_breaker_also_counts(self):
+        # A distinct class, defined in openai_client.py - opened on OpenAI's
+        # own repeated failures, not Claude's.
+        assert is_provider_unavailable_error(openai_client.CircuitBreakerOpenError("open"))
+
+    @pytest.mark.parametrize("status", [401, 403, 429, 500, 502, 503, 529])
+    def test_availability_status_codes_count(self, status):
+        assert is_provider_unavailable_error(_FakeAPIError("boom", status_code=status))
+
+    def test_anthropic_credit_exhaustion_counts(self):
+        exc = _FakeAPIError("Your credit balance is too low", status_code=400)
+        assert is_provider_unavailable_error(exc)
+
+    def test_openai_quota_exhaustion_counts(self):
+        exc = _FakeAPIError("You exceeded your current quota", status_code=400)
+        assert is_provider_unavailable_error(exc)
+        exc2 = _FakeAPIError("insufficient_quota", status_code=400)
+        assert is_provider_unavailable_error(exc2)
+
+    def test_an_ordinary_bad_request_does_not_count(self):
+        # A 400 caused by our own request shape is a bug to surface, not an
+        # outage to soften into "try again later".
+        exc = _FakeAPIError("Invalid schema: missing required field", status_code=400)
+        assert not is_provider_unavailable_error(exc)
+
+    def test_a_plain_bug_does_not_count(self):
+        assert not is_provider_unavailable_error(ValueError("not json"))

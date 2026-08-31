@@ -274,7 +274,12 @@ class BackendClient:
             # it in the queue gets the same short-circuited error, regardless
             # of what it was actually testing. Worth one retry past the
             # cooldown before treating this as a genuine per-case failure.
-            if "circuit breaker" in last_detail.lower() and attempt < 2:
+            #
+            # The backend no longer echoes the raw exception (it used to say
+            # "circuit breaker" or name a vendor directly) - both providers
+            # failing collapses to one fixed, vendor-silent sentence, which is
+            # now the only signal this retry has to key off.
+            if "reached today's limit" in last_detail.lower() and attempt < 2:
                 time.sleep(35)
                 continue
             break

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -31,7 +32,7 @@ from app.services.clarifier import propose_clarifier
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
 from app.services.thinking_review import review_thinking
-from app.services.guidance import propose_guidance
+from app.services.guidance import MAX_CONTEXT_ROUNDS, propose_guidance
 from app.services.output_cleanup import clean_output
 from app.services.confidence_scoring import (
     ScoredClaim,
@@ -39,6 +40,7 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
+    is_opinion_claim,
     rescore_after_reconciliation,
 )
 from app.services.devils_advocate import generate_counterfactual
@@ -54,7 +56,7 @@ from app.services.memory_service import (
     get_memory_summary,
     should_rebuild_memory,
 )
-from app.services.anthropic_client import stream_generation
+from app.services.anthropic_client import is_provider_unavailable_error, stream_generation
 from app.services.prompt_builder import (
     build_context_block,
     build_conversation_input,
@@ -74,6 +76,8 @@ from app.services.verification_agent import reconcile_gray_area, verify_claim
 from app.services.web_research import WebSource, gather_context, research_claim
 from app.workers.rebuild_memory import rebuild_memory_task
 from app.workers.rebuild_profile import rebuild_profile_task
+
+logger = logging.getLogger("clardentity.chat")
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -430,8 +434,17 @@ async def send_message(
     #
     # Persists nothing, exactly like the mode gate below - the message is not
     # saved and no answer is generated, so the transcript never shows a
-    # question with nothing under it.
-    if not payload.context_acknowledged and guidance and guidance.get("context_question"):
+    # question with nothing under it. Can fire more than once per turn (see
+    # MAX_CONTEXT_ROUNDS): each round's guidance call sees the accumulated
+    # content, prior questions and all, so it naturally stops asking once
+    # enough is on the table - the round cap only guards the case where it
+    # doesn't.
+    if (
+        not payload.context_acknowledged
+        and payload.context_rounds < MAX_CONTEXT_ROUNDS
+        and guidance
+        and guidance.get("context_question")
+    ):
 
         async def context_gate() -> AsyncIterator[dict]:
             yield {
@@ -604,7 +617,22 @@ async def send_message(
                     full_text = event["full_text"]
         except Exception as exc:  # noqa: BLE001 - surfaced to the client as an SSE error event
             decision_task.cancel()
-            yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+            # The raw exception never reaches the client: it can name a
+            # vendor, quote a credit-balance message, or otherwise say things
+            # the identity rules forbid the model itself from saying. Logged
+            # here, in full, for us; the client gets one of two fixed,
+            # vendor-silent sentences. `is_provider_unavailable_error` is the
+            # same test that drives the Claude<->OpenAI fallback in
+            # anthropic_client.py - by the time either exception reaches
+            # here, both providers have already been tried and failed.
+            logger.error("chat generation failed", exc_info=True)
+            detail = (
+                "You've reached today's limit for responses. Please try again in a "
+                "little while."
+                if is_provider_unavailable_error(exc)
+                else "Something went wrong generating a response. Please try again."
+            )
+            yield {"event": "error", "data": json.dumps({"detail": detail})}
             return
 
         # ------------------------------------------------------------------
@@ -807,7 +835,9 @@ async def send_message(
             parsed_claims, claim_marker_lists, verifications, evidence_by_claim
         ):
             claim_score, entailment_label = compute_claim_score(
-                evidence, distorted=bool(verification.distortion_flag)
+                evidence,
+                distorted=bool(verification.distortion_flag),
+                opinion=is_opinion_claim(claim.claim_text),
             )
             scored_claims.append(
                 ScoredClaim(

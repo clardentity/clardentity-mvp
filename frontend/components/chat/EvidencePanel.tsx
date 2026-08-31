@@ -57,6 +57,17 @@ const TIERS: Record<string, { label: string; meaning: string; text: string; rail
     text: "text-band-low",
     rail: "border-band-low-border",
   },
+  // A claim the model explicitly wrote as its own view (prompt_builder's "It
+  // is the opinion of Clardentity AI that...") rather than an assertion of
+  // fact. Zero evidence is correct and expected here - it was never claimed
+  // to be sourced - so this reads as neutral disclosure, not a failed check,
+  // and deliberately does not share fabricated's red/alarm styling.
+  opinion: {
+    label: "Stated as opinion",
+    meaning: "Clardentity AI's own view, not a sourced fact.",
+    text: "text-ink-secondary",
+    rail: "border-hairline-strong",
+  },
   // Pre-framework rows.
   full: { label: "Fully supported", meaning: "", text: "text-band-high", rail: "border-band-high-border" },
   moderate: { label: "Moderately supported", meaning: "", text: "text-band-moderate", rail: "border-band-high-border" },

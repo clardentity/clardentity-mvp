@@ -14,6 +14,7 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
+    is_opinion_claim,
     rescore_after_reconciliation,
     veracity_tier,
 )
@@ -90,6 +91,39 @@ class TestClaimScore:
                 for distorted in (False, True):
                     score, tier = compute_claim_score([ev(support, relevance)], distorted)
                     assert tier == veracity_tier(score)
+
+    def test_opinion_flag_overrides_the_fabricated_tier_when_uncited(self):
+        # A claim honestly framed as Clardentity AI's own view is not the
+        # same thing as an unsupported claim that reads as fact - it gets its
+        # own tier instead of "fabricated", though the 0 score is unchanged
+        # since there genuinely is no evidence behind it.
+        assert compute_claim_score([], opinion=True) == (0.0, "opinion")
+
+    def test_opinion_flag_is_ignored_when_evidence_was_actually_cited(self):
+        # The prompt tells the model to leave an opinion claim uncited, but
+        # the tier logic itself shouldn't trust that - a claim that somehow
+        # carries real evidence is scored normally regardless of the flag.
+        score, tier = compute_claim_score([ev(1.0, 1.0)], opinion=True)
+        assert tier == "verifiable_fact" and score == 100.0
+
+
+class TestIsOpinionClaim:
+    def test_matches_the_exact_prompt_framing(self):
+        assert is_opinion_claim("It is the opinion of Clardentity AI that hybrid work wins.")
+        assert is_opinion_claim("It is also the opinion of Clardentity AI that this is risky.")
+
+    def test_is_case_insensitive_and_ignores_leading_whitespace(self):
+        assert is_opinion_claim("  it IS THE opinion of clardentity ai that X.")
+
+    def test_does_not_match_an_ordinary_factual_claim(self):
+        assert not is_opinion_claim("Water boils at 100 degrees Celsius at sea level.")
+
+    def test_does_not_match_a_mention_partway_through_the_sentence(self):
+        # The framing has to lead the claim, not just appear somewhere in it -
+        # otherwise a claim quoting or discussing the phrase would misfire.
+        assert not is_opinion_claim(
+            "Some say it is the opinion of Clardentity AI that matters here."
+        )
 
 
 class TestEvidenceAssembly:

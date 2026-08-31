@@ -160,9 +160,12 @@ export type SendMessageBody = {
   /** Set when re-sending after a mode suggestion, either way the user
    *  answered, so the same question is never stopped twice. */
   mode_confirmed?: boolean;
-  /** Set when re-sending after the pre-answer "why", whether they answered it
-   *  or skipped it. Asking twice is an interrogation. */
+  /** Set when re-sending after explicitly skipping the pre-answer "why" (the
+   *  "Answer without this" option) - a hard stop regardless of round count. */
   context_acknowledged?: boolean;
+  /** How many context-gate rounds have already been answered for this turn.
+   *  The server caps further asking once this hits its limit. */
+  context_rounds?: number;
 };
 
 async function openStream(
