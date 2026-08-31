@@ -36,7 +36,10 @@ class MessageAttachment(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    content: str = Field(min_length=1)
+    # Required unless `regenerate_of` is set - enforced in the router so a
+    # missing/blank content on a real send is a 400 with a specific message,
+    # not Pydantic's generic 422.
+    content: str = ""
     # Intentionally not required at the Pydantic level (see FR7): the router
     # validates this explicitly so a missing/invalid mode returns exactly 400,
     # not FastAPI's default 422 for a missing field.
@@ -64,6 +67,18 @@ class MessageCreate(BaseModel):
     # after answering (not skipping) a context_question, so the gate can cap
     # itself at MAX_CONTEXT_ROUNDS instead of interrogating indefinitely.
     context_rounds: int = Field(default=0, ge=0, le=10)
+    # Fork point for the new user message this call creates - an explicit
+    # ancestor to attach it to instead of "wherever the conversation
+    # currently is" (Conversation.active_leaf_id). Editing a message resends
+    # with this set to the edited message's own parent, so the edit becomes
+    # a sibling rather than deleting everything that came after it.
+    parent_id: uuid.UUID | None = None
+    # Set instead of real content to produce an alternate answer to an
+    # EXISTING assistant message, attached as its sibling. `content`, `mode`,
+    # `reasoning_lens` and the pre-answer gates are all ignored on this path -
+    # the question was already asked and settled the first time this answer
+    # was generated, so regenerating never re-asks it.
+    regenerate_of: uuid.UUID | None = None
 
 
 class EvidenceOut(BaseModel):
@@ -137,9 +152,28 @@ class MessageOut(BaseModel):
     #: {"rating": "up"|"down"|None, "comment": str|None}. Null until the user
     #: reacts to this answer - see FeedbackIn.
     feedback: dict | None = None
+    #: Null for the very first message(s) of a conversation. Editing resends
+    #: with this as the new sibling's `parent_id` - see MessageCreate.
+    parent_id: uuid.UUID | None = None
+    #: This message's position among its siblings (0-based) and how many
+    #: there are - the fork switcher's "< 2/3 >". 1 when there's nothing to
+    #: switch between, which is most messages.
+    sibling_index: int = 0
+    sibling_count: int = 1
+    #: Every sibling's id, oldest first (this message's id included) - what
+    #: the fork switcher's arrows actually navigate between, via PUT
+    #: .../active-leaf. A single-item list when there's nothing to switch to.
+    sibling_ids: list[uuid.UUID] = []
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class ActiveLeafIn(BaseModel):
+    #: Any message in the tree - typically a sibling reached via the fork
+    #: switcher's arrows. The branch shown becomes that message's own most
+    #: recent leaf, so reopening a branch resumes wherever it last left off.
+    message_id: uuid.UUID
 
 
 class FeedbackIn(BaseModel):

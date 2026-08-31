@@ -35,6 +35,7 @@ export function MessageList({
   emptyStateAvatar,
   validatingId,
   onRegenerate,
+  onSwitchBranch,
   busy,
   statusLabel,
   onClarifierAnswer,
@@ -55,6 +56,8 @@ export function MessageList({
   /** Answer shown and saved, claims still being checked. */
   validatingId?: string | null;
   onRegenerate?: (messageId: string) => void;
+  /** Fork switcher: move to the branch that starts with this sibling id. */
+  onSwitchBranch?: (messageId: string) => void;
   busy?: boolean;
   /** Shown while a request is in flight and no tokens have arrived yet. */
   statusLabel?: string | null;
@@ -156,6 +159,10 @@ export function MessageList({
           decisionReview={m.decision_review}
           thinkingReview={m.thinking_review}
           feedback={m.feedback}
+          siblingIndex={m.sibling_index}
+          siblingCount={m.sibling_count}
+          siblingIds={m.sibling_ids}
+          onSwitchBranch={onSwitchBranch}
           isPlaying={playingMessageId === m.id}
           onPlayAudio={onPlayAudio ? () => onPlayAudio(m.id, m.content ?? "") : undefined}
           isValidating={validatingId === m.id}
@@ -233,6 +240,10 @@ function MessageBubble({
   decisionReview,
   thinkingReview,
   feedback,
+  siblingIndex,
+  siblingCount,
+  siblingIds,
+  onSwitchBranch,
   isStreaming,
   isPlaying,
   onPlayAudio,
@@ -259,6 +270,12 @@ function MessageBubble({
   decisionReview?: DecisionReviewData | null;
   thinkingReview?: ThinkingReviewData | null;
   feedback?: { rating: "up" | "down" | null; comment: string | null } | null;
+  /** This message's position among its siblings, and how many there are -
+   *  1 sibling means there's nothing to switch between. */
+  siblingIndex?: number;
+  siblingCount?: number;
+  siblingIds?: string[];
+  onSwitchBranch?: (messageId: string) => void;
   isStreaming?: boolean;
   isPlaying?: boolean;
   onPlayAudio?: () => void;
@@ -514,6 +531,15 @@ function MessageBubble({
           <FeedbackWidget conversationId={conversationId} messageId={id} feedback={feedback ?? null} />
         )}
 
+        {!isStreaming && (siblingCount ?? 1) > 1 && siblingIds && onSwitchBranch && (
+          <ForkSwitcher
+            siblingIds={siblingIds}
+            siblingIndex={siblingIndex ?? 0}
+            onSwitchBranch={onSwitchBranch}
+            tone={isUser ? "onBrand" : "default"}
+          />
+        )}
+
         {!isStreaming && !editing && (
           <MessageActions
             content={content}
@@ -534,6 +560,75 @@ function MessageBubble({
     </div>
   );
 }
+
+/** "< 2/3 >" - move between sibling versions of this exact message: other
+ *  answers to the same question (regenerate), or other wordings of the
+ *  question itself (edit). Always visible once there's more than one, the
+ *  same way a chat client's own version switcher never hides - it's the only
+ *  way back to something regenerating or editing would otherwise bury. */
+function ForkSwitcher({
+  siblingIds,
+  siblingIndex,
+  onSwitchBranch,
+  tone,
+}: {
+  siblingIds: string[];
+  siblingIndex: number;
+  onSwitchBranch: (messageId: string) => void;
+  tone: "onBrand" | "default";
+}) {
+  const count = siblingIds.length;
+  const base =
+    tone === "onBrand"
+      ? "text-white/70 hover:bg-white/15 hover:text-white"
+      : "text-ink-muted hover:bg-surface-hover hover:text-ink";
+
+  return (
+    <div
+      className={cx(
+        "mt-1.5 flex items-center gap-0.5 text-[11px] text-ink-muted",
+        tone === "onBrand" && "justify-end",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSwitchBranch(siblingIds[siblingIndex - 1])}
+        disabled={siblingIndex <= 0}
+        aria-label="Previous version"
+        className={cx("rounded-md p-0.5 transition-colors disabled:opacity-30", base)}
+      >
+        <ChevronIcon direction="left" />
+      </button>
+      <span className="tabular-nums">
+        {siblingIndex + 1}/{count}
+      </span>
+      <button
+        type="button"
+        onClick={() => onSwitchBranch(siblingIds[siblingIndex + 1])}
+        disabled={siblingIndex >= count - 1}
+        aria-label="Next version"
+        className={cx("rounded-md p-0.5 transition-colors disabled:opacity-30", base)}
+      >
+        <ChevronIcon direction="right" />
+      </button>
+    </div>
+  );
+}
+
+const ChevronIcon = ({ direction }: { direction: "left" | "right" }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="h-3 w-3"
+  >
+    <path d={direction === "left" ? "m15 18-6-6 6-6" : "m9 6 6 6-6 6"} />
+  </svg>
+);
 
 /** Copy / edit / regenerate. Hidden until the message is hovered or focused
  *  so a conversation doesn't read as rows of buttons, but always reachable by

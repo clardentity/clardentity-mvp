@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -15,6 +15,7 @@ from app.core.rate_limit import check_rate_limit
 from app.db.session import AsyncSessionLocal, get_db
 from app.models import AudioTranscript, Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
 from app.schemas.chat import (
+    ActiveLeafIn,
     CallTranscript,
     ClaimOut,
     ConversationCreate,
@@ -52,6 +53,7 @@ from app.services.decision_classifier import (
     classify_decision,
 )
 from app.services.export_service import build_markdown_export, build_pdf_export
+from app.services.message_tree import active_path, latest_leaf, resolve_parent_id, siblings
 from app.services.memory_service import (
     HISTORY_WINDOW,
     get_memory_summary,
@@ -155,7 +157,13 @@ def _derive_title(first_message: str) -> str:
     return f"{text}…" if truncated else text
 
 
-def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
+def _serialize_message(
+    message: Message,
+    claims: list[ClaimOut],
+    sibling_index: int = 0,
+    sibling_count: int = 1,
+    sibling_ids: list[uuid.UUID] | None = None,
+) -> MessageOut:
     return MessageOut(
         id=message.id,
         role=message.role,
@@ -173,6 +181,10 @@ def _serialize_message(message: Message, claims: list[ClaimOut]) -> MessageOut:
         decision_review=message.decision_review,
         thinking_review=message.thinking_review,
         feedback=message.feedback,
+        parent_id=message.parent_id,
+        sibling_index=sibling_index,
+        sibling_count=sibling_count,
+        sibling_ids=sibling_ids or [message.id],
         claims=claims,
     )
 
@@ -233,22 +245,43 @@ async def delete_conversation(
     await db.commit()
 
 
+async def _all_messages(db: AsyncSession, conversation_id: uuid.UUID) -> list[Message]:
+    rows = await db.execute(select(Message).where(Message.conversation_id == conversation_id))
+    return list(rows.scalars().all())
+
+
+async def _serialize_active_path(
+    db: AsyncSession, conversation: Conversation, all_messages: list[Message]
+) -> list[MessageOut]:
+    """The path a user actually sees, each message annotated with where it
+    sits among its siblings so the client can draw a "< 2/3 >" fork switcher
+    wherever there's more than one."""
+    path = active_path(all_messages, conversation.active_leaf_id)
+    claims_by_message = await load_claims_for_messages(db, [m.id for m in path])
+    result = []
+    for m in path:
+        group = siblings(all_messages, m)
+        result.append(
+            _serialize_message(
+                m,
+                claims_by_message.get(m.id, []),
+                sibling_index=group.index(m),
+                sibling_count=len(group),
+                sibling_ids=[s.id for s in group],
+            )
+        )
+    return result
+
+
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
 async def list_messages(
     conversation_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[MessageOut]:
-    await get_conversation_for_user(db, conversation_id, current_user.id)
-
-    rows = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at)
-    )
-    messages = list(rows.scalars().all())
-    claims_by_message = await load_claims_for_messages(db, [m.id for m in messages])
-    return [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    all_messages = await _all_messages(db, conversation_id)
+    return await _serialize_active_path(db, conversation, all_messages)
 
 
 @router.get("/{conversation_id}/export")
@@ -259,17 +292,12 @@ async def export_conversation(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     # FR13: full turn history, per-claim citations, and confidence bands -
-    # same serialization the chat UI already renders from.
+    # same serialization the chat UI already renders from, and the same
+    # active branch only - an abandoned regenerate/edit was never really
+    # part of the answer, so it doesn't belong in the record of it either.
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
-
-    rows = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at)
-    )
-    messages = list(rows.scalars().all())
-    claims_by_message = await load_claims_for_messages(db, [m.id for m in messages])
-    messages_out = [_serialize_message(m, claims_by_message.get(m.id, [])) for m in messages]
+    all_messages = await _all_messages(db, conversation_id)
+    messages_out = await _serialize_active_path(db, conversation, all_messages)
 
     filename_base = "".join(
         ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (conversation.title or "chat")
@@ -376,48 +404,29 @@ async def set_message_feedback(
     return {"feedback": feedback}
 
 
-@router.delete(
-    "/{conversation_id}/messages/{message_id}/onwards",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def rewind_conversation(
+@router.put("/{conversation_id}/active-leaf")
+async def set_active_branch(
     conversation_id: uuid.UUID,
-    message_id: uuid.UUID,
+    payload: ActiveLeafIn,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Delete a message and everything after it.
+) -> dict:
+    """Switch which branch is shown, without generating or deleting anything.
 
-    What "edit" and "regenerate" actually are. A conversation is a sequence
-    the model is re-fed on every turn, so changing a message in the middle
-    without dropping what followed would leave answers on screen that were
-    replies to something no longer said. Rewinding to the edit point and
-    re-asking is the only version of this that stays coherent.
-
-    Claims, evidence and citations hang off `messages` with ON DELETE CASCADE,
-    so removing the rows is the whole operation.
+    `message_id` is any message in the tree - typically a sibling reached via
+    the fork switcher's arrows. The branch shown becomes that message's own
+    most recently created leaf, so reopening a branch resumes wherever it
+    last left off rather than snapping back to its very first reply.
     """
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
-
-    target = await db.get(Message, message_id)
-    if target is None or target.conversation_id != conversation.id:
+    all_messages = await _all_messages(db, conversation_id)
+    target = next((m for m in all_messages if m.id == payload.message_id), None)
+    if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
-    # Ordered by creation time rather than id: ids are random UUIDs, so ">"
-    # on them means nothing. Ties on the same timestamp are impossible in
-    # practice (user and assistant rows are written in separate transactions)
-    # but the id comparison keeps the boundary deterministic if they happen.
-    await db.execute(
-        delete(Message).where(
-            Message.conversation_id == conversation.id,
-            or_(
-                Message.created_at > target.created_at,
-                and_(Message.created_at == target.created_at, Message.id == target.id),
-            ),
-        )
-    )
+    conversation.active_leaf_id = latest_leaf(all_messages, target.id)
     await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return {"active_leaf_id": str(conversation.active_leaf_id)}
 
 
 @router.post("/{conversation_id}/messages")
@@ -429,115 +438,184 @@ async def send_message(
 ) -> EventSourceResponse:
     await check_rate_limit(f"chat:send:{current_user.id}", max_requests=20, window_seconds=60)
 
-    # FR7: mode is mandatory and there is no auto-detection fallback - reject
-    # with exactly 400, not Pydantic's default 422 for a missing field.
-    try:
-        mode = validate_mode(payload.mode)
-        reasoning_lens = validate_reasoning_lens(payload.reasoning_lens)
-    except (InvalidModeError, InvalidReasoningLensError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
     admin_settings = await get_all_settings(db)
+    all_messages = await _all_messages(db, conversation_id)
 
-    # Started here rather than awaited here: its latency overlaps the history
-    # and memory reads below, so the pre-answer check is close to free.
-    guidance_task = asyncio.create_task(propose_guidance(payload.content, mode))
+    # Two shapes of request share everything past this point - retrieval,
+    # generation, scoring, persistence - and differ only in how they got
+    # their mode/content/parent and whether the pre-answer gates run at all.
+    regenerate_target: Message | None = None
+    user_message: Message | None = None
+    guidance: dict | None = None
 
-    history_rows = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
-        .limit(HISTORY_WINDOW)
-    )
-    history = list(reversed(history_rows.scalars().all()))
-    memory_summary = await get_memory_summary(db, conversation_id)
+    if payload.regenerate_of is not None:
+        # An alternate answer to a question already asked and settled - never
+        # a new question, so none of the pre-answer gates apply a second
+        # time. The new answer attaches as a sibling of the old one, under
+        # the SAME parent user message; no new user row is created.
+        regenerate_target = next(
+            (m for m in all_messages if m.id == payload.regenerate_of), None
+        )
+        if regenerate_target is None or regenerate_target.role != "assistant":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+        parent_message = next(
+            (m for m in all_messages if m.id == regenerate_target.parent_id), None
+        )
+        if parent_message is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This answer has no question to regenerate against",
+            )
+        try:
+            mode = validate_mode(parent_message.mode_used)
+        except InvalidModeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        reasoning_lens = parent_message.reasoning_lens
+        effective_content = parent_message.content or ""
+        effective_parent_id = parent_message.parent_id
+        history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
+        memory_summary = await get_memory_summary(db, conversation_id)
+    else:
+        # FR7: mode is mandatory and there is no auto-detection fallback -
+        # reject with exactly 400, not Pydantic's default 422 for a missing
+        # field.
+        try:
+            mode = validate_mode(payload.mode)
+            reasoning_lens = validate_reasoning_lens(payload.reasoning_lens)
+        except (InvalidModeError, InvalidReasoningLensError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if not payload.content.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="content required")
 
-    # The mode nudge has to happen *before* generating, not after: a question
-    # answered in the wrong mode has already had its claims extracted, its
-    # evidence gathered and its score computed against the wrong standard, and
-    # offering to switch underneath that asks the reader to discard work they
-    # can see. It only reads the question and the chosen mode, so it needs
-    # nothing from retrieval and runs while the history and memory load.
-    guidance = await guidance_task
+        effective_content = payload.content
+        # Where this message attaches. Normally "wherever the conversation
+        # currently is" - but editing resends with an explicit parent_id (the
+        # edited message's own parent), so the edit becomes a new sibling
+        # instead of destroying everything that came after it. See
+        # resolve_parent_id for why this isn't just `payload.parent_id or
+        # active_leaf_id` - editing the first message of a conversation needs
+        # an explicit override to root (None), which looks identical to "no
+        # override" unless the two are told apart some other way.
+        parent_id_given = "parent_id" in payload.model_fields_set
+        effective_parent_id = resolve_parent_id(
+            payload.model_fields_set, payload.parent_id, conversation.active_leaf_id
+        )
+        if (
+            parent_id_given
+            and payload.parent_id is not None
+            and not any(m.id == payload.parent_id for m in all_messages)
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
-    # Asking why comes before suggesting a mode, and before answering. The
-    # order is the point: a question like "I want to divorce my wife" has no
-    # useful answer until the reasons are on the table, and an answer written
-    # without them is advice fitted to a situation we invented. Stopping here
-    # costs one round trip; retracting a confident answer costs the user's
-    # trust in every answer after it.
-    #
-    # Persists nothing, exactly like the mode gate below - the message is not
-    # saved and no answer is generated, so the transcript never shows a
-    # question with nothing under it. Can fire more than once per turn (see
-    # MAX_CONTEXT_ROUNDS): each round's guidance call sees the accumulated
-    # content, prior questions and all, so it naturally stops asking once
-    # enough is on the table - the round cap only guards the case where it
-    # doesn't.
-    if (
-        not payload.context_acknowledged
-        and payload.context_rounds < MAX_CONTEXT_ROUNDS
-        and guidance
-        and guidance.get("context_question")
-    ):
+        # Started here rather than awaited here: its latency overlaps the
+        # history and memory reads below, so the pre-answer check is close to
+        # free.
+        guidance_task = asyncio.create_task(propose_guidance(effective_content, mode))
 
-        async def context_gate() -> AsyncIterator[dict]:
-            yield {
-                "event": "context_question",
-                "data": json.dumps({"question": guidance["context_question"]}),
+        history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
+        memory_summary = await get_memory_summary(db, conversation_id)
+
+        # The mode nudge has to happen *before* generating, not after: a
+        # question answered in the wrong mode has already had its claims
+        # extracted, its evidence gathered and its score computed against the
+        # wrong standard, and offering to switch underneath that asks the
+        # reader to discard work they can see. It only reads the question and
+        # the chosen mode, so it needs nothing from retrieval and runs while
+        # the history and memory load.
+        guidance = await guidance_task
+
+        # Asking why comes before suggesting a mode, and before answering.
+        # The order is the point: a question like "I want to divorce my wife"
+        # has no useful answer until the reasons are on the table, and an
+        # answer written without them is advice fitted to a situation we
+        # invented. Stopping here costs one round trip; retracting a
+        # confident answer costs the user's trust in every answer after it.
+        #
+        # Persists nothing, exactly like the mode gate below - the message is
+        # not saved and no answer is generated, so the transcript never shows
+        # a question with nothing under it. Can fire more than once per turn
+        # (see MAX_CONTEXT_ROUNDS): each round's guidance call sees the
+        # accumulated content, prior questions and all, so it naturally stops
+        # asking once enough is on the table - the round cap only guards the
+        # case where it doesn't.
+        if (
+            not payload.context_acknowledged
+            and payload.context_rounds < MAX_CONTEXT_ROUNDS
+            and guidance
+            and guidance.get("context_question")
+        ):
+
+            async def context_gate() -> AsyncIterator[dict]:
+                yield {
+                    "event": "context_question",
+                    "data": json.dumps({"question": guidance["context_question"]}),
+                }
+
+            return EventSourceResponse(context_gate())
+
+        if not payload.mode_confirmed and guidance and guidance.get("suggested_mode"):
+            # Nothing is persisted on this path. The user message is not
+            # saved, no answer is generated, and the turn is exactly where it
+            # was - so picking "stay" costs one round trip and picking
+            # "switch" costs the same, rather than leaving a dangling
+            # question with no answer under it in the transcript.
+            suggestion = {
+                "suggested_mode": guidance["suggested_mode"],
+                "mode_reason": guidance.get("mode_reason"),
             }
 
-        return EventSourceResponse(context_gate())
+            async def mode_gate() -> AsyncIterator[dict]:
+                yield {"event": "mode_suggestion", "data": json.dumps(suggestion)}
 
-    if not payload.mode_confirmed and guidance and guidance.get("suggested_mode"):
-        # Nothing is persisted on this path. The user message is not saved,
-        # no answer is generated, and the turn is exactly where it was - so
-        # picking "stay" costs one round trip and picking "switch" costs the
-        # same, rather than leaving a dangling question with no answer under
-        # it in the transcript.
-        suggestion = {
-            "suggested_mode": guidance["suggested_mode"],
-            "mode_reason": guidance.get("mode_reason"),
-        }
+            return EventSourceResponse(mode_gate())
 
-        async def mode_gate() -> AsyncIterator[dict]:
-            yield {"event": "mode_suggestion", "data": json.dumps(suggestion)}
-
-        return EventSourceResponse(mode_gate())
-
-    user_message = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=payload.content,
-        mode_used=mode,
-        reasoning_lens=reasoning_lens if mode == "thinking" else None,
-    )
-    db.add(user_message)
-    await db.flush()
-
-    if payload.audio_duration_seconds is not None:
-        # §12.1: links the transcribed turn back to its audio metadata.
-        # The raw clip itself isn't persisted in MVP - only what's needed to
-        # satisfy the audio_transcripts record (transcript + duration).
-        db.add(
-            AudioTranscript(
-                message_id=user_message.id,
-                transcript=payload.content,
-                duration_seconds=payload.audio_duration_seconds,
-            )
+        user_message = Message(
+            conversation_id=conversation_id,
+            role="user",
+            content=effective_content,
+            mode_used=mode,
+            reasoning_lens=reasoning_lens if mode == "thinking" else None,
+            parent_id=effective_parent_id,
         )
+        db.add(user_message)
+        await db.flush()
 
-    # Convenience pre-fill only (§7.2) - never read back as an automatic mode choice.
-    conversation.default_mode = mode
+        if payload.audio_duration_seconds is not None:
+            # §12.1: links the transcribed turn back to its audio metadata.
+            # The raw clip itself isn't persisted in MVP - only what's needed
+            # to satisfy the audio_transcripts record (transcript + duration).
+            db.add(
+                AudioTranscript(
+                    message_id=user_message.id,
+                    transcript=effective_content,
+                    duration_seconds=payload.audio_duration_seconds,
+                )
+            )
 
-    # Title the conversation from its opening question. Without this every row
-    # in the workspace list reads "Untitled chat", which is
-    # indistinguishable from the conversation not having been saved at all.
-    if conversation.title is None and not history:
-        conversation.title = _derive_title(payload.content)
+        # Convenience pre-fill only (§7.2) - never read back as an automatic
+        # mode choice.
+        conversation.default_mode = mode
 
-    await db.commit()
+        # Title the conversation from its opening question. Without this
+        # every row in the workspace list reads "Untitled chat", which is
+        # indistinguishable from the conversation not having been saved at
+        # all.
+        if conversation.title is None and not history:
+            conversation.title = _derive_title(effective_content)
+
+        # The user's turn is the leaf now, independent of whether an answer
+        # ever lands - a page reload mid-generation should show the question
+        # that was asked, not silently revert to wherever the branch was
+        # before.
+        conversation.active_leaf_id = user_message.id
+        await db.commit()
+
+    # The parent every downstream write (assistant message, citations, the
+    # active-leaf pointer once it exists) attaches to: the user message just
+    # created, or - on a regenerate, where none was - the existing one being
+    # answered again.
+    assistant_parent_id = user_message.id if user_message is not None else effective_parent_id
 
     flags = admin_settings.get("feature_flags") or {}
 
@@ -548,7 +626,7 @@ async def send_message(
     async def _classify() -> DecisionClassification:
         if not flags.get("bias_screening_enabled", True):
             return NO_DECISION
-        return await classify_decision(payload.content)
+        return await classify_decision(effective_content)
 
     # Only Decision mode needs the classification *before* generating, because
     # only it puts a bias watch-list in the prompt. Every other mode uses it
@@ -559,7 +637,7 @@ async def send_message(
     if mode == "decision":
         decision = await decision_task
 
-    retrieval_query = await optimize_query(history, payload.content)
+    retrieval_query = await optimize_query(history, effective_content)
 
     # Documents first, always: a user's own documents are the thing they
     # trusted enough to upload, and a search result is not. But *finding out*
@@ -604,7 +682,7 @@ async def send_message(
         companion_name=name_for(current_user.companion_names, mode),
     )
     context_block = build_context_block(chunks, web_sources)
-    input_text = build_conversation_input(context_block, memory_summary, history, payload.content)
+    input_text = build_conversation_input(context_block, memory_summary, history, effective_content)
     scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
     gesture_map = admin_settings["avatar_gesture_map"]
 
@@ -691,8 +769,18 @@ async def send_message(
                 content=draft_display_text,
                 mode_used=mode,
                 reasoning_lens=reasoning_lens if mode == "thinking" else None,
+                parent_id=assistant_parent_id,
             )
             answer_db.add(assistant_message)
+            await answer_db.flush()
+            # Same session, same commit: the branch pointer and the message it
+            # points to land together, so a reload can never see one without
+            # the other.
+            await answer_db.execute(
+                update(Conversation)
+                .where(Conversation.id == conversation_id)
+                .values(active_leaf_id=assistant_message.id)
+            )
             await answer_db.commit()
             await answer_db.refresh(assistant_message)
             assistant_message_id = assistant_message.id
@@ -724,7 +812,7 @@ async def send_message(
         # Folding it into the answer generation is what made the model ask in
         # prose as well as in the block.
         clarifier_task = asyncio.create_task(
-            propose_clarifier(payload.content, draft_display_text)
+            propose_clarifier(effective_content, draft_display_text)
         )
         # `decision_task` has been running since earlier in this function, so
         # awaiting it here is normally immediate - not a new blocking call.
@@ -744,14 +832,14 @@ async def send_message(
         # Decision mode only: judging options nobody listed is a call spent to
         # return null.
         review_task = (
-            asyncio.create_task(review_decisions(payload.content, bias_category_id))
+            asyncio.create_task(review_decisions(effective_content, bias_category_id))
             if mode == "decision"
             else None
         )
         # Thinking mode's replacement for the evidence panel, on the same
         # terms: one fast call in the fan-out, null when it has nothing.
         thinking_task = (
-            asyncio.create_task(review_thinking(payload.content, bias_category_id))
+            asyncio.create_task(review_thinking(effective_content, bias_category_id))
             if mode == "thinking"
             else None
         )

@@ -136,6 +136,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // How many context-gate rounds have already been answered for this turn.
     // The server caps further asking at MAX_CONTEXT_ROUNDS.
     contextRounds = 0,
+    // Forking overrides, used only by handleRegenerate/handleSubmitEdit below
+    // - a normal send from the composer passes neither. `regenerateOf` skips
+    // creating a new user message entirely (the server attaches the new
+    // answer as a sibling of the existing one); `parentId` attaches a new
+    // user message as a sibling of some earlier one, rather than continuing
+    // from wherever the conversation currently is.
+    fork?: { parentId?: string | null; regenerateOf?: string },
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
@@ -147,26 +154,35 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setIsTyping(false);
     setStatus(null);
 
-    const userMessage: ChatMessage = {
-      id: `local-${Date.now()}`,
-      role: "user",
-      content,
-      mode_used: sendMode,
-      reasoning_lens: null,
-      confidence_score: null,
-      confidence_band: null,
-      avatar_expression: null,
-      avatar_gesture: null,
-      created_at: new Date().toISOString(),
-      counterfactual_content: null,
-      clarifier: null,
-      guidance: null,
-      decision_review: null,
-      thinking_review: null,
-      feedback: null,
-      claims: [],
-    };
-    setMessages((prev) => [...prev, userMessage]);
+    // Regenerating writes no new user row server-side, so there's nothing
+    // optimistic to show above the streaming answer - the question already
+    // on screen stays exactly where it is.
+    const userMessage: ChatMessage | null = fork?.regenerateOf
+      ? null
+      : {
+          id: `local-${Date.now()}`,
+          role: "user",
+          content,
+          mode_used: sendMode,
+          reasoning_lens: null,
+          confidence_score: null,
+          confidence_band: null,
+          avatar_expression: null,
+          avatar_gesture: null,
+          created_at: new Date().toISOString(),
+          counterfactual_content: null,
+          clarifier: null,
+          guidance: null,
+          decision_review: null,
+          thinking_review: null,
+          feedback: null,
+          parent_id: fork?.parentId ?? null,
+          sibling_index: 0,
+          sibling_count: 1,
+          sibling_ids: [],
+          claims: [],
+        };
+    if (userMessage) setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: sendMode, content: "" });
 
     await streamChatMessage(
@@ -182,6 +198,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         mode_confirmed: modeConfirmed,
         context_acknowledged: contextAcknowledged,
         context_rounds: contextRounds,
+        parent_id: fork?.parentId,
+        regenerate_of: fork?.regenerateOf,
       },
       {
         onStatus: setStatus,
@@ -229,7 +247,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         onModeSuggestion: (suggestion) => {
           // Nothing was written server-side, so the optimistic user message is
           // rolled back too - it will be re-sent for real once they choose.
-          setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          // (Regenerating never reaches this - the server skips the mode
+          // gate entirely for it - so there's no optimistic message to roll
+          // back in that case.)
+          if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
           setPendingMode({ suggestion, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
@@ -240,7 +261,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // rolled back the same way the mode gate rolls it back. `content`
           // here is already the accumulated text (original message plus any
           // earlier rounds) since it's what this call was sent with.
-          setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
           setPendingContext({
             question: asked.question,
             content,
@@ -284,57 +305,82 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     }
   }
 
-  /** Drop `messageId` and everything after it, locally and on the server, and
-   *  hand back the mode the rewound turn used so the resend matches it. */
-  async function rewindTo(messageId: string): Promise<CognitiveMode | null> {
-    const index = messages.findIndex((m) => m.id === messageId);
-    if (index === -1) return null;
-    const modeUsed = messages[index].mode_used as CognitiveMode | undefined;
-
-    // Locally first, so the messages disappear on click rather than after a
-    // round-trip. A failure below restores them from the server copy.
-    setMessages((prev) => prev.slice(0, index));
-    await apiFetch<void>(`/chat/${conversationId}/messages/${messageId}/onwards`, {
-      method: "DELETE",
-    });
-    return modeUsed ?? null;
-  }
-
-  /** Regenerate: rewind to this answer, then re-ask the question above it. */
+  /** Regenerate: an alternate answer to the same question, as a sibling of
+   *  the old one - nothing is deleted, so the original stays reachable via
+   *  the fork switcher's arrows.
+   *
+   *  Only the answer itself moves locally (dropped, then replaced by
+   *  whatever streams in) - the question above it is untouched, since the
+   *  server isn't writing a new one either. */
   async function handleRegenerate(messageId: string) {
     const index = messages.findIndex((m) => m.id === messageId);
-    if (index < 1) return;
-    const question = messages[index - 1];
-    if (question.role !== "user" || !question.content) return;
+    if (index < 0) return;
+    const target = messages[index];
+    if (target.role !== "assistant") return;
 
     setError(null);
+    setMessages((prev) => prev.slice(0, index));
     try {
-      // Rewind to the *question*, not the answer - re-sending it writes a new
-      // user row, and leaving the old one would duplicate it in the history.
-      const modeUsed = await rewindTo(question.id);
-      if (modeUsed) setMode(modeUsed);
-      await handleSend(question.content, [], modeUsed ?? undefined);
+      await handleSend("", [], target.mode_used as CognitiveMode, true, true, 0, {
+        regenerateOf: target.id,
+      });
+      // The streamed-in message carries no sibling count of its own - only
+      // list_messages computes that, by looking at every row sharing its
+      // parent. A reload is what turns "there are now two answers" into the
+      // switcher actually showing 1/2.
+      await reloadMessages();
     } catch (err) {
       setError(authErrorMessage(err));
       await reloadMessages();
     }
   }
 
-  /** Edit: rewind and resend, but only once the new text is submitted.
+  /** Edit: a new sibling of the edited message, not a rewrite of history -
+   *  the old wording and everything that answered it stays reachable via the
+   *  fork switcher, exactly like a regenerate does for an answer.
    *
-   *  The rewind has to happen - the turns after this one were answers to the
-   *  old wording - but doing it on *click*, as this used to, wiped the
-   *  conversation before the user had typed anything and made cancelling
-   *  impossible. The bubble holds the draft until then. */
+   *  Applied only once the new text is submitted, not on the edit click
+   *  itself - dropping the tail immediately would wipe the conversation
+   *  before the user had typed anything and make cancelling impossible. The
+   *  bubble holds the draft until then. */
   async function handleSubmitEdit(messageId: string, content: string) {
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+    const target = messages[index];
+    const modeUsed = target.mode_used as CognitiveMode;
+
     setError(null);
+    setMessages((prev) => prev.slice(0, index));
+    setMode(modeUsed);
     try {
-      const modeUsed = await rewindTo(messageId);
-      if (modeUsed) setMode(modeUsed);
-      await handleSend(content, [], modeUsed ?? undefined);
+      await handleSend(content, [], modeUsed, false, false, 0, {
+        parentId: target.parent_id,
+      });
+      // Same reason as handleRegenerate: the streamed-in messages don't know
+      // their own sibling count until something re-reads the tree.
+      await reloadMessages();
     } catch (err) {
       setError(authErrorMessage(err));
       await reloadMessages();
+    }
+  }
+
+  /** Fork switcher: move to a different branch at the same point in the
+   *  conversation - a sibling answer, or a sibling edit and whatever
+   *  answered it - without generating anything new. The branch reopens
+   *  wherever it last left off (see the active-leaf endpoint), so this is
+   *  always followed by a full reload rather than trying to splice the new
+   *  branch into local state by hand. */
+  async function handleSwitchBranch(messageId: string) {
+    setError(null);
+    try {
+      await apiFetch<{ active_leaf_id: string }>(
+        `/chat/${conversationId}/active-leaf`,
+        { method: "PUT", body: { message_id: messageId } },
+      );
+      await reloadMessages();
+    } catch (err) {
+      setError(authErrorMessage(err));
     }
   }
 
@@ -443,6 +489,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       onSubmitEdit={handleSubmitEdit}
       loading={loadingHistory}
       onRegenerate={handleRegenerate}
+      onSwitchBranch={handleSwitchBranch}
       busy={sending}
       statusLabel={status?.label}
       onClarifierAnswer={(answer) => handleSend(answer, [])}

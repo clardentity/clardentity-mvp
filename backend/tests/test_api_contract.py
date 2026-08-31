@@ -423,3 +423,164 @@ class TestMessageFeedback:
         finally:
             await self._cleanup(convo_id, user_id)
             await self._cleanup(other_convo_id, other_user_id)
+
+
+class TestMessageForking:
+    """The fork switcher's read side: sibling metadata on GET /messages, and
+    PUT .../active-leaf to move between branches. Built by hand rather than
+    through send_message - a forked tree is just rows with the right
+    parent_id and an active_leaf_id pointer, and constructing it directly
+    tests exactly that shape without mocking the whole generation pipeline.
+    Needs a database.
+    """
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"fork-{uuid.uuid4().hex[:8]}@example.com"
+        password = "fork-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.flush()
+
+            question = Message(
+                conversation_id=convo.id, role="user", content="q", mode_used="knowing", parent_id=None
+            )
+            db.add(question)
+            await db.flush()
+
+            old_answer = Message(
+                conversation_id=convo.id,
+                role="assistant",
+                content="first answer",
+                mode_used="knowing",
+                parent_id=question.id,
+            )
+            db.add(old_answer)
+            await db.flush()
+
+            new_answer = Message(
+                conversation_id=convo.id,
+                role="assistant",
+                content="regenerated answer",
+                mode_used="knowing",
+                parent_id=question.id,
+            )
+            db.add(new_answer)
+            await db.flush()
+
+            # The regenerate flow leaves the newest sibling active.
+            convo.active_leaf_id = new_answer.id
+            await db.commit()
+            return (
+                email,
+                password,
+                user.id,
+                convo.id,
+                question.id,
+                old_answer.id,
+                new_answer.id,
+            )
+
+    async def _login(self, c, email, password):
+        login = await c.post(f"{API}/auth/login", json={"email": email, "password": password})
+        if login.status_code != 200:
+            pytest.skip("login unavailable")
+        return login.json()["access_token"]
+
+    async def _cleanup(self, convo_id, user_id):
+        from app.models import Conversation as _Conversation
+
+        async with AsyncSessionLocal() as db:
+            # active_leaf_id points into messages - clear it first so the
+            # FK doesn't block the message rows being deleted.
+            await db.execute(
+                _Conversation.__table__.update()
+                .where(_Conversation.id == convo_id)
+                .values(active_leaf_id=None)
+            )
+            await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+            await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+            await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+            await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+    async def test_the_active_branch_shows_the_newest_sibling_by_default(self):
+        try:
+            email, password, user_id, convo_id, q_id, old_id, new_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                res = await c.get(
+                    f"{API}/chat/{convo_id}/messages",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                body = res.json()
+                contents = [m["content"] for m in body]
+                assert contents == ["q", "regenerated answer"]
+                answer = next(m for m in body if m["id"] == str(new_id))
+                assert answer["sibling_index"] == 1
+                assert answer["sibling_count"] == 2
+                assert answer["sibling_ids"] == [str(old_id), str(new_id)]
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_switching_the_active_leaf_shows_the_other_branch(self):
+        try:
+            email, password, user_id, convo_id, q_id, old_id, new_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                headers = {"Authorization": f"Bearer {token}"}
+                switch = await c.put(
+                    f"{API}/chat/{convo_id}/active-leaf",
+                    json={"message_id": str(old_id)},
+                    headers=headers,
+                )
+                assert switch.status_code == 200
+                assert switch.json()["active_leaf_id"] == str(old_id)
+
+                res = await c.get(f"{API}/chat/{convo_id}/messages", headers=headers)
+                contents = [m["content"] for m in res.json()]
+                assert contents == ["q", "first answer"]
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_switching_to_an_unknown_message_404s(self):
+        try:
+            email, password, user_id, convo_id, *_ = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                res = await c.put(
+                    f"{API}/chat/{convo_id}/active-leaf",
+                    json={"message_id": str(uuid.uuid4())},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert res.status_code == 404
+        finally:
+            await self._cleanup(convo_id, user_id)

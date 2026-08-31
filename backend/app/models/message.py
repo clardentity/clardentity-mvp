@@ -60,6 +60,15 @@ class Message(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
+    # The message this one continues from. Null only for the first message(s)
+    # of a conversation. Editing or regenerating never deletes a row - it adds
+    # a new one with the SAME parent as the message being replaced, so both
+    # become siblings - see app/services/message_tree.py, which is what turns
+    # this pointer plus Conversation.active_leaf_id into "the conversation" a
+    # user actually sees.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True
+    )
     role: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     mode_used: Mapped[str] = mapped_column(String, nullable=False)
@@ -101,7 +110,9 @@ class Message(Base):
     token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    conversation: Mapped["Conversation"] = relationship(
+        back_populates="messages", foreign_keys=[conversation_id]
+    )
     claims: Mapped[list["MessageClaim"]] = relationship(
         back_populates="message", cascade="all, delete-orphan", order_by="MessageClaim.claim_index"
     )

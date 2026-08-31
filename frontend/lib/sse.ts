@@ -102,6 +102,16 @@ export type ChatMessage = {
   thinking_review: ThinkingReviewData | null;
   /** The user's own reaction to this answer - null until they tap something. */
   feedback: { rating: "up" | "down" | null; comment: string | null } | null;
+  /** Null for the very first message(s) of a conversation. */
+  parent_id: string | null;
+  /** This message's position among its siblings (0-based) and how many
+   *  there are - the fork switcher's "< 2/3 >". 1 sibling means there's
+   *  nothing to switch between, which is most messages. */
+  sibling_index: number;
+  sibling_count: number;
+  /** Every sibling's id, oldest first (this message's included) - what the
+   *  fork switcher's arrows navigate between via PUT .../active-leaf. */
+  sibling_ids: string[];
   claims: Claim[];
 };
 
@@ -168,6 +178,14 @@ export type SendMessageBody = {
   /** How many context-gate rounds have already been answered for this turn.
    *  The server caps further asking once this hits its limit. */
   context_rounds?: number;
+  /** Fork point for the new user message this call creates. Set when
+   *  editing, to the edited message's own parent_id, so the edit becomes a
+   *  sibling instead of the server treating it as a normal continuation. */
+  parent_id?: string | null;
+  /** Set instead of real content to regenerate: produces an alternate answer
+   *  to this existing assistant message, as its sibling. `content`/`mode`
+   *  are ignored server-side when this is set. */
+  regenerate_of?: string;
 };
 
 async function openStream(
