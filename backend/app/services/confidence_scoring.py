@@ -296,11 +296,18 @@ def compute_claim_score(
     can never read higher than "distorted", regardless of how well-cited it is.
 
     `opinion` is whether the claim was written as Clardentity AI's own stated
-    view (see is_opinion_claim) rather than an assertion of fact. It still
-    scores 0 - there genuinely is no evidence behind it, and that number is
-    honest - but the tier is "opinion", not "fabricated", so it reads as a
-    disclosed view rather than a failed check.
+    view (see is_opinion_claim) rather than an assertion of fact. It wins
+    outright: the tier is "opinion" and the score is fixed at 0, regardless
+    of what `evidence` holds. A claim framed this way was never meant to be
+    checked against sources - the model already said there is no source of
+    truth for it - so scoring it against whatever the research pipeline
+    happened to dig up (see chat.py, which now skips searching for these
+    claims in the first place, but this holds even if evidence arrives some
+    other way) would just contradict the framing next to it.
     """
+    if opinion:
+        return 0.0, "opinion"
+
     if not evidence:
         score = 0.0
     else:
@@ -308,9 +315,6 @@ def compute_claim_score(
 
     if distorted:
         score = min(score, _DISTORTION_CAP)
-
-    if opinion and not evidence:
-        return score, "opinion"
 
     return score, veracity_tier(score)
 

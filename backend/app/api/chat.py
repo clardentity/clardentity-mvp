@@ -766,11 +766,19 @@ async def send_message(
         # at once - one agent per claim - because they have nothing to do with
         # each other and running them in sequence made a three-unsupported-claim
         # answer take three times as long for no benefit.
+        #
+        # Except a claim the model wrote as its own opinion: there is nothing
+        # to go and check by design (see prompt_builder's opinion framing),
+        # so searching for it would spend a call finding something irrelevant
+        # to attach - and if it succeeded, that evidence would fight with
+        # compute_claim_score's opinion tier over what the claim actually is.
         research_notes: list[str] = []
         if web_enabled:
-            targets = [i for i, ev in enumerate(evidence_by_claim) if not ev][
-                :_MAX_RESEARCHED_CLAIMS
-            ]
+            targets = [
+                i
+                for i, ev in enumerate(evidence_by_claim)
+                if not ev and not is_opinion_claim(parsed_claims[i].claim_text)
+            ][:_MAX_RESEARCHED_CLAIMS]
             if targets:
                 # A deadline, not a hope. Each agent can run three
                 # search-and-judge rounds, and three rounds against a slow

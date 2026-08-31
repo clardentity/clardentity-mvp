@@ -95,16 +95,17 @@ class TestClaimScore:
     def test_opinion_flag_overrides_the_fabricated_tier_when_uncited(self):
         # A claim honestly framed as Clardentity AI's own view is not the
         # same thing as an unsupported claim that reads as fact - it gets its
-        # own tier instead of "fabricated", though the 0 score is unchanged
-        # since there genuinely is no evidence behind it.
+        # own tier instead of "fabricated", at a fixed 0 score.
         assert compute_claim_score([], opinion=True) == (0.0, "opinion")
 
-    def test_opinion_flag_is_ignored_when_evidence_was_actually_cited(self):
-        # The prompt tells the model to leave an opinion claim uncited, but
-        # the tier logic itself shouldn't trust that - a claim that somehow
-        # carries real evidence is scored normally regardless of the flag.
+    def test_opinion_flag_wins_even_when_evidence_was_found_anyway(self):
+        # chat.py skips web research for opinion claims, but the tier logic
+        # doesn't trust that as its only guard: a claim the model explicitly
+        # framed as its own view was never meant to be checked against
+        # sources, so evidence arriving some other way still doesn't turn it
+        # back into a scored factual claim.
         score, tier = compute_claim_score([ev(1.0, 1.0)], opinion=True)
-        assert tier == "verifiable_fact" and score == 100.0
+        assert (score, tier) == (0.0, "opinion")
 
 
 class TestIsOpinionClaim:
