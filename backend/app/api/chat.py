@@ -360,10 +360,18 @@ async def devils_advocate(
     try:
         text = await generate_counterfactual(message.content, flagged)
     except Exception as exc:  # noqa: BLE001 - a comparison failing must not 500 the chat
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Couldn't produce the comparison: {exc}",
-        ) from exc
+        # Same rule as the main answer path: the raw exception never reaches
+        # the client. It can name a vendor or quote a credit-balance message
+        # from whichever provider failed, and interpolating it straight into
+        # `detail` (as this used to) said exactly that to the user instead.
+        logger.error("devil's advocate generation failed", exc_info=True)
+        detail = (
+            "You've reached today's limit for responses. Please try again in a "
+            "little while."
+            if is_provider_unavailable_error(exc)
+            else "Couldn't produce the comparison. Please try again."
+        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
 
     message.counterfactual_content = text
     await db.commit()
