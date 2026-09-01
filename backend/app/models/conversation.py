@@ -7,7 +7,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
-COGNITIVE_MODES = ("knowing", "thinking", "decision", "learning")
+COGNITIVE_MODES = (
+    "knowing",
+    "thinking",
+    "decision",
+    "learning",
+    "mentoring",
+    "therapy",
+    "creative",
+)
 
 
 class Conversation(Base):

@@ -10,7 +10,7 @@ export type { CognitiveMode };
 
 /** Mode choice is deliberately explicit (SRS §7.2 - no auto-detection), so the
  *  control has to make the choice easy rather than merely available. Before a
- *  mode is picked it shows all four with a plain-language "when to use this";
+ *  mode is picked it shows all seven with a plain-language "when to use this";
  *  afterwards it collapses to a compact segmented control so it stops
  *  competing with the conversation for attention.
  */

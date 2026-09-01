@@ -6,6 +6,7 @@ is checked by hand against the live API - see the identity probes in the
 commit history.
 """
 
+from app.models.conversation import COGNITIVE_MODES
 from app.services import taxonomy
 from app.services.claim_parser import ClaimTagStripper
 from app.services.thinking_framework import (
@@ -20,7 +21,7 @@ from app.services.prompt_builder import (
     build_system_instructions,
 )
 
-MODES = ("knowing", "thinking", "decision", "learning")
+MODES = COGNITIVE_MODES
 
 
 def _flat(*args, **kwargs) -> str:

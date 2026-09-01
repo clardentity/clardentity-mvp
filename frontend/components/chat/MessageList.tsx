@@ -18,6 +18,7 @@ import { GuidanceCard } from "@/components/chat/GuidanceCard";
 import { DecisionReview } from "@/components/chat/DecisionReview";
 import { ThinkingReview } from "@/components/chat/ThinkingReview";
 import { FeedbackWidget } from "@/components/chat/FeedbackWidget";
+import { ExportFileMenu } from "@/components/chat/ExportFileMenu";
 import { cleanMessageText } from "@/lib/text";
 import { cx, Spinner } from "@/components/ui/primitives";
 
@@ -529,6 +530,10 @@ function MessageBubble({
 
         {!isUser && !isStreaming && conversationId && (
           <FeedbackWidget conversationId={conversationId} messageId={id} feedback={feedback ?? null} />
+        )}
+
+        {!isUser && !isStreaming && conversationId && modeUsed === "creative" && (
+          <ExportFileMenu conversationId={conversationId} messageId={id} />
         )}
 
         {!isStreaming && (siblingCount ?? 1) > 1 && siblingIds && onSwitchBranch && (

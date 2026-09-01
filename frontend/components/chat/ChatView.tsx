@@ -38,6 +38,9 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
   thinking: "chin_stroke",
   decision: "weighing_scales",
   learning: "open_hand_explaining",
+  mentoring: "open_hand_explaining",
+  therapy: "chin_stroke",
+  creative: "presenting",
 };
 
 export function ChatView({ conversationId }: { conversationId: string }) {

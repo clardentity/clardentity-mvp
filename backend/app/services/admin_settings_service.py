@@ -25,6 +25,9 @@ DEFAULTS: dict[str, Any] = {
         "thinking": "chin_stroke",
         "decision": "weighing_scales",
         "learning": "open_hand_explaining",
+        "mentoring": "open_hand_explaining",
+        "therapy": "chin_stroke",
+        "creative": "presenting",
     },
     "feature_flags": {
         "tts_enabled": True,

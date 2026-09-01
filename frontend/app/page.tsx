@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { COGNITIVE_MODES } from "@/lib/modes";
-import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { WordRotator } from "@/components/marketing/WordRotator";
+import { ModeFlipCarousel } from "@/components/marketing/ModeFlipCarousel";
 
 /* Positioning is deliberately indirect: it names the failure modes people
    already recognise in assistants that answer confidently and can't be
@@ -124,41 +123,28 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Four modes - the centrepiece, and now the first thing after the
+      {/* Seven modes - the centrepiece, and now the first thing after the
           hero. It used to sit behind the problem statement, which meant a
           visitor read two screens of argument before seeing what the thing
           does. The case for it lands better once you know what it is. */}
-      <section id="modes" className="scroll-mt-16 px-6 py-20 sm:py-24">
-        <div className="mx-auto max-w-5xl">
+      <section id="modes" className="scroll-mt-16 py-20 sm:py-24">
+        <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-              One companion. Four modes of companionship.
+              One companion. Seven modes of companionship.
             </p>
             <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
               Different questions deserve a different approach. You choose the
-              mode - Clardentity never assumes.
+              mode - Clardentity never assumes. Tap a card to see what it does.
             </p>
           </div>
+        </div>
 
-          {/* Knowing spans two columns on desktop: it's the mode most people
-              arrive for, and an even 2x2 grid reads as four equal options
-              rather than a starting point. */}
-          <BentoGrid className="mt-14" rowHeight="15rem">
-            {COGNITIVE_MODES.map((mode, i) => (
-              <BentoCard
-                key={mode.value}
-                name={mode.companion}
-                description={mode.when}
-                className={i === 0 ? "lg:col-span-2" : ""}
-                href={primaryHref}
-                cta={mode.cta}
-                eyebrow={mode.hint}
-              />
-            ))}
-          </BentoGrid>
+        <div className="mt-14">
+          <ModeFlipCarousel />
         </div>
       </section>
 

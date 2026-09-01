@@ -21,6 +21,7 @@ from app.schemas.chat import (
     ConversationCreate,
     ConversationOut,
     EvidenceOut,
+    ExportFileIn,
     FeedbackIn,
     MessageCreate,
     MessageOut,
@@ -53,6 +54,7 @@ from app.services.decision_classifier import (
     classify_decision,
 )
 from app.services.export_service import build_markdown_export, build_pdf_export
+from app.services.office_export import MEDIA_TYPES, export_file as build_office_export
 from app.services.message_tree import active_path, latest_leaf, resolve_parent_id, siblings
 from app.services.memory_service import (
     HISTORY_WINDOW,
@@ -376,6 +378,52 @@ async def devils_advocate(
     message.counterfactual_content = text
     await db.commit()
     return {"counterfactual_content": text}
+
+
+@router.post("/{conversation_id}/messages/{message_id}/export-file")
+async def export_file(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    payload: ExportFileIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Creative mode's "save as a file": turns one answer into an actual
+    Word document, slide deck, or spreadsheet, generated fresh on every
+    request and streamed straight back - see office_export.py for why
+    nothing is persisted server-side.
+    """
+    await check_rate_limit(
+        f"chat:export-file:{current_user.id}", max_requests=10, window_seconds=300
+    )
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+
+    message = await db.get(Message, message_id)
+    if message is None or message.conversation_id != conversation.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    if message.role != "assistant" or not message.content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only an assistant answer can be exported to a file",
+        )
+
+    try:
+        file_bytes, filename = await build_office_export(message.content, payload.format)
+    except Exception as exc:  # noqa: BLE001 - same rule as the other generation endpoints
+        logger.error("office file export failed", exc_info=True)
+        detail = (
+            "You've reached today's limit for responses. Please try again in a "
+            "little while."
+            if is_provider_unavailable_error(exc)
+            else "Couldn't generate the file. Please try again."
+        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+
+    return Response(
+        content=file_bytes,
+        media_type=MEDIA_TYPES[payload.format],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.put("/{conversation_id}/messages/{message_id}/feedback")

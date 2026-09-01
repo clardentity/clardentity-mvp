@@ -27,6 +27,9 @@ type AvatarGestureMap = {
   thinking: string;
   decision: string;
   learning: string;
+  mentoring: string;
+  therapy: string;
+  creative: string;
 };
 
 type FeatureFlags = {
@@ -60,7 +63,15 @@ type Settings = {
 };
 
 const GESTURE_OPTIONS = ["presenting", "chin_stroke", "weighing_scales", "open_hand_explaining", "none"];
-const MODES: (keyof AvatarGestureMap)[] = ["knowing", "thinking", "decision", "learning"];
+const MODES: (keyof AvatarGestureMap)[] = [
+  "knowing",
+  "thinking",
+  "decision",
+  "learning",
+  "mentoring",
+  "therapy",
+  "creative",
+];
 
 export function AdminSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);

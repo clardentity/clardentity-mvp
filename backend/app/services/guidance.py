@@ -64,7 +64,12 @@ _MODE_SUMMARY = (
     "knowing: retrieve and state facts precisely, with sources.\n"
     "thinking: reason through a problem step by step to a conclusion.\n"
     "decision: compare options against criteria and recommend one.\n"
-    "learning: teach a subject, pitched at the asker's level."
+    "learning: teach a subject, pitched at the asker's level.\n"
+    "mentoring: give grounded guidance toward a goal, the way someone who's done it "
+    "would.\n"
+    "therapy: supportive, behaviour-aware conversation - not clinical treatment.\n"
+    "creative: help make things - writing, code, documents, presentations, "
+    "spreadsheets."
 )
 
 _INSTRUCTIONS = (

@@ -221,11 +221,56 @@ body {
   }
 }
 
-/* Bento row height comes in as a custom property from the component, so the
-   breakpoint has to live here rather than in a utility class. */
-@media (min-width: 640px) {
-  .bento-grid {
-    grid-auto-rows: var(--bento-row-height, 18rem);
+/* ---------------------------------------------------------------------------
+   Landing page mode carousel - a continuous right-to-left strip of flip
+   cards, one per companion mode.
+--------------------------------------------------------------------------- */
+@keyframes mode-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    /* The track renders the mode list twice back to back (see
+       ModeFlipCarousel), so translating exactly half its width lands on a
+       frame identical to the start - the loop point is invisible. */
+    transform: translateX(-50%);
+  }
+}
+
+.mode-marquee-track {
+  animation: mode-marquee 48s linear infinite;
+}
+
+/* Paused by hovering or focusing *any* card in the strip, not just the whole
+   container - a card mid-flip should not keep sliding out from under the
+   pointer that just flipped it. */
+.mode-marquee-track:hover,
+.mode-marquee-track:focus-within {
+  animation-play-state: paused;
+}
+
+/* The flip is a squash-swap-unsquash, not a true 3D rotateY: a real 3D flip
+   needs perspective + preserve-3d + backface-visibility, and that
+   combination renders as a solid black card in this project's own browser
+   preview tooling (confirmed against the DOM and accessibility tree both
+   being correct underneath it - only the painted pixels came back black).
+   Scaling to zero width, swapping which face is in the DOM, then scaling
+   back reads as the same "turning over" motion using only a 2D transform,
+   which has no such compositing edge case. */
+.mode-flip-card {
+  transition: transform 0.2s ease-in;
+}
+
+.mode-flip-card.is-squashed {
+  transform: scaleX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-marquee-track {
+    animation: none;
+  }
+  .mode-flip-card {
+    transition: none;
   }
 }
 

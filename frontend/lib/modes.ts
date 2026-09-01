@@ -1,4 +1,4 @@
-/** The four modes of the single cognitive companion.
+/** The seven modes of the single cognitive companion.
  *
  *  One definition shared by the landing page and the composer, so the words a
  *  visitor reads before signing up are the same ones they see when choosing a
@@ -49,6 +49,36 @@ export const COGNITIVE_MODES = [
     cta: "Try learning something new.",
     detail:
       "Meets you at your level and builds from there, drawing on established learning science. Ends by checking you've actually got it.",
+  },
+  {
+    value: "mentoring",
+    label: "Mentoring",
+    companion: "Mentoring Companion",
+    hint: "Get guided toward a goal",
+    when: "When you want guidance from someone who's been where you're headed.",
+    cta: "Try getting mentored.",
+    detail:
+      "Advises the way a person who has actually done this before would - honest about what's hard and how long it really takes, not just encouraging.",
+  },
+  {
+    value: "therapy",
+    label: "Psycho-Therapy",
+    companion: "Psycho-Therapy Companion",
+    hint: "Talk it through",
+    when: "When you want supportive, on-demand counselling-style conversation.",
+    cta: "Try talking it through.",
+    detail:
+      "Listens fully and reflects back what's actually being said, helping you notice your own patterns. Companionship, not clinical treatment - it says so plainly when something calls for a licensed professional.",
+  },
+  {
+    value: "creative",
+    label: "Creative",
+    companion: "Creative Companion",
+    hint: "Make something",
+    when: "When you want help writing, coding, or building a document from scratch.",
+    cta: "Try making something.",
+    detail:
+      "Writes, codes, and builds structured documents - reports, presentations, spreadsheets - offered as an actual file, not just described in chat.",
   },
 ] as const;
 

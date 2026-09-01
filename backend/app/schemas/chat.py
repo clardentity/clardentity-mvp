@@ -13,7 +13,12 @@ class ConversationCreate(BaseModel):
     # carry that choice into the conversation instead of dropping it at the
     # door. Literal rather than str so a typo is a 422, not a check-constraint
     # violation at commit time.
-    default_mode: Literal["knowing", "thinking", "decision", "learning"] | None = None
+    default_mode: (
+        Literal[
+            "knowing", "thinking", "decision", "learning", "mentoring", "therapy", "creative"
+        ]
+        | None
+    ) = None
 
 
 class ConversationOut(BaseModel):
@@ -167,6 +172,10 @@ class MessageOut(BaseModel):
     claims: list[ClaimOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class ExportFileIn(BaseModel):
+    format: Literal["docx", "pptx", "xlsx"]
 
 
 class ActiveLeafIn(BaseModel):
