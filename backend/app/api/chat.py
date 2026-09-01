@@ -448,6 +448,13 @@ async def send_message(
     regenerate_target: Message | None = None
     user_message: Message | None = None
     guidance: dict | None = None
+    # Set only on the regenerate path, to the existing question's own id -
+    # kept separate from `effective_parent_id` below, which on this path
+    # means something else (how far back `history` reaches), not what the
+    # new answer attaches to. Conflating the two here previously attached a
+    # regenerated answer as a sibling of the QUESTION rather than a sibling
+    # of the old ANSWER - one level too high in the tree.
+    regenerate_answer_parent_id: uuid.UUID | None = None
 
     if payload.regenerate_of is not None:
         # An alternate answer to a question already asked and settled - never
@@ -473,8 +480,12 @@ async def send_message(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         reasoning_lens = parent_message.reasoning_lens
         effective_content = parent_message.content or ""
-        effective_parent_id = parent_message.parent_id
-        history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
+        regenerate_answer_parent_id = parent_message.id
+        # `history` is everything BEFORE the question being re-answered - the
+        # same context the original answer was generated against - so this
+        # walks the path ending at the question's own parent, one level
+        # further back than where the new answer itself attaches.
+        history = active_path(all_messages, parent_message.parent_id)[-HISTORY_WINDOW:]
         memory_summary = await get_memory_summary(db, conversation_id)
     else:
         # FR7: mode is mandatory and there is no auto-detection fallback -
@@ -613,9 +624,11 @@ async def send_message(
 
     # The parent every downstream write (assistant message, citations, the
     # active-leaf pointer once it exists) attaches to: the user message just
-    # created, or - on a regenerate, where none was - the existing one being
-    # answered again.
-    assistant_parent_id = user_message.id if user_message is not None else effective_parent_id
+    # created, or - on a regenerate, where none was - the existing question
+    # being answered again.
+    assistant_parent_id = (
+        user_message.id if user_message is not None else regenerate_answer_parent_id
+    )
 
     flags = admin_settings.get("feature_flags") or {}
 
