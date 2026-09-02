@@ -13,17 +13,19 @@ import { ModeFlipCarousel } from "@/components/marketing/ModeFlipCarousel";
    comparison, and the claim here is about kind, not quantity. */
 
 function Nav({ signedIn }: { signedIn: boolean }) {
+  // No wordmark and no "Get started" here any more - the hero immediately
+  // below carries both (a bigger heading with the same name, and its own
+  // primary CTA), so a second, smaller copy of each at the very top was
+  // pure repetition. What's left is the one thing that's only ever here:
+  // getting back into an existing account, plus the theme toggle, now the
+  // rightmost thing in the row rather than jammed in front of it.
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-surface/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-between gap-2 px-4 sm:px-6">
-        <Link href="/" className="shrink-0 text-[15px] font-semibold tracking-tight text-ink">
-          Clardentity
-        </Link>
-        {/* whitespace-nowrap throughout: at 320px "Log in" broke across two
-            lines and pushed the header to 96px tall, which is a third of the
-            fold spent on chrome. */}
-        <nav className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[13px] sm:gap-1">
-          <ThemeToggle className="mr-1" />
+      <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-end gap-2 px-4 sm:px-6">
+        {/* whitespace-nowrap: at 320px "Log in" broke across two lines and
+            pushed the header to 96px tall, which is a third of the fold
+            spent on chrome. */}
+        <nav className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[13px]">
           {signedIn ? (
             <Link
               href="/workspace"
@@ -32,21 +34,14 @@ function Nav({ signedIn }: { signedIn: boolean }) {
               Open
             </Link>
           ) : (
-            <>
-              <Link
-                href="/login"
-                className="rounded-full px-2 py-1.5 text-ink-secondary transition-colors hover:text-ink sm:px-3"
-              >
-                Log in
-              </Link>
-              <Link
-                href="/register"
-                className="rounded-full bg-brand px-3 py-1.5 font-medium text-white transition-colors hover:bg-brand-dark sm:px-4"
-              >
-                Get started
-              </Link>
-            </>
+            <Link
+              href="/login"
+              className="rounded-full px-2 py-1.5 text-ink-secondary transition-colors hover:text-ink sm:px-3"
+            >
+              Log in
+            </Link>
           )}
+          <ThemeToggle className="ml-1" />
         </nav>
       </div>
     </header>
@@ -142,14 +137,10 @@ export default function Home() {
             <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
             </h2>
-            <p className="mt-3 text-lg leading-relaxed text-ink-secondary">
-              Different questions deserve a different approach. You choose the
-              mode - Clardentity never assumes. Tap a card to see what it does.
-            </p>
           </div>
         </div>
 
-        <div className="mt-6 sm:mt-8">
+        <div className="mt-5 sm:mt-6">
           <ModeFlipCarousel />
         </div>
       </section>
