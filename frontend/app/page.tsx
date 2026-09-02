@@ -67,8 +67,14 @@ export default function Home() {
     <div className="bg-canvas">
       <Nav signedIn={!!user} />
 
-      {/* Hero ------------------------------------------------------------ */}
-      <section className="px-5 pb-14 pt-16 text-center sm:px-6 sm:pb-20 sm:pt-32">
+      {/* Hero ------------------------------------------------------------
+          Deliberately compact, not the full-height opener it used to be: at
+          normal viewport heights the old pt-32/pb-20 padding alone pushed the
+          mode carousel below the fold, so reaching it meant scrolling past a
+          screen of nothing but hero before seeing what the product actually
+          does. Tightened so the carousel's first row is visible without
+          scrolling on an ordinary laptop screen. */}
+      <section className="px-5 pb-4 pt-8 text-center sm:px-6 sm:pb-6 sm:pt-12">
         {/* The name is three words folded together, which nobody gets from
             reading it once. Rotating them in the eyebrow slot says so without
             a sentence explaining the pun; the line under it gives the meaning
@@ -103,11 +109,11 @@ export default function Home() {
         </h1>
         {/* Wording from the client's linguistic recommendations. Their copy
             uses an em dash here; house rule converts it to a hyphen. */}
-        <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-ink-secondary sm:mt-6 sm:text-lg lg:text-xl">
+        <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-ink-secondary sm:mt-4 sm:text-lg lg:text-xl">
           Most AI sounds certain. Clardentity doesn&apos;t just give answers -
           it shows you the evidence, and admits when there isn&apos;t any.
         </p>
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:mt-6">
           <Link
             href={primaryHref}
             className="rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
@@ -127,23 +133,23 @@ export default function Home() {
           hero. It used to sit behind the problem statement, which meant a
           visitor read two screens of argument before seeing what the thing
           does. The case for it lands better once you know what it is. */}
-      <section id="modes" className="scroll-mt-16 py-20 sm:py-24">
+      <section id="modes" className="scroll-mt-16 pb-20 pt-2 sm:pb-24 sm:pt-4">
         <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
               One companion. Seven modes of companionship.
             </p>
-            <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
+            <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
             </h2>
-            <p className="mt-5 text-lg leading-relaxed text-ink-secondary">
+            <p className="mt-3 text-lg leading-relaxed text-ink-secondary">
               Different questions deserve a different approach. You choose the
               mode - Clardentity never assumes. Tap a card to see what it does.
             </p>
           </div>
         </div>
 
-        <div className="mt-14">
+        <div className="mt-6 sm:mt-8">
           <ModeFlipCarousel />
         </div>
       </section>
