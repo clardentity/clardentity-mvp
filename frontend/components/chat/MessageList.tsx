@@ -410,6 +410,19 @@ function MessageBubble({
             </div>
           </div>
         )}
+        {guidance && !isStreaming && (
+          // Above the answer, not below it: this is a nudge about the
+          // *question* ("did you mean...", "this fits a different mode
+          // better") - the same place a search engine puts "Did you mean?",
+          // since it's read before the answer it would have changed, not as
+          // a footnote after.
+          <GuidanceCard
+            guidance={guidance}
+            onUseMode={onUseMode ? (m) => onUseMode(m) : undefined}
+            onAskRefined={onAskRefined}
+            disabled={busy}
+          />
+        )}
         {editing ? (
           <form
             onSubmit={(event) => {
@@ -517,15 +530,6 @@ function MessageBubble({
 
         {panel === "decision" && decisionReview && !isStreaming && (
           <DecisionReview review={decisionReview} />
-        )}
-
-        {guidance && !isStreaming && (
-          <GuidanceCard
-            guidance={guidance}
-            onUseMode={onUseMode ? (m) => onUseMode(m) : undefined}
-            onAskRefined={onAskRefined}
-            disabled={busy}
-          />
         )}
 
         {!isUser && !isStreaming && conversationId && (

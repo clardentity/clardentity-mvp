@@ -98,7 +98,7 @@ class TestNoSelfLabelling:
     def test_forbids_writing_the_verdict_words_into_prose(self):
         instructions = _flat("knowing")
         assert "Unsupported" in instructions  # named only to forbid it
-        assert "do not write anything else about the claim's own evidential" in instructions
+        assert "do not write anything about the claim's own evidential" in instructions
 
     def test_forbids_markdown(self):
         assert "No Markdown" in _flat("knowing")

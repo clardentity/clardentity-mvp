@@ -4,7 +4,14 @@ from dataclasses import dataclass
 _OPEN_TAG_RE = re.compile(r'^<claim id="\d+">')
 _CLOSE_TAG = "</claim>"
 _OPEN_PREFIX = '<claim id="'
-_CLAIM_BLOCK_RE = re.compile(r'<claim id="(\d+)">(.*?)</claim>', re.DOTALL)
+# The optional ` opinion="true"` group is the only other shape this tag ever
+# takes - see prompt_builder's opinion-framing instruction. The streaming
+# stripper (ClaimTagStripper) never needed updating for it: _OPEN_TAG_RE not
+# matching a tag with the extra attribute just falls through to the generic
+# _ANY_TAG_RE path below, which strips any well-formed tag regardless of its
+# attributes, and _PARTIAL_TAG_RE's `\s[^<>]*` tail already covers a
+# still-streaming attribute the same way it covers any other.
+_CLAIM_BLOCK_RE = re.compile(r'<claim id="(\d+)"( opinion="true")?>(.*?)</claim>', re.DOTALL)
 _MARKER_RE = re.compile(r"\[(\d+)\]")
 
 # Any other tag the model emits. The chat bubble renders none of them, so a
@@ -115,6 +122,11 @@ class ParsedClaim:
     claim_index: int
     claim_text: str
     citation_markers: list[int]
+    # Set from the tag itself (<claim id="n" opinion="true">), not inferred
+    # from the claim's wording - see prompt_builder._FORMATTING_RULES. A
+    # claim framed this way is a stated view with no source of truth to check
+    # against, not an unsupported assertion of fact.
+    is_opinion: bool = False
 
 
 def extract_claims(full_text: str) -> list[ParsedClaim]:
@@ -137,13 +149,14 @@ def extract_claims(full_text: str) -> list[ParsedClaim]:
         ]
 
     claims = []
-    for raw_index, text in blocks:
+    for raw_index, opinion_attr, text in blocks:
         text = text.strip()
         claims.append(
             ParsedClaim(
                 claim_index=int(raw_index),
                 claim_text=text,
                 citation_markers=[int(m) for m in _MARKER_RE.findall(text)],
+                is_opinion=bool(opinion_attr),
             )
         )
     return claims

@@ -1,5 +1,4 @@
 import math
-import re
 import uuid
 from dataclasses import dataclass
 
@@ -171,26 +170,6 @@ VERACITY_TIER_LABELS: dict[str, str] = {
     "opinion": "Stated as Clardentity AI's opinion",
 }
 
-# Matches the exact framing prompt_builder._FORMATTING_RULES instructs the
-# model to use for a claim that has no source of truth to check against -
-# see is_opinion_claim below.
-_OPINION_PREFIX_RE = re.compile(
-    r"^\s*it is (?:also )?the opinion of clardentity ai that\b", re.IGNORECASE
-)
-
-
-def is_opinion_claim(claim_text: str) -> bool:
-    """True when the model explicitly framed this claim as its own stated
-    view rather than an assertion of fact.
-
-    This has to be checked before a bare score decides the tier: an honestly
-    declared opinion and an unsupported claim that reads as fact both end up
-    with zero evidence, but they are not the same thing, and "Appears
-    fabricated / malicious" reads as an accusation of lying about something
-    the claim never claimed to be true in the first place.
-    """
-    return bool(_OPINION_PREFIX_RE.match(claim_text))
-
 # A claim whose reasoning was flagged for cognitive distortion cannot read as
 # an established fact, however well its citations score - the framework
 # reserves 81-100 for content that is *not* "weaponised via hyperbole, severe
@@ -295,8 +274,10 @@ def compute_claim_score(
     reasoning for cognitive bias - when true, the score is capped so the tier
     can never read higher than "distorted", regardless of how well-cited it is.
 
-    `opinion` is whether the claim was written as Clardentity AI's own stated
-    view (see is_opinion_claim) rather than an assertion of fact. It wins
+    `opinion` is whether the model tagged this claim <claim id="n"
+    opinion="true"> - its own stated view rather than an assertion of fact,
+    set from the tag itself, not inferred from the wording (see
+    claim_parser.ParsedClaim.is_opinion). It wins
     outright: the tier is "opinion" and the score is fixed at 0, regardless
     of what `evidence` holds. A claim framed this way was never meant to be
     checked against sources - the model already said there is no source of

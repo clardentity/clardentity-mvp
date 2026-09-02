@@ -43,7 +43,6 @@ from app.services.confidence_scoring import (
     build_scored_evidence,
     compute_claim_score,
     compute_message_score,
-    is_opinion_claim,
     rescore_after_reconciliation,
 )
 from app.services.devils_advocate import generate_counterfactual
@@ -970,7 +969,7 @@ async def send_message(
             targets = [
                 i
                 for i, ev in enumerate(evidence_by_claim)
-                if not ev and not is_opinion_claim(parsed_claims[i].claim_text)
+                if not ev and not parsed_claims[i].is_opinion
             ][:_MAX_RESEARCHED_CLAIMS]
             if targets:
                 # A deadline, not a hope. Each agent can run three
@@ -1038,7 +1037,7 @@ async def send_message(
             claim_score, entailment_label = compute_claim_score(
                 evidence,
                 distorted=bool(verification.distortion_flag),
-                opinion=is_opinion_claim(claim.claim_text),
+                opinion=claim.is_opinion,
             )
             scored_claims.append(
                 ScoredClaim(

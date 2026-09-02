@@ -134,16 +134,16 @@ _FORMATTING_RULES = (
     'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
     "context with [n] referring to the numbered CONTEXT item. A single claim may cite "
     "more than one source - use multiple [n] markers in that case.\n"
-    "If a claim has no source of truth to cite - nothing in the CONTEXT block and "
-    "nothing verifiable on the internet - do not state it as settled fact and do not "
-    "invent a source. Write it instead as your own judgement: frame the sentence as "
-    '"It is the opinion of Clardentity AI that..." (or an equivalent first-person '
-    "framing naming yourself), so a claim with no source of truth reads honestly as a "
-    "view rather than an unsupported assertion of fact. This applies to matters of "
-    "judgement, prediction, or interpretation that genuinely have no source of truth to "
-    "check against - not to ordinary facts that simply weren't in the provided context, "
-    "which should still be stated plainly and left uncited. Either way, leave the claim "
-    "uncited - do not invent a citation marker for it, and do not write anything else "
+    "If a claim is a matter of judgement, prediction, or interpretation that genuinely "
+    "has no source of truth to check against - not an ordinary fact that simply wasn't "
+    'in the provided context - tag it <claim id="n" opinion="true">...</claim> instead '
+    'of the plain form, and write the sentence as a plain, direct statement exactly as '
+    "you would any other claim. Do not preface it with phrases like 'It is the opinion "
+    "of Clardentity AI that' or 'I believe' - the opinion attribute is what marks it as "
+    "a stated view, not the wording of the sentence, and the reader sees that framing in "
+    "a separate panel rather than in your prose.\n"
+    "Either way - opinion-tagged or not - if a claim has no source of truth to cite, "
+    "leave it uncited: do not invent a citation marker for it, and do not write anything "
     "about the claim's own evidential status. Never write words like 'Unsupported', "
     "'Unverified', 'no citation' or '[no source]' into your prose. The system scores "
     "and labels every claim after you write it, and the reader sees those labels in a "

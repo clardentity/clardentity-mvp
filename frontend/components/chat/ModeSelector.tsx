@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from "react";
 
-import { COGNITIVE_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { COGNITIVE_MODES, COMING_SOON_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
 import { companionLabel, useCompanionNames } from "@/lib/companionNames";
+import { cx } from "@/components/ui/primitives";
 
 export { COGNITIVE_MODES };
 export type { CognitiveMode };
@@ -51,24 +52,32 @@ export function ModeSelector({
           aria-label="Cognitive mode"
           className="grid gap-2 sm:grid-cols-2"
         >
-          {COGNITIVE_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              role="radio"
-              aria-checked={false}
-              disabled={disabled}
-              onClick={() => onChange(mode.value)}
-              className="rounded-xl border border-hairline bg-surface p-3 text-left transition-colors hover:border-brand-border hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="block text-sm font-semibold text-ink">
-                {companionLabel(names, mode.value, mode.label)}
-              </span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
-                {mode.when}
-              </span>
-            </button>
-          ))}
+          {COGNITIVE_MODES.map((mode) => {
+            const comingSoon = COMING_SOON_MODES.includes(mode.value);
+            return (
+              <button
+                key={mode.value}
+                type="button"
+                role="radio"
+                aria-checked={false}
+                disabled={disabled || comingSoon}
+                onClick={() => onChange(mode.value)}
+                className="rounded-xl border border-hairline bg-surface p-3 text-left transition-colors hover:border-brand-border hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-hairline disabled:hover:bg-surface"
+              >
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                  {companionLabel(names, mode.value, mode.label)}
+                  {comingSoon && (
+                    <span className="rounded-full bg-surface-hover px-1.5 py-[1px] text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+                      Soon
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
+                  {mode.when}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -91,6 +100,7 @@ export function ModeSelector({
       >
         {COGNITIVE_MODES.map((mode) => {
           const selected = value === mode.value;
+          const comingSoon = COMING_SOON_MODES.includes(mode.value);
           return (
             <button
               key={mode.value}
@@ -98,14 +108,15 @@ export function ModeSelector({
               type="button"
               role="radio"
               aria-checked={selected}
-              disabled={disabled}
+              disabled={disabled || comingSoon}
               onClick={() => onChange(mode.value)}
-              title={mode.when}
-              className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 ${
+              title={comingSoon ? `${mode.when} (coming soon)` : mode.when}
+              className={cx(
+                "shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:px-3",
                 selected
                   ? "bg-brand text-white"
-                  : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
-              }`}
+                  : "text-ink-secondary hover:bg-surface-hover hover:text-ink",
+              )}
             >
               {companionLabel(names, mode.value, mode.label)}
             </button>

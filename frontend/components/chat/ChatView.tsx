@@ -610,7 +610,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // question), not to be waved through. contextRounds is what
               // caps that, on the server.
               void handleSend(
-                `${pendingContext.content}\n\n(You asked: "${pendingContext.question}")\n${context}`,
+                `${pendingContext.content}\n\n(Clardentity asked: "${pendingContext.question}")\n${context}`,
                 pendingContext.images,
                 pendingContext.mode,
                 false,

@@ -89,3 +89,10 @@ export const MODE_BY_VALUE: Record<CognitiveMode, (typeof COGNITIVE_MODES)[numbe
     CognitiveMode,
     (typeof COGNITIVE_MODES)[number]
   >;
+
+/** Visible in every picker, selectable in none of them yet - shown grayed
+ *  out with a "Soon" badge rather than hidden outright, so the announcement
+ *  (the landing page carousel) and the composer agree on what exists. The
+ *  backend already answers requests in these modes; this is purely about
+ *  when the UI lets someone start one. */
+export const COMING_SOON_MODES: readonly CognitiveMode[] = ["mentoring", "therapy", "creative"];

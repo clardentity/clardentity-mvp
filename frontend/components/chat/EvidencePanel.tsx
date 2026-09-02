@@ -256,7 +256,11 @@ function ClaimBlock({ claim }: { claim: Claim }) {
 
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className={cx("text-xs font-semibold", tier.text)}>{tier.label}</span>
-        {claim.claim_score !== null && (
+        {/* Opinion claims score 0 by design - there was never any evidence to
+            measure, not a failed check - so a percentage next to "Stated as
+            opinion" would read as a contradiction of the label right beside
+            it rather than as information. */}
+        {claim.claim_score !== null && claim.entailment_label !== "opinion" && (
           <span className="text-xs tabular-nums text-ink-muted">
             {factualEvidence(claim.claim_score / 100)}
           </span>
