@@ -5,7 +5,12 @@ broken by a repo-wide literal-character sweep (twice), and answers ending
 paragraphs with a bare "Unsupported." because the prompt named the label.
 """
 
-from app.services.output_cleanup import clean_output, replace_dashes, strip_markup
+from app.services.output_cleanup import (
+    clean_output,
+    replace_dashes,
+    strip_markup,
+    strip_opinion_preface,
+)
 
 
 class TestDashes:
@@ -62,3 +67,36 @@ class TestSelfLabels:
 
     def test_collapses_the_gap_a_removed_label_leaves(self):
         assert "\n\n\n" not in clean_output("A.\n\nUnsupported.\n\nB.")
+
+
+class TestOpinionPreface:
+    """Belt-and-suspenders for prompt_builder's opinion-framing instruction -
+    the model is asked not to write this boilerplate at all (tagging the
+    claim instead), but the instruction is a strong default, not a
+    guarantee."""
+
+    def test_strips_the_exact_boilerplate_and_recapitalizes(self):
+        text = "It is the opinion of Clardentity AI that hybrid work wins."
+        assert strip_opinion_preface(text) == "Hybrid work wins."
+
+    def test_strips_the_also_variant(self):
+        text = "It is also the opinion of Clardentity AI that this is risky."
+        assert strip_opinion_preface(text) == "This is risky."
+
+    def test_is_case_insensitive(self):
+        text = "it IS THE opinion of clardentity ai that X follows."
+        assert strip_opinion_preface(text) == "X follows."
+
+    def test_strips_it_mid_paragraph_not_just_at_the_start(self):
+        text = "First point stands. It is the opinion of Clardentity AI that the second does too."
+        out = strip_opinion_preface(text)
+        assert "opinion of Clardentity AI" not in out
+        assert out == "First point stands. The second does too."
+
+    def test_leaves_ordinary_prose_alone(self):
+        text = "Hybrid work will likely remain common in five years."
+        assert strip_opinion_preface(text) == text
+
+    def test_runs_as_part_of_clean_output(self):
+        text = "It is the opinion of Clardentity AI that hybrid work wins."
+        assert clean_output(text) == "Hybrid work wins."

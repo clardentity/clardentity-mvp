@@ -116,9 +116,27 @@ def strip_self_labels(text: str) -> str:
     return _SELF_LABEL.sub("", text)
 
 
+# The exact boilerplate prompt_builder's opinion-framing instruction now asks
+# the model NOT to write - it should tag the claim <claim id="n"
+# opinion="true"> and write it as a plain statement instead. An instruction
+# not to write a phrase is a strong default, not a guarantee (see the dash
+# and self-label rules above, both of which needed the same belt-and-
+# suspenders treatment), so this catches whatever slips through, wherever in
+# a claim it appears, not just at the very start. The trailing `(\w)` folds
+# the removal and the recapitalization of what follows into one substitution.
+_OPINION_PREFACE = re.compile(
+    r"\bIt is (?:also )?the opinion of Clardentity AI that\s+(\w)", re.IGNORECASE
+)
+
+
+def strip_opinion_preface(text: str) -> str:
+    return _OPINION_PREFACE.sub(lambda m: m.group(1).upper(), text)
+
+
 def clean_output(text: str) -> str:
     """Everything, in the order the passes expect."""
     cleaned = replace_dashes(strip_markup(text))
     cleaned = strip_self_labels(cleaned)
+    cleaned = strip_opinion_preface(cleaned)
     # Removing a trailing label can leave a blank line where a paragraph was.
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
