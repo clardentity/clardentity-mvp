@@ -4,13 +4,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   Claim,
   ChatMessage,
+  Evidence,
   Guidance,
   DecisionReviewData,
   ThinkingReviewData,
 } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
+import { CruxCard } from "@/components/chat/CruxCard";
 import { CitationPopover } from "@/components/chat/CitationPopover";
-import { EvidencePanel } from "@/components/chat/EvidencePanel";
 import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/ResponseFlip";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
@@ -36,6 +37,7 @@ export function MessageList({
   emptyStateAvatar,
   validatingId,
   onRegenerate,
+  onDeleteMessage,
   onSwitchBranch,
   busy,
   statusLabel,
@@ -57,6 +59,9 @@ export function MessageList({
   /** Answer shown and saved, claims still being checked. */
   validatingId?: string | null;
   onRegenerate?: (messageId: string) => void;
+  /** Permanently deletes this message and everything after it, so the
+   *  conversation can continue fresh from here. Offered on both roles. */
+  onDeleteMessage?: (messageId: string) => void;
   /** Fork switcher: move to the branch that starts with this sibling id. */
   onSwitchBranch?: (messageId: string) => void;
   busy?: boolean;
@@ -154,6 +159,8 @@ export function MessageList({
           confidenceScore={m.confidence_score}
           confidenceBand={m.confidence_band}
           claims={m.claims}
+          crux={m.crux_text}
+          createdAt={m.created_at}
           counterfactual={m.counterfactual_content}
           clarifier={m.clarifier}
           guidance={m.guidance}
@@ -171,6 +178,7 @@ export function MessageList({
           onRegenerate={
             m.role === "assistant" && onRegenerate ? () => onRegenerate(m.id) : undefined
           }
+          onDelete={onDeleteMessage ? () => onDeleteMessage(m.id) : undefined}
           busy={busy}
           conversationId={conversationId}
           onClarifierAnswer={onClarifierAnswer}
@@ -206,10 +214,27 @@ export function MessageList({
   );
 }
 
-function findEvidenceForMarker(claims: Claim[], marker: number) {
+/** "10:04 AM" - just the time, not the date. A conversation's own messages
+ *  are read in the context of the conversation, which already establishes
+ *  the day; repeating it on every bubble would be the date, not the time,
+ *  competing for the same dozen characters other message-list rows already
+ *  spend on it (see WorkspaceDetail's shortDate for that fuller form). */
+function formatMessageTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+/** The tier (`entailment_label`) and score belong to the CLAIM the marker's
+ *  evidence sits inside, not to the evidence item itself - a claim can cite
+ *  several sources, and the tier is a verdict on the claim as a whole. */
+function findEvidenceForMarker(
+  claims: Claim[],
+  marker: number,
+): { evidence: Evidence; claimScore: number | null; entailmentLabel: string | null } | null {
   for (const claim of claims) {
     const found = claim.evidence.find((e) => e.citation_marker === marker);
-    if (found) return found;
+    if (found) {
+      return { evidence: found, claimScore: claim.claim_score, entailmentLabel: claim.entailment_label };
+    }
   }
   return null;
 }
@@ -221,8 +246,15 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
     const match = part.match(/^\[(\d+)\]$/);
     if (!match) return <span key={i}>{part}</span>;
     const marker = parseInt(match[1], 10);
+    const found = findEvidenceForMarker(claims, marker);
     return (
-      <CitationPopover key={i} marker={marker} evidence={findEvidenceForMarker(claims, marker)} />
+      <CitationPopover
+        key={i}
+        marker={marker}
+        evidence={found?.evidence ?? null}
+        claimScore={found?.claimScore ?? null}
+        entailmentLabel={found?.entailmentLabel ?? null}
+      />
     );
   });
 }
@@ -235,6 +267,8 @@ function MessageBubble({
   confidenceScore,
   confidenceBand,
   claims,
+  crux,
+  createdAt,
   counterfactual,
   clarifier,
   guidance,
@@ -251,6 +285,7 @@ function MessageBubble({
   isValidating,
   canEdit,
   onRegenerate,
+  onDelete,
   busy,
   conversationId,
   onClarifierAnswer,
@@ -265,6 +300,12 @@ function MessageBubble({
   confidenceScore: number | null;
   confidenceBand: string | null;
   claims: Claim[];
+  /** The model's own one-sentence bottom line. Null for messages generated
+   *  before this shipped, and always absent while still streaming. */
+  crux?: string | null;
+  /** Absent for the synthetic streaming bubble, which isn't a real message
+   *  yet - it gets a real one once `onAnswer` replaces it. */
+  createdAt?: string;
   counterfactual?: string | null;
   clarifier?: { question: string; options: string[] } | null;
   guidance?: Guidance | null;
@@ -283,6 +324,8 @@ function MessageBubble({
   isValidating?: boolean;
   canEdit?: boolean;
   onRegenerate?: () => void;
+  /** Permanently deletes this message and everything after it. */
+  onDelete?: () => void;
   busy?: boolean;
   conversationId?: string;
   onClarifierAnswer?: (answer: string) => void;
@@ -291,7 +334,6 @@ function MessageBubble({
   onSubmitEdit?: (messageId: string, content: string) => void;
 }) {
   const isUser = role === "user";
-  const panelId = `evidence-${id}`;
 
   /* Whether a confidence verdict is meaningful for this answer.
    *
@@ -322,10 +364,28 @@ function MessageBubble({
     modeUsed === "thinking" ? "thinking" : modeUsed === "decision" ? "decision" : "evidence";
   const verdictIsMeaningful =
     panel === "evidence" && (modeUsed === "knowing" || citedAnything);
-  // Lives here rather than inside EvidencePanel so the confidence badge can
-  // open it - clicking a score to find out where it came from should show you
-  // the working, not scroll to a collapsed row.
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  // Whether the crux exists at all decides whether there's a fold in the
+  // first place - a message with no crux (streaming, or written before this
+  // shipped) just renders the answer flat, exactly as before this feature.
+  const hasCrux = !isUser && !isStreaming && Boolean(crux);
+  // Collapsed by default, even the first time this message is seen: the
+  // whole point of the crux is to make reading the full answer optional,
+  // not to show it in full anyway and add a summary on top.
+  const [detailOpen, setDetailOpen] = useState(false);
+  // Named for what's actually behind the fold in Thinking/Decision mode -
+  // the box above it already carries the verdict, so what's hidden is the
+  // reasoning trail that produced it, not "the answer" (the box already is
+  // one). Other modes keep the generic wording, since there's no separate
+  // verdict box for the fold to be "more detail than".
+  const detailLabels =
+    panel === "thinking"
+      ? { show: "Details of thinking journey", hide: "Hide details of thinking journey" }
+      : panel === "decision"
+        ? {
+            show: "Details of the decision making journey",
+            hide: "Hide details of the decision making journey",
+          }
+        : { show: "Show full answer", hide: "Hide full answer" };
   // The Devil's Draft now lives on the back of this bubble rather than in a
   // panel beneath it, so its state belongs to the bubble.
   const devil = useCounterfactual({ conversationId, messageId: id, preloaded: counterfactual });
@@ -392,20 +452,7 @@ function MessageBubble({
                 </button>
               )}
               {confidenceBand && verdictIsMeaningful && (
-                <ConfidenceBadge
-                  band={confidenceBand}
-                  score={confidenceScore}
-                  onClick={() => {
-                    setEvidenceOpen(true);
-                    // Next frame, so the panel has rendered its content and
-                    // the browser scrolls to its real height.
-                    requestAnimationFrame(() =>
-                      document
-                        .getElementById(panelId)
-                        ?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
-                    );
-                  }}
-                />
+                <ConfidenceBadge band={confidenceBand} score={confidenceScore} />
               )}
             </div>
           </div>
@@ -423,6 +470,41 @@ function MessageBubble({
             disabled={busy}
           />
         )}
+        {hasCrux && <CruxCard text={crux as string} />}
+        {/* The reasoning-contrast / decision-verdict box is the analysis
+            itself, not detail to hide behind a click - it stays outside the
+            fold and always leads, with the raw paragraph text (which only
+            elaborates on it) tucked behind a mode-named expand toggle below. */}
+        {!isUser && !isStreaming && panel === "thinking" && thinkingReview && (
+          <ThinkingReview review={thinkingReview} />
+        )}
+        {!isUser && !isStreaming && panel === "decision" && decisionReview && (
+          <DecisionReview review={decisionReview} />
+        )}
+        {hasCrux && (
+          <button
+            type="button"
+            onClick={() => setDetailOpen((v) => !v)}
+            aria-expanded={detailOpen}
+            className="group -mx-1 mb-1.5 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className={cx("h-3 w-3 shrink-0 transition-transform", detailOpen && "rotate-90")}
+            >
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            {detailOpen ? detailLabels.hide : detailLabels.show}
+          </button>
+        )}
+        {(!hasCrux || detailOpen) && (
+        <>
         {editing ? (
           <form
             onSubmit={(event) => {
@@ -504,19 +586,7 @@ function MessageBubble({
             Checking claims…
           </p>
         )}
-
-        {!isUser && !isStreaming && panel === "thinking" && thinkingReview && (
-          <ThinkingReview review={thinkingReview} />
-        )}
-
-        {!isUser && !isStreaming && verdictIsMeaningful && (
-          <EvidencePanel
-            claims={claims}
-            band={confidenceBand}
-            panelId={panelId}
-            expanded={evidenceOpen}
-            onToggle={() => setEvidenceOpen((v) => !v)}
-          />
+        </>
         )}
 
         {clarifier && !isStreaming && onClarifierAnswer && (
@@ -526,10 +596,6 @@ function MessageBubble({
             onAnswer={onClarifierAnswer}
             disabled={busy}
           />
-        )}
-
-        {panel === "decision" && decisionReview && !isStreaming && (
-          <DecisionReview review={decisionReview} />
         )}
 
         {!isUser && !isStreaming && conversationId && (
@@ -561,9 +627,24 @@ function MessageBubble({
                 : undefined
             }
             onRegenerate={onRegenerate}
+            onDelete={onDelete}
             busy={busy}
             tone={isUser ? "onBrand" : "default"}
           />
+        )}
+        {!isStreaming && createdAt && (
+          // Its own row, not folded into MessageActions: that row hides
+          // itself until hovered on a user bubble, and a timestamp you have
+          // to hover to see isn't one you can glance at.
+          <time
+            dateTime={createdAt}
+            className={cx(
+              "mt-1 block text-[10px] tabular-nums",
+              isUser ? "text-right text-white/50" : "text-ink-muted",
+            )}
+          >
+            {formatMessageTime(createdAt)}
+          </time>
         )}
       </div>
     </div>
@@ -646,16 +727,22 @@ function MessageActions({
   content,
   onEdit,
   onRegenerate,
+  onDelete,
   busy,
   tone,
 }: {
   content: string;
   onEdit?: () => void;
   onRegenerate?: () => void;
+  onDelete?: () => void;
   busy?: boolean;
   tone: "onBrand" | "default";
 }) {
   const [copied, setCopied] = useState(false);
+  // Two clicks, not a browser confirm() - same pattern the sidebar's own
+  // chat-delete button already uses. autoFocus + onBlur means walking away
+  // cancels it as surely as clicking elsewhere would.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (!content) return null;
 
@@ -724,6 +811,37 @@ function MessageActions({
           <RedoIcon />
         </button>
       )}
+      {onDelete && (
+        confirmingDelete ? (
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingDelete(false);
+              onDelete();
+            }}
+            onBlur={() => setConfirmingDelete(false)}
+            autoFocus
+            disabled={busy}
+            className={cx(
+              "rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40",
+              tone === "onBrand" ? "text-white" : "text-band-low",
+            )}
+          >
+            Sure?
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={busy}
+            title="Delete this message and everything after it"
+            aria-label="Delete this message and everything after it"
+            className={cx("rounded-md p-1 transition-colors disabled:opacity-40", base)}
+          >
+            <TrashIcon />
+          </button>
+        )
+      )}
     </div>
   );
 }
@@ -769,5 +887,11 @@ const RedoIcon = () => (
   <ActionIcon>
     <path d="M21 12a9 9 0 1 1-2.6-6.4" />
     <path d="M21 4v5h-5" />
+  </ActionIcon>
+);
+
+const TrashIcon = () => (
+  <ActionIcon>
+    <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
   </ActionIcon>
 );

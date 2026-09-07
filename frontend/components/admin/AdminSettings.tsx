@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
+import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
 import {
   Button,
   Card,
@@ -238,7 +239,12 @@ export function AdminSettings() {
                 key={mode}
                 className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
               >
-                <span className="text-sm capitalize text-ink">{mode}</span>
+                {/* The real label, not the raw enum key - "therapy" alone
+                    rendered as "Therapy" here even after the mode's
+                    user-facing name changed to "Reflect & Relieve". */}
+                <span className="text-sm text-ink">
+                  {MODE_BY_VALUE[mode as CognitiveMode]?.label ?? mode}
+                </span>
                 <select
                   value={settings.avatar_gesture_map[mode]}
                   onChange={(e) => updateGesture(mode, e.target.value)}

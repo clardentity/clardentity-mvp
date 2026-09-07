@@ -83,6 +83,11 @@ class Message(Base):
     # alongside the answer's own validation, so the comparison is ready by the
     # time the message lands.
     counterfactual_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The one-sentence bottom line, extracted from the model's own leading
+    # <crux> tag and shown above the folded answer - see
+    # claim_parser.extract_crux. Null for messages generated before this
+    # shipped; the frontend just renders unfolded in that case.
+    crux_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # A question the answer needs answered before it can be better, with a few
     # concrete options. {"question": str, "options": [str, ...]} or null.
     clarifier: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

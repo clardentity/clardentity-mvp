@@ -95,6 +95,9 @@ export type ChatMessage = {
   created_at: string;
   /** The Devil's Draft, generated alongside the answer rather than on click. */
   counterfactual_content: string | null;
+  /** The model's own one-sentence bottom line, shown above the folded
+   *  answer. Null for messages generated before this shipped. */
+  crux_text: string | null;
   /** A question the answer wants answered, with options. Null on most turns. */
   clarifier: { question: string; options: string[] } | null;
   guidance: Guidance | null;
@@ -135,6 +138,24 @@ export type ModeSuggestion = { suggested_mode: string; mode_reason: string | nul
  *  divorce your wife". Nothing was saved. */
 export type ContextQuestion = { question: string };
 
+/** The server stopped before generating because the question is vague
+ *  enough that answering it well required guessing. A single suggested
+ *  rewording, not a menu - accept it or keep the original. Nothing was
+ *  saved. */
+export type RefinedQuestionSuggestion = {
+  refined_question: string;
+  refinement_reason: string | null;
+};
+
+/** The server stopped before generating because one specific piece of
+ *  information is missing and there's a short, enumerable set of likely
+ *  answers - a question plus 2-4 tappable options, not a rewording or an
+ *  open text box. Nothing was saved. */
+export type ClarifyingOptionsSuggestion = {
+  question: string;
+  options: string[];
+};
+
 /** Named phase of the work in progress, for the waiting indicator. */
 export type ChatStatus = { phase: string; label: string };
 
@@ -142,8 +163,14 @@ export type ChatStreamHandlers = {
   onDelta: (text: string) => void;
   /** The answer is written and saved, but not yet analysed. Fires well before
    *  `onFinal` - claim verification and scoring take several seconds - and is
-   *  the point at which the composer should become usable again. */
-  onAnswer: (message: ChatMessage) => void;
+   *  the point at which the composer should become usable again.
+   *
+   *  `userMessage` is the just-persisted row for the question this answers,
+   *  with its real server id - the caller's own optimistic copy of it was
+   *  built before that id existed and needs to be swapped for this one to
+   *  ever address the row again (e.g. to delete it). Absent on regenerate,
+   *  which never created a new question row to begin with. */
+  onAnswer: (message: ChatMessage, userMessage?: ChatMessage | null) => void;
   /** Named phase of the pipeline, so the wait can say what it's waiting on. */
   onStatus?: (status: ChatStatus) => void;
   onFinal: (event: ChatFinalEvent) => void;
@@ -154,6 +181,14 @@ export type ChatStreamHandlers = {
    *  user's context appended, or with `context_acknowledged` alone if they
    *  would rather just have the answer. */
   onContextQuestion?: (question: ContextQuestion) => void;
+  /** Also fires instead of everything else. The caller re-sends with either
+   *  the refined wording or the original, and `refined_confirmed: true`
+   *  either way. */
+  onRefinedQuestion?: (suggestion: RefinedQuestionSuggestion) => void;
+  /** Also fires instead of everything else. The caller re-sends with a
+   *  tapped option, a typed answer, or `clarifying_confirmed: true` alone
+   *  if they'd rather skip it. */
+  onClarifyingOptions?: (suggestion: ClarifyingOptionsSuggestion) => void;
   onError: (detail: string) => void;
 };
 
@@ -178,6 +213,12 @@ export type SendMessageBody = {
   /** How many context-gate rounds have already been answered for this turn.
    *  The server caps further asking once this hits its limit. */
   context_rounds?: number;
+  /** Set when re-sending after a refined-phrasing suggestion, either way the
+   *  user answered, so the same suggestion is never stopped twice. */
+  refined_confirmed?: boolean;
+  /** Set when re-sending after a clarifying-options prompt, whichever way
+   *  the user answered it, so the same prompt is never stopped twice. */
+  clarifying_confirmed?: boolean;
   /** Fork point for the new user message this call creates. Set when
    *  editing, to the edited message's own parent_id, so the edit becomes a
    *  sibling instead of the server treating it as a normal continuation. */
@@ -188,9 +229,14 @@ export type SendMessageBody = {
   regenerate_of?: string;
 };
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
 async function openStream(
   conversationId: string,
   body: SendMessageBody,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const accessToken = getAccessToken();
   return fetch(`${API_BASE_URL}/chat/${conversationId}/messages`, {
@@ -200,6 +246,7 @@ async function openStream(
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -207,11 +254,16 @@ export async function streamChatMessage(
   conversationId: string,
   body: SendMessageBody,
   handlers: ChatStreamHandlers,
+  // A user-initiated stop, not a failure: resolves quietly with no handler
+  // call, since the caller already knows it asked for this and updates its
+  // own UI immediately rather than waiting for a round trip through here.
+  signal?: AbortSignal,
 ): Promise<void> {
   let res: Response;
   try {
-    res = await openStream(conversationId, body);
+    res = await openStream(conversationId, body, signal);
   } catch (err) {
+    if (isAbortError(err)) return;
     handlers.onError(
       networkErrorMessage(err) ?? (err instanceof Error ? err.message : "Network error"),
     );
@@ -221,7 +273,15 @@ export async function streamChatMessage(
   if (res.status === 401 && getRefreshToken()) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      res = await openStream(conversationId, body);
+      try {
+        res = await openStream(conversationId, body, signal);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        handlers.onError(
+          networkErrorMessage(err) ?? (err instanceof Error ? err.message : "Network error"),
+        );
+        return;
+      }
     }
   }
 
@@ -242,7 +302,14 @@ export async function streamChatMessage(
   let buffer = "";
 
   while (true) {
-    const { value, done } = await reader.read();
+    let value: Uint8Array | undefined;
+    let done: boolean;
+    try {
+      ({ value, done } = await reader.read());
+    } catch (err) {
+      if (isAbortError(err)) return;
+      throw err;
+    }
     if (done) break;
     // sse-starlette terminates lines/records with \r\n, not \n - normalize
     // before splitting so frame boundaries actually match.
@@ -273,11 +340,13 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
   try {
     const parsed = JSON.parse(data);
     if (eventType === "delta") handlers.onDelta(parsed.text);
-    else if (eventType === "answer") handlers.onAnswer(parsed.message);
+    else if (eventType === "answer") handlers.onAnswer(parsed.message, parsed.user_message);
     else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);
     else if (eventType === "mode_suggestion") handlers.onModeSuggestion?.(parsed);
+    else if (eventType === "clarifying_options") handlers.onClarifyingOptions?.(parsed);
     else if (eventType === "context_question") handlers.onContextQuestion?.(parsed);
+    else if (eventType === "refined_question") handlers.onRefinedQuestion?.(parsed);
     else if (eventType === "error") handlers.onError(parsed.detail);
   } catch {
     // ignore malformed frame

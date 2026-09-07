@@ -44,6 +44,11 @@ _MAX_QUESTION_CHARS = 220
 # Twenty words of plain English. A "why" that needs more room than this has
 # stopped being the question a person would ask and started being a form.
 _MAX_CONTEXT_QUESTION_CHARS = 140
+_MAX_CLARIFYING_QUESTION_CHARS = 140
+# "Each under 6 words" in the instruction; this is the hard backstop for a
+# model that doesn't hold to that - a button too long to read at a glance has
+# already failed the point of offering one.
+_MAX_OPTION_CHARS = 40
 
 # How many context-gate rounds a single turn can go through before the model
 # is stopped and made to just answer, regardless of what it would still like
@@ -73,7 +78,7 @@ _MODE_SUMMARY = (
 )
 
 _INSTRUCTIONS = (
-    "A user asked a question in a chosen cognitive mode. Judge three things "
+    "A user asked a question in a chosen cognitive mode. Judge four things "
     "about the question - not about the answer.\n\n"
     f"THE MODES:\n{_MODE_SUMMARY}\n\n"
     "1) suggested_mode: if a different mode genuinely fits the question "
@@ -91,12 +96,28 @@ _INSTRUCTIONS = (
     "original is a worse question, not a sharper one.\n"
     "   Do NOT invent specifics the user never implied. Do not insert "
     "placeholders like [your skill] or [X]. If the missing detail is something "
-    "only they could supply, leave refined_question null - a clarifying "
-    "question handles that case, not this one.\n"
+    "only they could supply and there's a short, enumerable set of likely "
+    "answers, leave refined_question null - clarifying_options below handles "
+    "that case, not this one.\n"
     "   Return null when the question already names its subject and scope, "
     "which is most of the time. Never rewrite merely to add formality, "
     "structure, or extra requirements the user did not ask for.\n\n"
-    "3) context_question: ask when a good answer genuinely depends on "
+    "3) clarifying_options: when the question is missing one specific piece "
+    "of information and there is a small, clearly distinct set of likely "
+    "answers (2 to 4) - not because you're guessing, but because the "
+    "question itself implies the answer is one of a few obvious kinds - ask "
+    "for it with a short question (clarifying_question) plus those answers "
+    "as literal button labels (clarifying_options), each under 6 words, "
+    "specific enough to tap without typing. 'How do I get better at it' -> "
+    "clarifying_question 'What are you trying to get better at?', options "
+    "like 'A sport', 'A musical instrument', 'A language', 'A work skill'.\n"
+    "   Mutually exclusive with refined_question: if a single best rewording "
+    "would serve just as well, use refined_question instead of asking. Never "
+    "set both.\n"
+    "   Return null (both fields) when the missing detail could be almost "
+    "anything - no short option list would actually cover it - or when "
+    "guessing wrong would cost the user nothing worth asking to avoid.\n\n"
+    "4) context_question: ask when a good answer genuinely depends on "
     "something about the user - their situation, reasons, values, or goals - "
     "that they have not told you, and guessing it would produce a worse "
     "answer than asking would. Two kinds of question call for this, in any "
@@ -132,9 +153,9 @@ _INSTRUCTIONS = (
     "would only stall them.\n"
     "   Return null for ordinary goals and preferences with no real weight to "
     "them - 'I want to learn Spanish', 'I want to get fitter', 'what's a good "
-    "pizza topping'. Nothing turns on why, and the practical details (time, "
-    "budget, current level) are asked for after the answer by a different "
-    "mechanism that can offer options. This is for things where the answer "
+    "pizza topping'. Nothing turns on why, and any practical detail worth "
+    "narrowing down (time, budget, current level) is clarifying_options's "
+    "job above, not this one. This is for things where the answer "
     "would genuinely change: consequential and hard-to-reverse life "
     "decisions, or questions whose honest answer is a personal judgement "
     "call rather than a fact.\n"
@@ -163,6 +184,23 @@ _SCHEMA = {
             "type": ["string", "null"],
             "description": "One clause on what the original left open, or null.",
         },
+        "clarifying_question": {
+            "type": ["string", "null"],
+            "description": (
+                "A short question naming the one missing piece of "
+                "information, to be answered by tapping one of "
+                "clarifying_options - or null."
+            ),
+        },
+        "clarifying_options": {
+            "type": ["array", "null"],
+            "items": {"type": "string"},
+            "description": (
+                "2 to 4 short, distinct answers to clarifying_question, each "
+                "usable as a button label - or null. Null exactly when "
+                "clarifying_question is null."
+            ),
+        },
         "context_question": {
             "type": ["string", "null"],
             "description": (
@@ -176,6 +214,8 @@ _SCHEMA = {
         "mode_reason",
         "refined_question",
         "refinement_reason",
+        "clarifying_question",
+        "clarifying_options",
         "context_question",
     ],
     "additionalProperties": False,
@@ -240,12 +280,45 @@ def _validate_context_question(text: str | None) -> str | None:
     return text
 
 
+def _validate_clarifying_options(
+    question: object, options: object
+) -> tuple[str | None, list[str] | None]:
+    """Both fields or neither - a question with one option isn't a choice,
+    and options with no question is a button row nobody knows the point of.
+
+    2 to 4 options after cleaning, same placeholder/refusal guards as the
+    other free-text fields, deduplicated (a model repeating an option under
+    slightly different wording is still not a real second choice).
+    """
+    question = _clip(question, _MAX_CLARIFYING_QUESTION_CHARS)
+    if not question or "?" not in question:
+        return None, None
+    if not isinstance(options, list):
+        return None, None
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in options:
+        opt = _clip(raw, _MAX_OPTION_CHARS)
+        if not opt or "[" in opt or "{" in opt or opt.endswith("…"):
+            continue
+        key = opt.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(opt)
+
+    if len(cleaned) < 2:
+        return None, None
+    return question, cleaned[:4]
+
+
 def _reject_placeholders(text: str | None) -> str | None:
     """Drop rewrites that ask the user to fill in a blank.
 
     "I want to get better at [specific skill]" is not a sharper question, it
-    is the same question with brackets. That case belongs to the clarifier,
-    which can offer options.
+    is the same question with brackets. That case belongs to
+    clarifying_options, which can offer options.
     """
     if text and ("[" in text or "{" in text or "<" in text):
         return None
@@ -291,6 +364,16 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
         _clip(parsed.get("context_question"), _MAX_CONTEXT_QUESTION_CHARS)
     )
 
+    clarifying_question, clarifying_options = _validate_clarifying_options(
+        parsed.get("clarifying_question"), parsed.get("clarifying_options")
+    )
+    # Mutually exclusive by instruction, enforced here too: if the model set
+    # both anyway, the single best rewording is the safer default - a picker
+    # over options the model invented alongside a rewrite it also thought was
+    # good enough is redundant, and refined_question's gate runs first.
+    if refined:
+        clarifying_question, clarifying_options = None, None
+
     result = {
         "context_question": context_question,
         "suggested_mode": suggested,
@@ -299,12 +382,15 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
         "refinement_reason": (
             _clip(parsed.get("refinement_reason"), _MAX_REASON_CHARS) if refined else None
         ),
+        "clarifying_question": clarifying_question,
+        "clarifying_options": clarifying_options,
     }
 
     if (
         not result["suggested_mode"]
         and not result["refined_question"]
         and not result["context_question"]
+        and not result["clarifying_options"]
     ):
         return None
     return result

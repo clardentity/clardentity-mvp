@@ -209,6 +209,112 @@ class TestContextQuestionGuards:
         assert await guidance.propose_guidance("what is the capital of France", "knowing") is None
 
 
+class TestClarifyingOptionsGuards:
+    """The pre-answer "which did you mean" - clickable options for a
+    missing, enumerable piece of information. Each guard encodes a way the
+    pair is worse than not offering it."""
+
+    def test_needs_both_a_question_and_options(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        assert _validate_clarifying_options(None, ["A", "B"]) == (None, None)
+        assert _validate_clarifying_options("What are you improving?", None) == (None, None)
+
+    def test_a_statement_is_not_a_question(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        assert _validate_clarifying_options("Tell me the skill.", ["A", "B"]) == (None, None)
+
+    def test_fewer_than_two_options_is_not_a_choice(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        assert _validate_clarifying_options("What are you improving?", ["A sport"]) == (None, None)
+        assert _validate_clarifying_options("What are you improving?", []) == (None, None)
+
+    def test_a_good_pair_passes_through(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        q, opts = _validate_clarifying_options(
+            "What are you trying to get better at?",
+            ["A sport", "A musical instrument", "A language", "A work skill"],
+        )
+        assert q == "What are you trying to get better at?"
+        assert opts == ["A sport", "A musical instrument", "A language", "A work skill"]
+
+    def test_more_than_four_options_is_clipped(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        _q, opts = _validate_clarifying_options(
+            "Which one?", ["A", "B", "C", "D", "E", "F"]
+        )
+        assert opts == ["A", "B", "C", "D"]
+
+    def test_duplicate_options_are_collapsed(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        # Same option restated isn't a second choice - and the duplicate
+        # alone would otherwise leave only one real option.
+        q, opts = _validate_clarifying_options(
+            "Which one?", ["A sport", "a sport", "A language"]
+        )
+        assert q is not None
+        assert opts == ["A sport", "A language"]
+
+    def test_placeholder_options_are_dropped(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        q, opts = _validate_clarifying_options(
+            "Which one?", ["A sport", "[your interest]", "A language"]
+        )
+        assert q is not None
+        assert opts == ["A sport", "A language"]
+
+    def test_not_a_list_is_rejected(self):
+        from app.services.guidance import _validate_clarifying_options
+
+        assert _validate_clarifying_options("Which one?", "A sport") == (None, None)
+
+    async def test_setting_both_refined_and_clarifying_prefers_refined(self, monkeypatch):
+        from app.services import guidance
+
+        async def fake(**_):
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": "How do I get better at running specifically?",
+                "refinement_reason": "Names the sport 'it' left out.",
+                "clarifying_question": "What are you improving?",
+                "clarifying_options": ["A sport", "A language"],
+                "context_question": None,
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        result = await guidance.propose_guidance("how do I get better at it", "knowing")
+        assert result is not None
+        assert result["refined_question"] == "How do I get better at running specifically?"
+        assert result["clarifying_question"] is None
+        assert result["clarifying_options"] is None
+
+    async def test_clarifying_options_alone_is_enough_to_return_guidance(self, monkeypatch):
+        from app.services import guidance
+
+        async def fake(**_):
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "clarifying_question": "What are you improving?",
+                "clarifying_options": ["A sport", "A language"],
+                "context_question": None,
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        result = await guidance.propose_guidance("how do I get better at it", "knowing")
+        assert result is not None
+        assert result["clarifying_options"] == ["A sport", "A language"]
+
+
 class TestDecisionSuggestionSet:
     """One sound decision beside the wrong calls.
 

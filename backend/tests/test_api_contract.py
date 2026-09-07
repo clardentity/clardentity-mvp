@@ -9,7 +9,7 @@ import uuid
 
 import httpx
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.db.session import AsyncSessionLocal
 from app.main import app
@@ -274,6 +274,252 @@ class TestContextQuestionGate:
 
             async with AsyncSessionLocal() as db:
                 # Foreign keys first, owner last.
+                await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+                await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+                await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+                await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()
+
+
+class TestRefinedQuestionGate:
+    """The pre-answer "did you mean" stops the turn and writes nothing -
+    same invariant as the context gate, same reason: a saved question with
+    no answer under it is worse than not saving anything. Needs a database.
+    """
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"refgate-{uuid.uuid4().hex[:8]}@example.com"
+        password = "gate-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.commit()
+            return email, password, user.id, convo.id
+
+    async def test_it_asks_and_saves_nothing(self, monkeypatch):
+        from app.models import Message
+        from app.api import chat as chat_api
+
+        try:
+            email, password, user_id, convo_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        refined = "How do I get better at long-distance running specifically?"
+
+        async def fake_guidance(question, mode):
+            return {
+                "context_question": None,
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": refined,
+                "refinement_reason": "Names the sport a general 'it' left out.",
+            }
+
+        monkeypatch.setattr(chat_api, "propose_guidance", fake_guidance)
+
+        try:
+            async with client() as c:
+                login = await c.post(
+                    f"{API}/auth/login", json={"email": email, "password": password}
+                )
+                if login.status_code != 200:
+                    pytest.skip("login unavailable")
+                token = login.json()["access_token"]
+
+                res = await c.post(
+                    f"{API}/chat/{convo_id}/messages",
+                    json={"content": "how do I get better at it", "mode": "knowing"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                body = res.text
+
+            assert "refined_question" in body
+            assert refined in body
+
+            async with AsyncSessionLocal() as db:
+                rows = await db.execute(
+                    delete(Message).where(Message.conversation_id == convo_id).returning(Message.id)
+                )
+                saved = list(rows.scalars().all())
+                await db.commit()
+            assert saved == [], f"gate persisted {len(saved)} message(s)"
+        finally:
+            from app.models import Conversation as _Conversation
+
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+                await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+                await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+                await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()
+
+
+class TestClarifyingOptionsGate:
+    """The pre-answer "which did you mean" - clickable options, not a
+    rewrite or a free-text box - stops the turn and writes nothing. Same
+    invariant as every other pre-answer gate. Needs a database."""
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"claringate-{uuid.uuid4().hex[:8]}@example.com"
+        password = "gate-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.commit()
+            return email, password, user.id, convo.id
+
+    async def test_it_asks_and_saves_nothing(self, monkeypatch):
+        from app.models import Message
+        from app.api import chat as chat_api
+
+        try:
+            email, password, user_id, convo_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        options = ["A sport", "A musical instrument", "A language", "A work skill"]
+
+        async def fake_guidance(question, mode):
+            return {
+                "context_question": None,
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "clarifying_question": "What are you trying to get better at?",
+                "clarifying_options": options,
+            }
+
+        monkeypatch.setattr(chat_api, "propose_guidance", fake_guidance)
+
+        try:
+            async with client() as c:
+                login = await c.post(
+                    f"{API}/auth/login", json={"email": email, "password": password}
+                )
+                if login.status_code != 200:
+                    pytest.skip("login unavailable")
+                token = login.json()["access_token"]
+
+                res = await c.post(
+                    f"{API}/chat/{convo_id}/messages",
+                    json={"content": "how do I get better at it", "mode": "knowing"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                body = res.text
+
+            assert "clarifying_options" in body
+            for option in options:
+                assert option in body
+
+            async with AsyncSessionLocal() as db:
+                rows = await db.execute(
+                    delete(Message).where(Message.conversation_id == convo_id).returning(Message.id)
+                )
+                saved = list(rows.scalars().all())
+                await db.commit()
+            assert saved == [], f"gate persisted {len(saved)} message(s)"
+        finally:
+            from app.models import Conversation as _Conversation
+
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+                await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+                await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+                await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()
+
+
+class TestUserMessageSnapshot:
+    """The "answer" SSE event carries a snapshot of the just-persisted user
+    row alongside the assistant's - the client's optimistic copy of that
+    same question was displayed under a local placeholder id, before the
+    server ever assigned one, and needs the real id back to address the row
+    again later (e.g. to delete it).
+
+    That snapshot is taken right after `flush()`, before the surrounding
+    `commit()` would expire the row's attributes. This checks the snapshot
+    is actually complete - in particular `created_at`, a server-side
+    default - rather than raising or silently serializing a null timestamp
+    into the event. Needs a database.
+    """
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"usersnap-{uuid.uuid4().hex[:8]}@example.com"
+        password = "gate-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.commit()
+            return user.id, convo.id
+
+    async def test_flush_alone_is_enough_to_serialize_a_fresh_message(self):
+        from app.api.chat import _serialize_message
+
+        try:
+            user_id, convo_id = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with AsyncSessionLocal() as db:
+                message = Message(
+                    conversation_id=convo_id,
+                    role="user",
+                    content="how do I get better at it",
+                    mode_used="knowing",
+                )
+                db.add(message)
+                # Mirrors exactly what `send_message` does before its own
+                # commit: flush() alone, while the row is still attached and
+                # unexpired - unlike everything after the commit that
+                # follows this in the real endpoint.
+                await db.flush()
+                payload = _serialize_message(message, []).model_dump(mode="json")
+
+                assert payload["id"] == str(message.id)
+                assert payload["created_at"], "created_at was not populated before commit"
+        finally:
+            from app.models import Conversation as _Conversation
+
+            async with AsyncSessionLocal() as db:
                 await db.execute(delete(Message).where(Message.conversation_id == convo_id))
                 await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
                 await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
@@ -579,6 +825,172 @@ class TestMessageForking:
                 res = await c.put(
                     f"{API}/chat/{convo_id}/active-leaf",
                     json={"message_id": str(uuid.uuid4())},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert res.status_code == 404
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+
+class TestMessageDeletion:
+    """DELETE .../messages/{id}: a real, cascading delete - the one
+    destructive operation on a message, distinct from fork/edit/regenerate
+    which never delete anything. Needs a database."""
+
+    async def _fixture(self):
+        from app.models import Conversation
+
+        email = f"delmsg-{uuid.uuid4().hex[:8]}@example.com"
+        password = "del-password-123"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.flush()
+
+            question = Message(
+                conversation_id=convo.id, role="user", content="q", mode_used="knowing", parent_id=None
+            )
+            db.add(question)
+            await db.flush()
+
+            # Two sibling answers to the same question.
+            answer_a = Message(
+                conversation_id=convo.id, role="assistant", content="answer a",
+                mode_used="knowing", parent_id=question.id,
+            )
+            db.add(answer_a)
+            answer_b = Message(
+                conversation_id=convo.id, role="assistant", content="answer b",
+                mode_used="knowing", parent_id=question.id,
+            )
+            db.add(answer_b)
+            await db.flush()
+
+            # A continuation built on top of answer_b only.
+            followup_q = Message(
+                conversation_id=convo.id, role="user", content="follow-up",
+                mode_used="knowing", parent_id=answer_b.id,
+            )
+            db.add(followup_q)
+            await db.flush()
+            followup_a = Message(
+                conversation_id=convo.id, role="assistant", content="follow-up answer",
+                mode_used="knowing", parent_id=followup_q.id,
+            )
+            db.add(followup_a)
+            await db.flush()
+
+            convo.active_leaf_id = followup_a.id
+            await db.commit()
+            return (
+                email, password, user.id, convo.id,
+                question.id, answer_a.id, answer_b.id, followup_q.id, followup_a.id,
+            )
+
+    async def _login(self, c, email, password):
+        login = await c.post(f"{API}/auth/login", json={"email": email, "password": password})
+        if login.status_code != 200:
+            pytest.skip("login unavailable")
+        return login.json()["access_token"]
+
+    async def _cleanup(self, convo_id, user_id):
+        from app.models import Conversation as _Conversation
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                _Conversation.__table__.update()
+                .where(_Conversation.id == convo_id)
+                .values(active_leaf_id=None)
+            )
+            await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+            await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+            await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+            await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+    async def test_deleting_a_sibling_outside_the_active_path_leaves_the_leaf_alone(self):
+        try:
+            (email, password, user_id, convo_id, q_id, a_id, b_id,
+             fq_id, fa_id) = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                headers = {"Authorization": f"Bearer {token}"}
+
+                res = await c.delete(f"{API}/chat/{convo_id}/messages/{a_id}", headers=headers)
+                assert res.status_code == 204
+
+                async with AsyncSessionLocal() as db:
+                    remaining = await db.execute(
+                        select(Message.id).where(Message.conversation_id == convo_id)
+                    )
+                    remaining_ids = {r[0] for r in remaining.all()}
+                assert a_id not in remaining_ids
+                assert {q_id, b_id, fq_id, fa_id} <= remaining_ids
+
+                shown = await c.get(f"{API}/chat/{convo_id}/messages", headers=headers)
+                assert [m["content"] for m in shown.json()] == ["q", "answer b", "follow-up", "follow-up answer"]
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_deleting_a_message_in_the_active_path_cascades_and_repoints_the_leaf(self):
+        try:
+            (email, password, user_id, convo_id, q_id, a_id, b_id,
+             fq_id, fa_id) = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                headers = {"Authorization": f"Bearer {token}"}
+
+                # answer_b is an ancestor of the active leaf - deleting it
+                # must take its whole subtree (follow-up + follow-up answer)
+                # with it, and land the leaf back on the surviving sibling.
+                res = await c.delete(f"{API}/chat/{convo_id}/messages/{b_id}", headers=headers)
+                assert res.status_code == 204
+
+                async with AsyncSessionLocal() as db:
+                    remaining = await db.execute(
+                        select(Message.id).where(Message.conversation_id == convo_id)
+                    )
+                    remaining_ids = {r[0] for r in remaining.all()}
+                assert remaining_ids == {q_id, a_id}
+
+                shown = await c.get(f"{API}/chat/{convo_id}/messages", headers=headers)
+                assert [m["content"] for m in shown.json()] == ["q", "answer a"]
+        finally:
+            await self._cleanup(convo_id, user_id)
+
+    async def test_deleting_an_unknown_message_404s(self):
+        try:
+            email, password, user_id, convo_id, *_ = await self._fixture()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        try:
+            async with client() as c:
+                token = await self._login(c, email, password)
+                res = await c.delete(
+                    f"{API}/chat/{convo_id}/messages/{uuid.uuid4()}",
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 assert res.status_code == 404

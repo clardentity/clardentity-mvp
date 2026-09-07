@@ -11,8 +11,21 @@ _OPEN_PREFIX = '<claim id="'
 # _ANY_TAG_RE path below, which strips any well-formed tag regardless of its
 # attributes, and _PARTIAL_TAG_RE's `\s[^<>]*` tail already covers a
 # still-streaming attribute the same way it covers any other.
-_CLAIM_BLOCK_RE = re.compile(r'<claim id="(\d+)"( opinion="true")?>(.*?)</claim>', re.DOTALL)
+#
+# extract_claims scans for these open tags rather than matching complete
+# <claim>...</claim> blocks. A block-matching regex is all-or-nothing: one
+# unclosed tag anywhere in the response means it matches nothing at all, and
+# the whole answer collapses to a single unlabeled claim. Anchoring on the
+# open tag instead means one malformed claim only ever costs that claim's
+# exact boundary, never every other well-formed claim around it.
+_OPEN_TAG_FULL_RE = re.compile(r'<claim id="(\d+)"( opinion="true")?>')
 _MARKER_RE = re.compile(r"\[(\d+)\]")
+
+# The model's one-sentence bottom line, written first and separately from the
+# claims that follow - see prompt_builder._FORMATTING_RULES. Anchored at the
+# very start: a <crux>-shaped string appearing later in the text is never
+# meaningful and is left alone rather than matched.
+_CRUX_RE = re.compile(r'^\s*<crux>(.*?)</crux>\s*', re.DOTALL)
 
 # Any other tag the model emits. The chat bubble renders none of them, so a
 # stray <strong> streams in as four visible characters and then vanishes when
@@ -131,12 +144,21 @@ class ParsedClaim:
 
 def extract_claims(full_text: str) -> list[ParsedClaim]:
     """Parses <claim id="n">...</claim> blocks out of the model's raw output.
-    Falls back to treating the whole response as one unlabeled claim if the
-    model didn't follow the tagging format, so validation degrades instead
-    of silently disappearing.
+
+    Recovers a claim's text even when its closing tag is missing: an open
+    tag's body simply runs to the next open tag (or end of text) when no
+    </claim> appears before then, so one malformed claim never drags down
+    the claims around it. claim_index is taken verbatim from whatever id the
+    model wrote - never renumbered or deduplicated, since [n] citation
+    markers in the same text reference the CONTEXT block, not a claim's own
+    ordinal, and renumbering would desync the two.
+
+    Falls back to treating the whole response as one unlabeled claim only
+    when there isn't a single open tag anywhere, so validation degrades
+    instead of silently disappearing.
     """
-    blocks = _CLAIM_BLOCK_RE.findall(full_text)
-    if not blocks:
+    opens = list(_OPEN_TAG_FULL_RE.finditer(full_text))
+    if not opens:
         stripped = full_text.strip()
         if not stripped:
             return []
@@ -149,17 +171,35 @@ def extract_claims(full_text: str) -> list[ParsedClaim]:
         ]
 
     claims = []
-    for raw_index, opinion_attr, text in blocks:
-        text = text.strip()
+    for i, m in enumerate(opens):
+        end = opens[i + 1].start() if i + 1 < len(opens) else len(full_text)
+        body = full_text[m.end():end]
+        close_at = body.find(_CLOSE_TAG)
+        if close_at != -1:
+            body = body[:close_at]
+        text = body.strip()
         claims.append(
             ParsedClaim(
-                claim_index=int(raw_index),
+                claim_index=int(m.group(1)),
                 claim_text=text,
-                citation_markers=[int(m) for m in _MARKER_RE.findall(text)],
-                is_opinion=bool(opinion_attr),
+                citation_markers=[int(mk) for mk in _MARKER_RE.findall(text)],
+                is_opinion=bool(m.group(2)),
             )
         )
     return claims
+
+
+def extract_crux(full_text: str) -> tuple[str | None, str]:
+    """Pulls a leading <crux>...</crux> block off the front of raw text.
+
+    Returns (crux_text_or_None, remaining_text_with_the_block_removed), so
+    every downstream consumer - draft display, reflection, extract_claims -
+    works from crux-free text and never has to know the tag existed.
+    """
+    match = _CRUX_RE.match(full_text)
+    if not match:
+        return None, full_text
+    return match.group(1).strip(), full_text[match.end():]
 
 
 def strip_claim_tags(full_text: str) -> str:

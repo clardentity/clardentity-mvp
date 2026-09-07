@@ -31,7 +31,7 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
       <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-band-high">
-            Holds up
+            Correct or appropriate
           </p>
           <ul className="mt-1.5 space-y-2">
             {review.sound.map((entry, i) => (
@@ -47,7 +47,7 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
 
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-caution">
-            Goes wrong
+            Incorrect or inappropriate
           </p>
           <ul className="mt-1.5 space-y-2">
             {review.biased.map((entry, i) => (

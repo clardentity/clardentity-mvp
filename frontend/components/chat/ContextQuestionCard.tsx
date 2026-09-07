@@ -6,11 +6,12 @@ import { cx } from "@/components/ui/primitives";
 
 /* The question a person would ask before giving an opinion.
  *
- * Deliberately not the clarifier. The clarifier runs after the answer and
- * offers two to four options to tap, which is right for "what do you want to
- * learn next" and grotesque for "why do you want to divorce your wife" - a
- * multiple-choice menu of reasons for ending a marriage would be worse than
- * asking nothing at all. So this is one open question and an empty box.
+ * Deliberately open text, not options. `ClarifyingOptionsCard` is the
+ * sibling pre-answer gate for "a short, enumerable set of likely answers" -
+ * right for "what do you want to learn next" and grotesque for "why do you
+ * want to divorce your wife". A multiple-choice menu of reasons for ending a
+ * marriage would be worse than asking nothing at all, so this one stays an
+ * open question and an empty box.
  *
  * It also cannot become a wall. Answering is optional and skipping is one
  * click: the point is to gather context a good answer needs, not to make

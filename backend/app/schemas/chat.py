@@ -60,6 +60,16 @@ class MessageCreate(BaseModel):
     # question cannot be stopped twice - and so choosing "stay in this mode"
     # is respected rather than re-argued.
     mode_confirmed: bool = False
+    # Set by the client when re-sending after a refined-phrasing suggestion,
+    # whichever way the user answered it - asking it as worded or keeping
+    # their original. Suppresses the pre-answer check so the same suggestion
+    # cannot be stopped twice.
+    refined_confirmed: bool = False
+    # Set by the client when re-sending after a clarifying-options prompt,
+    # whichever way the user answered it - tapped an option, typed something
+    # else, or skipped. Suppresses the pre-answer check so the same prompt
+    # cannot be stopped twice.
+    clarifying_confirmed: bool = False
     # Set when re-sending after the pre-answer "why" because the user asked
     # for the answer anyway (the "Answer without this" skip) - a hard stop,
     # regardless of how many rounds have run. Answering a round instead
@@ -142,6 +152,9 @@ class MessageOut(BaseModel):
     #: The Devil's Draft, produced alongside the answer. Present on reload too,
     #: so the comparison stays instant after a refresh.
     counterfactual_content: str | None = None
+    #: The model's own one-sentence bottom line, shown above the folded
+    #: answer. Null for messages generated before this shipped.
+    crux_text: str | None = None
     #: {"question": str, "options": [str, ...]} when the answer needs something
     #: from the user before it can be better. Null on most turns.
     clarifier: dict | None = None

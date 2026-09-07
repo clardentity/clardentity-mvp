@@ -62,10 +62,13 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "therapy",
-    label: "Psycho-Therapy",
-    companion: "Psycho-Therapy Companion",
+    // Renamed from "Psycho-Therapy" - that word, and "counselling", read as a
+    // claim to a clinical service this product doesn't provide and isn't
+    // licensed for. The mode itself is unchanged; only the naming is.
+    label: "Reflect & Relieve",
+    companion: "Reflect & Relieve Companion",
     hint: "Talk it through",
-    when: "When you want supportive, on-demand counselling-style conversation.",
+    when: "When you want supportive, on-demand conversation to think and feel things through.",
     cta: "Try talking it through.",
     detail:
       "Listens fully and reflects back what's actually being said, helping you notice your own patterns. Companionship, not clinical treatment - it says so plainly when something calls for a licensed professional.",

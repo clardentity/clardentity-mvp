@@ -129,6 +129,13 @@ _FORMATTING_RULES = (
     "characters in the middle of a sentence. Use short paragraphs and "
     "sentence structure for emphasis instead.\n"
     "Use hyphens, never em dashes or en dashes.\n"
+    "Before anything else, write one sentence giving the direct conclusion "
+    'or bottom line of your answer, wrapped as <crux>...</crux>. This is '
+    "the only sentence allowed outside a <claim> tag. It must not "
+    "introduce any fact or judgement that isn't already established by "
+    "the claims that follow - it is a plain-language synthesis of them, "
+    "not a new assertion - and it must not carry a citation marker. After "
+    "it, proceed with <claim> tags as normal, numbered from 1.\n"
     "You must ground factual claims in the provided CONTEXT block when it is relevant.\n"
     "Break your answer into discrete, independently-checkable claims. Tag every claim "
     'with a marker <claim id="n">...</claim> and, inline within it, cite supporting '
@@ -136,8 +143,13 @@ _FORMATTING_RULES = (
     "more than one source - use multiple [n] markers in that case.\n"
     "If a claim is a matter of judgement, prediction, or interpretation that genuinely "
     "has no source of truth to check against - not an ordinary fact that simply wasn't "
-    'in the provided context - tag it <claim id="n" opinion="true">...</claim> instead '
-    'of the plain form, and write the sentence as a plain, direct statement exactly as '
+    "in the provided context - tag it opinion. This also covers a stated assumption "
+    "('I have assumed you want a general overview rather than exam prep') and any other "
+    "remark about your own answer rather than the subject matter: there is nothing "
+    "external to verify either of those against, and scoring one as an uncited factual "
+    'claim reads as a failed fact check instead of the disclosure it is. Tag it <claim '
+    'id="n" opinion="true">...</claim> instead of the plain form, and write the sentence '
+    'as a plain, direct statement exactly as '
     "you would any other claim. Do not preface it with phrases like 'It is the opinion "
     "of Clardentity AI that' or 'I believe' - the opinion attribute is what marks it as "
     "a stated view, not the wording of the sentence, and the reader sees that framing in "
@@ -149,8 +161,9 @@ _FORMATTING_RULES = (
     "and labels every claim after you write it, and the reader sees those labels in a "
     "separate panel; putting them in the text yourself duplicates the label and reads "
     "as broken output.\n"
-    "Number claims sequentially starting at 1. Every sentence of your response must be "
-    "inside some <claim> tag - do not leave prose outside of one."
+    "Number claims sequentially starting at 1. Other than the single leading <crux> "
+    "sentence, every sentence of your response must be inside some <claim> tag - do "
+    "not leave prose outside of one."
 )
 
 

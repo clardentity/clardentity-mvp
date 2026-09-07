@@ -29,9 +29,13 @@ from app.schemas.chat import (
 from app.services.admin_settings_service import get_all_settings
 from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
-from app.services.claim_parser import ClaimTagStripper, extract_claims, strip_claim_tags
+from app.services.claim_parser import (
+    ClaimTagStripper,
+    extract_claims,
+    extract_crux,
+    strip_claim_tags,
+)
 from app.services.companion_names import name_for
-from app.services.clarifier import propose_clarifier
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
 from app.services.thinking_review import review_thinking
@@ -54,7 +58,13 @@ from app.services.decision_classifier import (
 )
 from app.services.export_service import build_markdown_export, build_pdf_export
 from app.services.office_export import MEDIA_TYPES, export_file as build_office_export
-from app.services.message_tree import active_path, latest_leaf, resolve_parent_id, siblings
+from app.services.message_tree import (
+    active_path,
+    descendants,
+    latest_leaf,
+    resolve_parent_id,
+    siblings,
+)
 from app.services.memory_service import (
     HISTORY_WINDOW,
     get_memory_summary,
@@ -177,6 +187,7 @@ def _serialize_message(
         avatar_gesture=message.avatar_gesture,
         created_at=message.created_at,
         counterfactual_content=message.counterfactual_content,
+        crux_text=message.crux_text,
         clarifier=message.clarifier,
         guidance=message.guidance,
         decision_review=message.decision_review,
@@ -484,6 +495,58 @@ async def set_active_branch(
     return {"active_leaf_id": str(conversation.active_leaf_id)}
 
 
+@router.delete("/{conversation_id}/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_message(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Permanently remove a message and everything that followed it, so the
+    conversation can continue fresh from an earlier point.
+
+    Unlike edit/regenerate - which only ever add a sibling and move the leaf
+    pointer - this actually deletes rows. `messages.parent_id` is
+    `ON DELETE CASCADE`, so the database removes the whole descendant
+    subtree (and each row's own claims/citations/audio transcript) on its
+    own; the only thing that needs explicit handling here is
+    `active_leaf_id`, which is `ON DELETE SET NULL` and would otherwise leave
+    the conversation looking empty rather than landing back on whatever's
+    left. Sibling branches at or above the deleted message are untouched -
+    the cascade only follows `parent_id` downward from the target.
+    """
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    all_messages = await _all_messages(db, conversation_id)
+    target = next((m for m in all_messages if m.id == message_id), None)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    doomed_ids = {m.id for m in descendants(all_messages, target.id)}
+    doomed_ids.add(target.id)
+
+    if conversation.active_leaf_id in doomed_ids:
+        remaining = [m for m in all_messages if m.id not in doomed_ids]
+        if target.parent_id is not None:
+            # Land back on whatever's left of the parent's branch - a
+            # sibling of the deleted message if one exists, otherwise the
+            # parent itself.
+            conversation.active_leaf_id = latest_leaf(remaining, target.parent_id)
+        else:
+            # The whole root branch was deleted. Fall back to another
+            # remaining root's own latest leaf, newest first - the same
+            # "show the newest branch" default a fresh conversation load
+            # already uses - or None if nothing is left at all.
+            other_roots = [m for m in remaining if m.parent_id is None]
+            conversation.active_leaf_id = (
+                latest_leaf(remaining, max(other_roots, key=lambda m: m.created_at).id)
+                if other_roots
+                else None
+            )
+
+    await db.delete(target)
+    await db.commit()
+
+
 @router.post("/{conversation_id}/messages")
 async def send_message(
     conversation_id: uuid.UUID,
@@ -502,6 +565,11 @@ async def send_message(
     # their mode/content/parent and whether the pre-answer gates run at all.
     regenerate_target: Message | None = None
     user_message: Message | None = None
+    # Snapshotted right after the row is flushed, before the commit below
+    # expires its attributes - the client's optimistic copy of this same
+    # message carries a local placeholder id, and needs the real one back
+    # to ever address this row again (e.g. to delete it).
+    user_message_payload: dict | None = None
     guidance: dict | None = None
     # Set only on the regenerate path, to the existing question's own id -
     # kept separate from `effective_parent_id` below, which on this path
@@ -591,6 +659,43 @@ async def send_message(
         # the history and memory load.
         guidance = await guidance_task
 
+        # Sharpening the phrasing comes before either of the checks below -
+        # judging whether more context or a different mode is needed against
+        # a question that's still genuinely unclear is itself unreliable, so
+        # this resolves first. Persists nothing, same as the two gates below:
+        # the message is not saved and no answer is generated.
+        if (
+            not payload.refined_confirmed
+            and guidance
+            and guidance.get("refined_question")
+        ):
+            suggestion = {
+                "refined_question": guidance["refined_question"],
+                "refinement_reason": guidance.get("refinement_reason"),
+            }
+
+            async def refined_gate() -> AsyncIterator[dict]:
+                yield {"event": "refined_question", "data": json.dumps(suggestion)}
+
+            return EventSourceResponse(refined_gate())
+
+        # Same reasoning as the gate above, for the sibling case: the wording
+        # isn't ambiguous enough for one best rewrite, but the missing piece
+        # has a short, enumerable set of likely answers - worth a tap instead
+        # of either guessing or opening a free-text box. Also resolves before
+        # context/mode, for the same reason: both are about the wording, not
+        # about the user's situation or the chosen mode.
+        if not payload.clarifying_confirmed and guidance and guidance.get("clarifying_options"):
+            suggestion = {
+                "question": guidance.get("clarifying_question"),
+                "options": guidance["clarifying_options"],
+            }
+
+            async def clarifying_gate() -> AsyncIterator[dict]:
+                yield {"event": "clarifying_options", "data": json.dumps(suggestion)}
+
+            return EventSourceResponse(clarifying_gate())
+
         # Asking why comes before suggesting a mode, and before answering.
         # The order is the point: a question like "I want to divorce my wife"
         # has no useful answer until the reasons are on the table, and an
@@ -645,7 +750,11 @@ async def send_message(
             parent_id=effective_parent_id,
         )
         db.add(user_message)
+        # asyncpg's RETURNING support means flush() alone already pulls
+        # created_at (a server-side default) back onto the object - no
+        # explicit refresh() needed before this is safe to serialize.
         await db.flush()
+        user_message_payload = _serialize_message(user_message, []).model_dump(mode="json")
 
         if payload.audio_duration_seconds is not None:
             # §12.1: links the transcribed turn back to its audio metadata.
@@ -828,6 +937,11 @@ async def send_message(
         # window sees this turn in its history, rather than a hole where the
         # assistant's reply should be.
         # ------------------------------------------------------------------
+        # Pulled off the front before anything else touches full_text, so
+        # every downstream consumer - the draft, reflection, claim
+        # extraction, the counterfactual - works from crux-free text and
+        # none of them can reintroduce or duplicate it.
+        crux_text, full_text = extract_crux(full_text)
         draft_display_text = clean_output(strip_claim_tags(full_text))
 
         async with AsyncSessionLocal() as answer_db:
@@ -854,7 +968,10 @@ async def send_message(
             assistant_message_id = assistant_message.id
             answer_payload = _serialize_message(assistant_message, []).model_dump(mode="json")
 
-        yield {"event": "answer", "data": json.dumps({"message": answer_payload})}
+        yield {
+            "event": "answer",
+            "data": json.dumps({"message": answer_payload, "user_message": user_message_payload}),
+        }
         yield {
             "event": "status",
             "data": json.dumps({"phase": "validating", "label": "Weighing the evidence"}),
@@ -876,12 +993,6 @@ async def send_message(
         parsed_claims = extract_claims(full_text)
 
         reflection_task = asyncio.create_task(reflect_and_revise(mode, full_text))
-        # Its own call, with its own schema, run alongside everything else.
-        # Folding it into the answer generation is what made the model ask in
-        # prose as well as in the block.
-        clarifier_task = asyncio.create_task(
-            propose_clarifier(effective_content, draft_display_text)
-        )
         # `decision_task` has been running since earlier in this function, so
         # awaiting it here is normally immediate - not a new blocking call.
         # It has to happen before review_task/thinking_task below, which need
@@ -1111,19 +1222,8 @@ async def send_message(
         # between claims exactly, matching what streaming already showed -
         # rejoining claim_text pieces with an artificial separator would
         # flatten lists/paragraphs and visibly reflow the message on finalize.
-        clarifier = await clarifier_task
         decision_review = await review_task if review_task else None
         thinking_review = await thinking_task if thinking_task else None
-        # Only the phrasing half survives to the post-answer ghost; the mode
-        # half was a gate before generation and is spent.
-        post_guidance = None
-        if guidance and guidance.get("refined_question"):
-            post_guidance = {
-                "suggested_mode": None,
-                "mode_reason": None,
-                "refined_question": guidance["refined_question"],
-                "refinement_reason": guidance.get("refinement_reason"),
-            }
         display_text = clean_output(strip_claim_tags(final_text))
         # §8.4: computed once confidence scoring completes; a distortion flag
         # overrides the expression to "concerned" regardless of the band.
@@ -1137,6 +1237,7 @@ async def send_message(
             # produced, and rewrites the text only if reflection changed it.
             assistant_message = await gen_db.get(Message, assistant_message_id)
             assistant_message.content = display_text
+            assistant_message.crux_text = clean_output(crux_text) if crux_text else None
             assistant_message.confidence_score = message_score.score
             assistant_message.confidence_band = message_score.band
             assistant_message.distortion_penalty_applied = message_score.distortion_penalty_applied
@@ -1148,8 +1249,6 @@ async def send_message(
             assistant_message.counterfactual_content = (
                 clean_output(counterfactual_text) if counterfactual_text else None
             )
-            assistant_message.clarifier = clarifier
-            assistant_message.guidance = post_guidance
             assistant_message.decision_review = decision_review
             assistant_message.thinking_review = thinking_review
             await gen_db.flush()
@@ -1266,8 +1365,6 @@ async def send_message(
             "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
             # Ships with the answer so the Devil's Draft opens instantly.
             "counterfactual_content": counterfactual_text,
-            "clarifier": clarifier,
-            "guidance": post_guidance,
             "decision_review": decision_review,
             "thinking_review": thinking_review,
             # Only present when the search agent came back empty-handed; it is

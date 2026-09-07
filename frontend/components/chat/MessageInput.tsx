@@ -3,10 +3,24 @@
 import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
+import { cx } from "@/components/ui/primitives";
 
 export type PendingImage = { data: string; mimeType: string; previewUrl: string };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function StopIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className="h-3.5 w-3.5"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
 
 /** The text is controlled by the parent rather than held here, because editing
  *  a sent message has to put that message back in the box. Pushing text into a
@@ -21,6 +35,8 @@ export function MessageInput({
   onTypingChange,
   textareaRef,
   onStartCall,
+  isGenerating,
+  onStop,
 }: {
   disabled: boolean;
   disabledReason?: string;
@@ -32,6 +48,11 @@ export function MessageInput({
   /** Owned by the conversation, not the composer: a finished call has to be
    *  saved into the thread, and the composer doesn't know which thread. */
   onStartCall?: () => void;
+  /** True while an answer is being generated - swaps the send button for a
+   *  stop control instead of just greying it out, so cutting a slow or
+   *  unwanted answer off doesn't mean waiting it out. */
+  isGenerating?: boolean;
+  onStop?: () => void;
 }) {
   const [images, setImages] = useState<PendingImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -192,18 +213,35 @@ export function MessageInput({
 
           {/* Pushed to the right edge of the control row on mobile; on
               desktop `sm:contents` has removed this wrapper, so the margin
-              would misalign it against the textarea - hence sm:ml-0. */}
+              would misalign it against the textarea - hence sm:ml-0.
+
+              While generating this becomes a stop control rather than a
+              disabled "Ask" - the answer might be slow, wrong-mode, or just
+              no longer wanted, and waiting it out was the only option
+              before. */}
           <button
             type="button"
-            onClick={handleSend}
-            disabled={disabled || !value.trim()}
-            className="ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50 sm:order-last sm:ml-0"
+            onClick={isGenerating ? onStop : handleSend}
+            disabled={isGenerating ? !onStop : disabled || !value.trim()}
+            className={cx(
+              "ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:order-last sm:ml-0",
+              isGenerating
+                ? "bg-surface-sunken text-ink hover:bg-surface-hover"
+                : "bg-brand text-white hover:bg-brand-dark",
+            )}
           >
-            {/* "Ask", not "Send". Send is what you do to a message; this is a
-                product where every mode is framed as a question and the whole
-                value is in the answer coming back. "Submit" is form language -
-                it belongs on a tax return. */}
-            Ask
+            {isGenerating ? (
+              <>
+                <StopIcon />
+                Stop
+              </>
+            ) : (
+              // "Ask", not "Send". Send is what you do to a message; this is
+              // a product where every mode is framed as a question and the
+              // whole value is in the answer coming back. "Submit" is form
+              // language - it belongs on a tax return.
+              "Ask"
+            )}
           </button>
         </div>
 

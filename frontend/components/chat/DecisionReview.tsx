@@ -92,7 +92,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
         // rather than help.
         <div className="mt-3 rounded-lg border border-brand-border bg-brand-soft px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
-            None of these hold up. Consider instead
+            None of these are correct. Consider instead
           </p>
           <p className="mt-1 text-xs font-medium leading-relaxed text-ink">
             {review.alternative}
@@ -110,7 +110,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
         // decision question is decisions, and there is nothing to cite.
         <div className={hasOptions ? "mt-3 border-t border-hairline pt-3" : ""}>
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
-            One decision that holds up, and the ones that don&apos;t
+            One decision that&apos;s correct, and the ones that aren&apos;t
           </h4>
           {/* Not numbered. A numbered list of decisions reads as a ranking,
               and three of these are things not to do - the reader has to be
@@ -142,7 +142,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
                       s.sound ? "text-band-high" : "text-caution",
                     )}
                   >
-                    {s.sound ? "Holds up" : (s.bias_name ?? "Does not hold up")}
+                    {s.sound ? "Correct" : (s.bias_name ?? "Incorrect")}
                   </span>
                   <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">
                     {s.why}

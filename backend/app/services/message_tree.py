@@ -73,6 +73,30 @@ def resolve_parent_id(
     return active_leaf_id
 
 
+def descendants(messages: list[Message], from_id: uuid.UUID) -> list[Message]:
+    """Every message in the subtree rooted at `from_id`, not including
+    `from_id` itself - the forward mirror of `active_path`'s backward walk.
+
+    Used to know what a delete is about to take down before it happens - the
+    DB's `ON DELETE CASCADE` on `parent_id` does the actual deletion; this is
+    only for deciding what `active_leaf_id` needs to move to if it was
+    pointing somewhere in the doomed subtree."""
+    by_parent: dict[uuid.UUID | None, list[Message]] = {}
+    for m in messages:
+        by_parent.setdefault(m.parent_id, []).append(m)
+
+    result: list[Message] = []
+    frontier = [from_id]
+    while frontier:
+        next_frontier: list[uuid.UUID] = []
+        for node_id in frontier:
+            children = by_parent.get(node_id, [])
+            result.extend(children)
+            next_frontier.extend(c.id for c in children)
+        frontier = next_frontier
+    return result
+
+
 def latest_leaf(messages: list[Message], from_id: uuid.UUID) -> uuid.UUID:
     """Descend from `from_id`, always taking the most recently created child,
     until there are none. What switching to a branch lands on: each fork

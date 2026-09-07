@@ -1,7 +1,13 @@
 import uuid
 from datetime import datetime, timedelta
 
-from app.services.message_tree import active_path, latest_leaf, resolve_parent_id, siblings
+from app.services.message_tree import (
+    active_path,
+    descendants,
+    latest_leaf,
+    resolve_parent_id,
+    siblings,
+)
 
 
 def make(conv_id, parent_id, created_offset, role="user"):
@@ -92,6 +98,38 @@ class TestLatestLeaf:
         # Passed in reverse of creation order - the function must sort by
         # created_at itself, not trust list order.
         assert latest_leaf([newer, older, root], root.id) == newer.id
+
+
+class TestDescendants:
+    def test_a_leaf_with_no_children_has_none(self):
+        a = make(uuid.uuid4(), None, 0)
+        assert descendants([a], a.id) == []
+
+    def test_collects_the_whole_subtree_not_just_direct_children(self):
+        conv = uuid.uuid4()
+        root = make(conv, None, 0)
+        child = make(conv, root.id, 1)
+        grandchild = make(conv, child.id, 2)
+        result = descendants([root, child, grandchild], root.id)
+        assert set(result) == {child, grandchild}
+
+    def test_does_not_include_the_node_itself(self):
+        conv = uuid.uuid4()
+        root = make(conv, None, 0)
+        child = make(conv, root.id, 1)
+        assert root not in descendants([root, child], root.id)
+
+    def test_sibling_branches_are_excluded(self):
+        # Deleting one branch must never sweep up an unrelated fork at the
+        # same level - only what's actually underneath the target.
+        conv = uuid.uuid4()
+        root = make(conv, None, 0)
+        target = make(conv, root.id, 1)
+        sibling = make(conv, root.id, 2)
+        target_child = make(conv, target.id, 3)
+        sibling_child = make(conv, sibling.id, 4)
+        result = descendants([root, target, sibling, target_child, sibling_child], target.id)
+        assert set(result) == {target_child}
 
 
 class TestResolveParentId:

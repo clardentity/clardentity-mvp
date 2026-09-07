@@ -8,6 +8,8 @@ import {
   type ChatMessage,
   type ChatStatus,
   type ModeSuggestion,
+  type RefinedQuestionSuggestion,
+  type ClarifyingOptionsSuggestion,
 } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
@@ -16,6 +18,8 @@ import { MessageInput, type PendingImage } from "@/components/chat/MessageInput"
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { ModeSuggestionCard } from "@/components/chat/ModeSuggestionCard";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
+import { RefinedQuestionCard } from "@/components/chat/RefinedQuestionCard";
+import { ClarifyingOptionsCard } from "@/components/chat/ClarifyingOptionsCard";
 import { cx } from "@/components/ui/primitives";
 import {
   AvatarPanel,
@@ -64,8 +68,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   // The composer's text lives here so editing a sent message can put it back.
   const [draft, setDraft] = useState("");
-  // Carousel view is opt-out, and only offered once a second mode exists.
-  const [carousel, setCarousel] = useState(true);
+  // Carousel (split-by-mode) view is opt-IN, and only offered once a second
+  // mode exists - "read as one thread" is the default view.
+  const [carousel, setCarousel] = useState(false);
   const [activeTrack, setActiveTrack] = useState(0);
   const [callOpen, setCallOpen] = useState(false);
   // A pending question the server declined to answer until the mode is
@@ -88,8 +93,36 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     mode: CognitiveMode;
     rounds: number;
   } | null>(null);
+  // The server asked "did you mean" before answering. Holds the original
+  // send so either choice can replay it - same shape as pendingMode, since
+  // this is a single yes/no suggestion too, not a multi-round exchange.
+  const [pendingRefined, setPendingRefined] = useState<{
+    suggestion: RefinedQuestionSuggestion;
+    content: string;
+    images: PendingImage[];
+    mode: CognitiveMode;
+  } | null>(null);
+  // The server asked "which did you mean" before answering, with tappable
+  // options - same shape as pendingRefined, since this is also a single
+  // exchange rather than a multi-round one.
+  const [pendingClarifyingOptions, setPendingClarifyingOptions] = useState<{
+    suggestion: ClarifyingOptionsSuggestion;
+    content: string;
+    images: PendingImage[];
+    mode: CognitiveMode;
+  } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  // Lets the stop button cut the current request off mid-stream. Recreated
+  // per send rather than reused, since an aborted controller can't un-abort.
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // Whether the in-flight send has already reached onAnswer - decides what
+  // stopping early should do to the optimistic user bubble. Before onAnswer,
+  // nothing was written server-side (same as any gate), so stopping should
+  // roll it back; after, the assistant row already exists and stays, just
+  // without the analysis that was still running.
+  const hasAnsweredRef = useRef(false);
+  const pendingUserMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,11 +179,24 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     // user message as a sibling of some earlier one, rather than continuing
     // from wherever the conversation currently is.
     fork?: { parentId?: string | null; regenerateOf?: string },
+    // The user has answered the refined-phrasing suggestion, either way -
+    // asking it as worded or keeping their own. Appended as a final param
+    // (rather than inserted earlier) so every existing call site above stays
+    // valid unchanged; regenerate is the one caller that needs to pass true
+    // explicitly, since re-answering an already-settled question must never
+    // interrupt with this suggestion again.
+    refinedConfirmed = false,
+    // Same reasoning, for the clarifying-options gate: appended last so
+    // nothing above needs updating, defaulting to re-eligible except for
+    // regenerate.
+    clarifyingConfirmed = false,
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
     setPendingMode(null);
     setPendingContext(null);
+    setPendingRefined(null);
+    setPendingClarifyingOptions(null);
 
     setError(null);
     setSending(true);
@@ -174,6 +220,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           avatar_gesture: null,
           created_at: new Date().toISOString(),
           counterfactual_content: null,
+          crux_text: null,
           clarifier: null,
           guidance: null,
           decision_review: null,
@@ -188,6 +235,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     if (userMessage) setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: sendMode, content: "" });
 
+    hasAnsweredRef.current = false;
+    pendingUserMessageIdRef.current = userMessage?.id ?? null;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     await streamChatMessage(
       conversationId,
       {
@@ -201,6 +253,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         mode_confirmed: modeConfirmed,
         context_acknowledged: contextAcknowledged,
         context_rounds: contextRounds,
+        refined_confirmed: refinedConfirmed,
+        clarifying_confirmed: clarifyingConfirmed,
         parent_id: fork?.parentId,
         regenerate_of: fork?.regenerateOf,
       },
@@ -214,12 +268,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             prev ? { ...prev, content: prev.content + text } : prev,
           );
         },
-        onAnswer: (message) => {
+        onAnswer: (message, realUserMessage) => {
           // The text is written and saved; only the analysis is outstanding.
           // Waiting for that to finish before letting you type again is what
           // made the app feel like it was still working long after it had
           // clearly finished answering.
-          setMessages((prev) => [...prev, message]);
+          hasAnsweredRef.current = true;
+          setMessages((prev) => {
+            // Swap the optimistic question for the real, persisted row - it
+            // was displayed under a local placeholder id before the server
+            // ever assigned one, and anything that addresses it by id from
+            // here on (delete, in particular) needs the real one.
+            const withRealUser =
+              userMessage && realUserMessage
+                ? prev.map((m) => (m.id === userMessage.id ? realUserMessage : m))
+                : prev;
+            return [...withRealUser, message];
+          });
           setStreaming(null);
           setSending(false);
           setValidatingId(message.id);
@@ -276,6 +341,29 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setSending(false);
           setStatus(null);
         },
+        onRefinedQuestion: (suggestion) => {
+          // Nothing was written server-side, so the optimistic user message is
+          // rolled back the same way the other two gates roll it back.
+          // (Regenerating never reaches this - it sends refinedConfirmed=true
+          // - so there's no optimistic message to roll back in that case.)
+          if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          setPendingRefined({ suggestion, content, images, mode: sendMode });
+          setStreaming(null);
+          setSending(false);
+          setStatus(null);
+        },
+        onClarifyingOptions: (suggestion) => {
+          // Nothing was written server-side, so the optimistic user message is
+          // rolled back the same way the other gates roll it back.
+          // (Regenerating never reaches this - it sends
+          // clarifyingConfirmed=true - so there's no optimistic message to
+          // roll back in that case.)
+          if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          setPendingClarifyingOptions({ suggestion, content, images, mode: sendMode });
+          setStreaming(null);
+          setSending(false);
+          setStatus(null);
+        },
         onError: (detail) => {
           setError(detail);
           setStreaming(null);
@@ -284,8 +372,43 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setStatus(null);
         },
       },
+      controller.signal,
     );
   }
+
+  /** Cuts the current request off mid-stream. `streamChatMessage` resolves
+   *  quietly on an aborted signal (no `onError`), so the UI reset happens
+   *  here rather than waiting for a handler that will not fire. Before
+   *  `onAnswer`, nothing was persisted server-side - same as declining any
+   *  gate - so the optimistic question is rolled back too; after it, the
+   *  answer already exists and stays, just without the analysis that was
+   *  still running. */
+  function handleStop() {
+    abortControllerRef.current?.abort();
+    if (!hasAnsweredRef.current && pendingUserMessageIdRef.current) {
+      const id = pendingUserMessageIdRef.current;
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    }
+    setStreaming(null);
+    setSending(false);
+    setStatus(null);
+    setValidatingId(null);
+  }
+
+  // Esc is the standard "cancel what's running" key, and it only means that
+  // here while something actually is - not bound at all otherwise, so it
+  // doesn't shadow the edit textarea's own Escape-to-cancel-editing handler.
+  useEffect(() => {
+    if (!sending) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleStop();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sending]);
 
   /** Save what was said on a call into the thread.
    *
@@ -324,9 +447,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setError(null);
     setMessages((prev) => prev.slice(0, index));
     try {
-      await handleSend("", [], target.mode_used as CognitiveMode, true, true, 0, {
-        regenerateOf: target.id,
-      });
+      await handleSend(
+        "",
+        [],
+        target.mode_used as CognitiveMode,
+        true,
+        true,
+        0,
+        { regenerateOf: target.id },
+        true,
+        true,
+      );
       // The streamed-in message carries no sibling count of its own - only
       // list_messages computes that, by looking at every row sharing its
       // parent. A reload is what turns "there are now two answers" into the
@@ -381,6 +512,21 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         `/chat/${conversationId}/active-leaf`,
         { method: "PUT", body: { message_id: messageId } },
       );
+      await reloadMessages();
+    } catch (err) {
+      setError(authErrorMessage(err));
+    }
+  }
+
+  /** Permanently removes a message and everything after it - unlike fork/
+   *  edit/regenerate, which only ever add a sibling, this actually deletes
+   *  rows. Same "mutate on the backend, then full reload" pattern as branch
+   *  switching: the client has no cheap way to locally recompute which
+   *  messages just disappeared. */
+  async function handleDeleteMessage(messageId: string) {
+    setError(null);
+    try {
+      await apiFetch(`/chat/${conversationId}/messages/${messageId}`, { method: "DELETE" });
       await reloadMessages();
     } catch (err) {
       setError(authErrorMessage(err));
@@ -492,6 +638,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       onSubmitEdit={handleSubmitEdit}
       loading={loadingHistory}
       onRegenerate={handleRegenerate}
+      onDeleteMessage={handleDeleteMessage}
       onSwitchBranch={handleSwitchBranch}
       busy={sending}
       statusLabel={status?.label}
@@ -633,6 +780,81 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           />
         )}
 
+        {pendingRefined && (
+          <RefinedQuestionCard
+            refinedQuestion={pendingRefined.suggestion.refined_question}
+            reason={pendingRefined.suggestion.refinement_reason}
+            busy={sending}
+            onAskRefined={() =>
+              // Same "(Clardentity asked: ...)" embedding the context gate
+              // uses, so this shows up in the transcript as a real exchange
+              // rather than the user's message silently changing wording -
+              // the resent content genuinely differs from what they typed,
+              // and the reason why should stay visible.
+              void handleSend(
+                `${pendingRefined.content}\n\n(Clardentity asked: "Did you mean: ${pendingRefined.suggestion.refined_question}")\n${pendingRefined.suggestion.refined_question}`,
+                pendingRefined.images,
+                pendingRefined.mode,
+                false,
+                false,
+                0,
+                undefined,
+                true,
+              )
+            }
+            onKeepOriginal={() =>
+              void handleSend(
+                pendingRefined.content,
+                pendingRefined.images,
+                pendingRefined.mode,
+                false,
+                false,
+                0,
+                undefined,
+                true,
+              )
+            }
+          />
+        )}
+
+        {pendingClarifyingOptions && (
+          <ClarifyingOptionsCard
+            question={pendingClarifyingOptions.suggestion.question}
+            options={pendingClarifyingOptions.suggestion.options}
+            busy={sending}
+            onAnswer={(answer) =>
+              // Same "(Clardentity asked: ...)" embedding the other gates
+              // use, so a tapped option (or a typed one) shows up in the
+              // transcript as a real exchange rather than the next message
+              // silently answering a question that isn't there.
+              void handleSend(
+                `${pendingClarifyingOptions.content}\n\n(Clardentity asked: "${pendingClarifyingOptions.suggestion.question}")\n${answer}`,
+                pendingClarifyingOptions.images,
+                pendingClarifyingOptions.mode,
+                false,
+                false,
+                0,
+                undefined,
+                false,
+                true,
+              )
+            }
+            onSkip={() =>
+              void handleSend(
+                pendingClarifyingOptions.content,
+                pendingClarifyingOptions.images,
+                pendingClarifyingOptions.mode,
+                false,
+                false,
+                0,
+                undefined,
+                false,
+                true,
+              )
+            }
+          />
+        )}
+
         {error && (
           <div className="mb-3 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
             {error}
@@ -671,6 +893,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onTypingChange={setIsTyping}
             textareaRef={composerRef}
             onStartCall={mode ? () => setCallOpen(true) : undefined}
+            isGenerating={sending}
+            onStop={handleStop}
           />
         </div>
       </div>
