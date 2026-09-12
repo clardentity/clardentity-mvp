@@ -126,6 +126,7 @@ export function AudioRecorder({
     <div className="flex items-center gap-1.5">
       <button
         type="button"
+        data-tour="voice"
         disabled={disabled || state === "transcribing"}
         onClick={recording ? stopRecording : startRecording}
         title={recording ? "Stop recording" : "Record a voice message"}

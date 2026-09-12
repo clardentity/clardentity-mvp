@@ -10,10 +10,11 @@ import { cx } from "@/components/ui/primitives";
  *  in JS would mean the server-rendered icon is a coin flip and visibly
  *  corrects itself on hydration; this way the very first paint is right.
  */
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle({ className, tourId }: { className?: string; tourId?: string }) {
   return (
     <button
       type="button"
+      data-tour={tourId}
       onClick={toggleTheme}
       title="Toggle light and dark theme"
       aria-label="Toggle light and dark theme"

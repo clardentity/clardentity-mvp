@@ -449,3 +449,108 @@ body {
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 9%, #000 91%, transparent 100%);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The gist card - the one-sentence bottom line every answer opens with.
+   Gradient hairline, brand-tinted glow and a single sheen pass on arrival:
+   it has to read as *the* content, with the full answer folded beneath it,
+   without a label saying so. Colours come from the theme tokens so both
+   themes get the same emphasis.
+--------------------------------------------------------------------------- */
+.gist-card {
+  position: relative;
+  border-radius: 14px;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    color-mix(in srgb, var(--brand) 45%, var(--border-strong)) 40%,
+    var(--border-strong) 100%
+  );
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--brand) 7%, transparent),
+    0 14px 30px -16px color-mix(in srgb, var(--brand) 60%, transparent);
+}
+
+.gist-card-inner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 13px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand) 7%, var(--surface-raised)) 0%,
+    var(--surface-raised) 65%
+  );
+}
+
+.gist-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    color-mix(in srgb, var(--brand) 16%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-130%);
+  animation: gist-sheen 1.5s ease-out 0.2s 1 forwards;
+}
+
+@keyframes gist-sheen {
+  to {
+    transform: translateX(130%);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The thinking rabbit - a head and two ears poking out of a pocket, beside
+   the single word "Thinking". Ears wiggle and the head bobs; nothing else is
+   said about what the model is doing.
+--------------------------------------------------------------------------- */
+.rabbit-head {
+  animation: rabbit-bob 1.8s ease-in-out infinite;
+}
+
+.rabbit-ear-l,
+.rabbit-ear-r {
+  animation: rabbit-ear 1.8s ease-in-out infinite;
+}
+
+.rabbit-ear-l {
+  transform-origin: 12.5px 13px;
+}
+
+.rabbit-ear-r {
+  transform-origin: 19.5px 13px;
+  animation-delay: -0.9s;
+}
+
+@keyframes rabbit-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.2px);
+  }
+}
+
+@keyframes rabbit-ear {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gist-sheen,
+  .rabbit-head,
+  .rabbit-ear-l,
+  .rabbit-ear-r {
+    animation: none;
+  }
+}

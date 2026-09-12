@@ -44,7 +44,6 @@ export function MessageList({
   onDeleteMessage,
   onSwitchBranch,
   busy,
-  statusLabel,
   onClarifierAnswer,
   onUseMode,
   onAskRefined,
@@ -69,8 +68,6 @@ export function MessageList({
   /** Fork switcher: move to the branch that starts with this sibling id. */
   onSwitchBranch?: (messageId: string) => void;
   busy?: boolean;
-  /** Shown while a request is in flight and no tokens have arrived yet. */
-  statusLabel?: string | null;
   /** Sends a clarifying-question answer as the next message. */
   onClarifierAnswer?: (answer: string) => void;
   /** Acting on a guidance nudge: switch mode, or ask the sharper question. */
@@ -191,21 +188,21 @@ export function MessageList({
           onSubmitEdit={onSubmitEdit}
         />
       ))}
-      {/* `streaming` is set the instant a send starts, with empty content, so
-          the old `!streaming` here was never true and this never rendered -
-          you got an empty bubble for the whole wait instead. What matters is
-          whether any text has arrived, not whether a stream object exists. */}
-      {busy && !streaming?.content && !streaming?.crux && (
+      {/* Generation happens under the hood. Until the gist lands, the whole
+          wait is the rabbit; the body text that streams in meanwhile is
+          accumulated (so cancelling mid-way still has it) but never shown
+          token by token - the finished answer replaces this all at once. */}
+      {busy && !streaming?.crux && (
         <div className="flex justify-start">
           <div className="rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3">
-            <ThinkingIndicator label={statusLabel} />
+            <ThinkingIndicator />
           </div>
         </div>
       )}
-      {/* The bubble appears as soon as there is a gist to show, even if no
-          body text has arrived yet - the gist is meant to be the first thing
-          read, with the body filling in behind the fold underneath it. */}
-      {(streaming?.content || streaming?.crux) && (
+      {/* The bubble appears as soon as there is a gist to show - the gist is
+          the first thing read, and the rest is still being written behind
+          it (the rabbit says so, under the card). */}
+      {streaming?.crux && (
         <MessageBubble
           id="streaming"
           role="assistant"
@@ -307,6 +304,75 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
   }
   out.push(...renderCitations(clean.slice(from), claims, "tail"));
   return out;
+}
+
+/* A user message can carry one or more pre-answer exchanges inside it: the
+ * composer embeds each gate Clardentity raised (a context question, a
+ * "did you mean", a clarifying choice) as
+ *   <original>\n\n(Clardentity asked: "<question>")\n<answer>
+ * so the whole turn is one message for the model and for edit/resend. That
+ * raw form is kept for both; only the rendering unpicks it, into the original
+ * question followed by a small two-sided thread - Clardentity's question on
+ * the left, the reply on the right - the way a quoted exchange reads in a
+ * messaging app. */
+const ASKED_RE = /\n\n\(Clardentity asked: "([\s\S]*?)"\)\n/g;
+
+type Exchange = { question: string; answer: string };
+
+function parseUserMessage(content: string): { head: string; exchanges: Exchange[] } {
+  const exchanges: Exchange[] = [];
+  let head = content;
+  let match: RegExpExecArray | null;
+  let cursor = 0;
+  let pendingQuestion: string | null = null;
+  ASKED_RE.lastIndex = 0;
+  while ((match = ASKED_RE.exec(content)) !== null) {
+    const before = content.slice(cursor, match.index);
+    if (pendingQuestion === null) head = before;
+    else exchanges.push({ question: pendingQuestion, answer: before.trim() });
+    pendingQuestion = match[1];
+    cursor = match.index + match[0].length;
+  }
+  if (pendingQuestion !== null) {
+    exchanges.push({ question: pendingQuestion, answer: content.slice(cursor).trim() });
+  }
+  return { head, exchanges };
+}
+
+function UserMessageBody({ content }: { content: string }) {
+  const { head, exchanges } = parseUserMessage(content);
+  if (exchanges.length === 0) {
+    return <p className="whitespace-pre-wrap leading-relaxed">{content}</p>;
+  }
+  return (
+    <div>
+      <p className="whitespace-pre-wrap leading-relaxed">{head}</p>
+      <div className="mt-2 space-y-1.5 rounded-xl bg-black/15 p-1.5">
+        {exchanges.map((x, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex justify-start">
+              <div className="max-w-[88%] rounded-xl rounded-bl-sm bg-white/15 px-2.5 py-1.5 text-[13px] leading-snug">
+                <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-white/70">
+                  Clardentity
+                </span>
+                <span className="whitespace-pre-wrap">{x.question}</span>
+              </div>
+            </div>
+            {x.answer && (
+              <div className="flex justify-end">
+                <div className="max-w-[88%] rounded-xl rounded-br-sm bg-white px-2.5 py-1.5 text-[13px] leading-snug text-brand">
+                  <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-brand/70">
+                    You
+                  </span>
+                  <span className="whitespace-pre-wrap">{x.answer}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function MessageBubble({
@@ -534,7 +600,12 @@ function MessageBubble({
         {!isUser && !isStreaming && panel === "decision" && decisionReview && (
           <DecisionReview review={decisionReview} />
         )}
-        {hasCrux && (
+        {hasCrux && isStreaming && (
+          // The rest is still being written, out of sight. No fold yet -
+          // there's nothing finished behind it to open.
+          <ThinkingIndicator compact />
+        )}
+        {hasCrux && !isStreaming && (
           <button
             type="button"
             onClick={() => setDetailOpen((v) => !v)}
@@ -554,18 +625,9 @@ function MessageBubble({
               <path d="m9 18 6-6-6-6" />
             </svg>
             {detailOpen ? detailLabels.hide : detailLabels.show}
-            {isStreaming && (
-              // The body is still being written behind this fold; say so,
-              // so a closed fold doesn't read as "the answer is just the
-              // gist".
-              <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] normal-case">
-                <Spinner className="h-3 w-3" />
-                Writing…
-              </span>
-            )}
           </button>
         )}
-        {(!hasCrux || detailOpen) && (
+        {!isStreaming && (!hasCrux || detailOpen) && (
         <>
         {editing ? (
           <form
@@ -618,7 +680,7 @@ function MessageBubble({
             </div>
           </form>
         ) : isUser ? (
-          <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
+          <UserMessageBody content={content} />
         ) : (
           // Only answers have a back. Wrapping your own messages in the flip
           // container gave them a second face they could never show, and the
@@ -631,9 +693,6 @@ function MessageBubble({
             front={
               <p className="whitespace-pre-wrap leading-relaxed">
                 {renderTextWithCitations(content, claims)}
-                {isStreaming && (
-                  <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle" />
-                )}
               </p>
             }
           />

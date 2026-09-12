@@ -6,7 +6,6 @@ import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import {
   streamChatMessage,
   type ChatMessage,
-  type ChatStatus,
   type ModeSuggestion,
   type RefinedQuestionSuggestion,
   type ClarifyingOptionsSuggestion,
@@ -74,9 +73,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // The message whose claims are still being verified. It is already on
   // screen and already saved; this only drives the "checking claims" note.
   const [validatingId, setValidatingId] = useState<string | null>(null);
-  // What the server last said it was doing. Null falls back to the rotating
-  // verbs in ThinkingIndicator.
-  const [status, setStatus] = useState<ChatStatus | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
@@ -217,7 +213,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     setError(null);
     setSending(true);
     setIsTyping(false);
-    setStatus(null);
 
     // Regenerating writes no new user row server-side, so there's nothing
     // optimistic to show above the streaming answer - the question already
@@ -276,15 +271,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         regenerate_of: fork?.regenerateOf,
       },
       {
-        onStatus: setStatus,
         onCrux: (text) => {
-          setStatus(null);
           setStreaming((prev) => (prev ? { ...prev, crux: text } : prev));
         },
         onDelta: (text) => {
-          // The first token is the end of waiting; anything the server says
-          // it is doing after this belongs to the post-answer phase.
-          setStatus(null);
+          // Accumulated, not shown: the body is revealed whole when the
+          // stream finishes (MessageList renders only the gist and the
+          // rabbit until then).
           setStreaming((prev) =>
             prev ? { ...prev, content: prev.content + text } : prev,
           );
@@ -321,7 +314,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             return next;
           });
           setValidatingId(null);
-          setStatus(null);
           setStreaming(null);
           setSending(false);
           if (finalEvent.avatar_cue) {
@@ -343,7 +335,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setPendingMode({ suggestion, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
-          setStatus(null);
         },
         onContextQuestion: (asked) => {
           // Nothing was written server-side, so the optimistic user message is
@@ -360,7 +351,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           });
           setStreaming(null);
           setSending(false);
-          setStatus(null);
         },
         onRefinedQuestion: (suggestion) => {
           // Nothing was written server-side, so the optimistic user message is
@@ -371,7 +361,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setPendingRefined({ suggestion, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
-          setStatus(null);
         },
         onClarifyingOptions: (suggestion) => {
           // Nothing was written server-side, so the optimistic user message is
@@ -383,14 +372,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setPendingClarifyingOptions({ suggestion, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
-          setStatus(null);
         },
         onError: (detail) => {
           setError(detail);
           setStreaming(null);
           setSending(false);
           setValidatingId(null);
-          setStatus(null);
         },
       },
       controller.signal,
@@ -412,7 +399,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     }
     setStreaming(null);
     setSending(false);
-    setStatus(null);
     setValidatingId(null);
   }
 
@@ -662,7 +648,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       onDeleteMessage={handleDeleteMessage}
       onSwitchBranch={handleSwitchBranch}
       busy={sending}
-      statusLabel={status?.label}
       onClarifierAnswer={(answer) => handleSend(answer, [])}
       // Switching mode from a nudge only changes the composer's mode - it
       // does not re-ask anything. The answer you already have is still the
@@ -675,6 +660,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           gesture={avatarGesture}
           expression={avatarExpression}
           className="h-36 w-36"
+          tourId="companion"
         />
       }
     />
@@ -899,6 +885,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                 gesture={avatarGesture}
                 expression={avatarExpression}
                 className="h-11 w-11 shrink-0"
+                tourId="companion"
               />
             )}
             {/* flex-1 so the unselected state - which renders all four modes
@@ -919,6 +906,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             {mode && (
               <button
                 type="button"
+                data-tour="switching-toggle"
                 onClick={() => setSmartSwitching(!smartSwitching)}
                 title={
                   smartSwitching

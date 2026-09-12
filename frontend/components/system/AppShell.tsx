@@ -223,16 +223,20 @@ function NavItem({
   children,
   active,
   onNavigate,
+  tourId,
 }: {
   href: string;
   icon: ReactNode;
   children: ReactNode;
   active: boolean;
   onNavigate?: () => void;
+  /** Coachmark target name - see lib/tour.tsx. */
+  tourId?: string;
 }) {
   return (
     <Link
       href={href}
+      data-tour={tourId}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cx(
@@ -278,7 +282,7 @@ function WorkspaceSwitcher({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} data-tour="workspace-switcher" className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -363,6 +367,27 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   const toggleCollapsed = () => setSidebarCollapsed(!collapsed);
+
+  // The coachmark tour points at things in this sidebar. On a phone that's
+  // a closed drawer and on a desktop it may be collapsed; either way the
+  // overlay can't find its target and asks here, rather than knowing how the
+  // shell is laid out. Closing is the reverse: a step whose target is on the
+  // page itself must not be shown behind the drawer.
+  useEffect(() => {
+    function onOpen() {
+      setMobileOpen(true);
+      setSidebarCollapsed(false);
+    }
+    function onClose() {
+      setMobileOpen(false);
+    }
+    window.addEventListener("clardentity:open-nav", onOpen);
+    window.addEventListener("clardentity:close-nav", onClose);
+    return () => {
+      window.removeEventListener("clardentity:open-nav", onOpen);
+      window.removeEventListener("clardentity:close-nav", onClose);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -481,7 +506,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {starting ? "Starting…" : "New chat"}
       </button>
 
-      <div data-tour="library" className="mt-0.5 flex flex-col gap-0.5">
+      <div className="mt-0.5 flex flex-col gap-0.5">
         {/* Real routes, not `#documents` anchors. As anchors these silently
             did nothing: a same-route hash is not re-scrolled by the App
             Router, and with no workspace resolved they fell back to the
@@ -491,6 +516,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           icon={icons.rooms}
           active={pathname === "/workspace"}
           onNavigate={close}
+          tourId="nav-workspaces"
         >
           Workspaces
         </NavItem>
@@ -499,6 +525,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           icon={icons.docs}
           active={pathname.endsWith("/documents")}
           onNavigate={close}
+          tourId="nav-attachments"
         >
           Attachments
         </NavItem>
@@ -507,6 +534,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           icon={icons.search}
           active={pathname.endsWith("/search")}
           onNavigate={close}
+          tourId="nav-chats"
         >
           Chats
         </NavItem>
@@ -521,6 +549,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <button
         type="button"
+        data-tour="nav-upgrade"
         onClick={() => setUpgradeOpen(true)}
         className="mt-2 flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink"
       >
@@ -546,6 +575,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         icon={icons.profile}
         active={pathname.startsWith("/profile")}
         onNavigate={close}
+        tourId="nav-profile"
       >
         Your profile
       </NavItem>
@@ -681,7 +711,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             activeWorkspaceId={activeWorkspaceId}
             conversationTitle={conversationTitle}
           />
-          <ThemeToggle className="ml-auto shrink-0" />
+          <ThemeToggle className="ml-auto shrink-0" tourId="theme-toggle" />
         </header>
 
         <main className="scroll-slim flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">

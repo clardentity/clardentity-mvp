@@ -67,7 +67,9 @@ export default function WelcomePage() {
       // Re-read the user so RequireAuth sees the stamp and stops sending
       // people back here, then hand over to the tour.
       await refresh();
-      startTour();
+      // Force: an account-level reset must re-show the tour even in a
+      // browser that dismissed it before.
+      startTour("workspace", { force: true });
       router.replace("/workspace?enter=1");
     } catch {
       setError("That didn't save. Check your connection and try again.");

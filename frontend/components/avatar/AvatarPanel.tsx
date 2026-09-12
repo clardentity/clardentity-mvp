@@ -120,12 +120,15 @@ export function AvatarPanel({
   expression,
   className,
   viseme,
+  tourId,
 }: {
   state: AvatarState;
   gesture: AvatarGesture;
   expression: AvatarExpression;
   className?: string;
   viseme?: Viseme | null;
+  /** Coachmark target name (`data-tour`) - see lib/tour.tsx. */
+  tourId?: string;
 }) {
   // Gradient ids must be unique per instance or a second avatar on the page
   // silently repaints the first one's fills.
@@ -163,7 +166,7 @@ export function AvatarPanel({
   const isWaving = activeGesture === "wave";
 
   return (
-    <div className="flex items-center justify-center" aria-hidden="true">
+    <div data-tour={tourId} className="flex items-center justify-center" aria-hidden="true">
       <svg
         viewBox="0 0 200 230"
         className={cx("h-10 w-10", className)}

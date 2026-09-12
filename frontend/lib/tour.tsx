@@ -3,68 +3,164 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
+export type TourId = "workspace" | "chat";
+
 export type TourStep = {
   id: string;
   /** Matches a `data-tour="<target>"` attribute somewhere in the DOM. */
   target: string;
   title: string;
   body: string;
-  /** Set on a step whose "next" is a real page navigation. Two effects:
-   *  the step's own advance button performs the highlighted action (clicks
-   *  the target) instead of just incrementing, since the next target only
-   *  exists on the next page; and `TourProvider` (mounted at the root, so it
-   *  survives the navigation) advances when the path matches - whichever
-   *  "New chat" control the user actually used, the page's or the sidebar's. */
-  autoAdvanceWhenPathMatches?: RegExp;
+  /** The target lives in the sidebar, which on a phone is a closed drawer.
+   *  The overlay asks the shell to open it when this step can't find its
+   *  target, rather than falling straight back to an anchorless callout. */
+  sidebar?: boolean;
 };
 
-export const TOUR_STEPS: TourStep[] = [
-  {
-    id: "new-chat",
-    target: "new-chat",
-    title: "Start here",
-    body: 'Click "New chat" - or the tick below - to begin your first conversation.',
-    autoAdvanceWhenPathMatches: /^\/chat\//,
-  },
-  {
-    id: "mode-picker",
-    target: "mode-picker",
-    title: "Pick a cognitive mode",
-    body: "Each mode changes how Clardentity thinks with you - pick whichever fits what you're trying to do.",
-  },
-  {
-    id: "composer",
-    target: "composer",
-    title: "Ask your first question",
-    body: "Type here, then hit Ask (or press Enter) for a checked, cited answer.",
-  },
-  {
-    id: "library",
-    target: "library",
-    title: "Your documents and history",
-    body: "Attachments ground every answer against your own files. Chats holds everything you've asked before.",
-  },
-];
+/* Two tours, one per screen a new user meets, each started the first time
+ * that screen is opened (per browser) and never again - except that
+ * finishing the welcome questions restarts the workspace tour, which is how
+ * an account-level reset re-shows it in a browser that already dismissed it.
+ * Steps here point only at things that exist on an empty account: no step
+ * depends on a chat or an attachment already existing. */
+export const TOURS: Record<TourId, TourStep[]> = {
+  workspace: [
+    {
+      id: "workspace-switcher",
+      target: "workspace-switcher",
+      title: "This is your workspace",
+      body: "Chats, attachments and what Clardentity learns about you all live inside one. Switch between workspaces, or make another, here.",
+      sidebar: true,
+    },
+    {
+      id: "nav-attachments",
+      target: "nav-attachments",
+      title: "Attachments",
+      body: "Upload PDFs and documents here. Every answer is checked against them and cites them by name, so you can see what it rests on.",
+      sidebar: true,
+    },
+    {
+      id: "nav-chats",
+      target: "nav-chats",
+      title: "Chats",
+      body: "Search and browse every conversation you've had in this workspace.",
+      sidebar: true,
+    },
+    {
+      id: "nav-workspaces",
+      target: "nav-workspaces",
+      title: "Workspaces",
+      body: "All of yours in one list. Keep separate projects in separate workspaces so their attachments and memory stay apart.",
+      sidebar: true,
+    },
+    {
+      id: "nav-profile",
+      target: "nav-profile",
+      title: "Your profile",
+      body: "What Clardentity has learned about you - yours to read, correct or delete - plus companion names and your account.",
+      sidebar: true,
+    },
+    {
+      id: "nav-upgrade",
+      target: "nav-upgrade",
+      title: "Plans",
+      body: "What Pro, Max and Ultra will add, and a place to be told when they open.",
+      sidebar: true,
+    },
+    {
+      id: "theme-toggle",
+      target: "theme-toggle",
+      title: "Light or dark",
+      body: "Whichever you prefer - it's remembered on this device.",
+    },
+    {
+      id: "chat-list",
+      target: "chat-list",
+      title: "Your conversations",
+      body: "Every chat in this workspace collects here, newest first. The bin icon on a row deletes it.",
+    },
+    {
+      id: "new-chat",
+      target: "new-chat",
+      title: "When you're ready",
+      body: "Start your first chat here. We'll show you around the chat screen when you get there.",
+    },
+  ],
+  chat: [
+    {
+      id: "companion",
+      target: "companion",
+      title: "Meet your companion",
+      body: "Its expression tracks how solid each answer is - confident, cautious or concerned - so you can read the mood before the detail.",
+    },
+    {
+      id: "mode-picker",
+      target: "mode-picker",
+      title: "Pick a cognitive mode",
+      body: "How Clardentity should think about this question - find facts, train your thinking, weigh a decision, learn. Change it any time.",
+    },
+    {
+      id: "switching-toggle",
+      target: "switching-toggle",
+      title: "Smart switching",
+      body: "Once a mode is picked, a Switching toggle appears beside it. On Smart, if a question fits another mode better we say so before answering and you choose; Manual turns the suggestions off.",
+    },
+    {
+      id: "composer-input",
+      target: "composer-input",
+      title: "Ask here",
+      body: "Type your question. Enter sends it, Shift+Enter starts a new line. Spelling is checked as you type.",
+    },
+    {
+      id: "model-picker",
+      target: "model-picker",
+      title: "Model",
+      body: "Leave it on Auto and Clardentity picks the right one for the job, or choose yourself.",
+    },
+    {
+      id: "voice",
+      target: "voice",
+      title: "Speak instead",
+      body: "Record a voice message and it's transcribed into the box - and we'll tell you if we didn't catch it, rather than guessing.",
+    },
+    {
+      id: "live-call",
+      target: "live-call",
+      title: "Or talk it through",
+      body: "A live voice conversation, saved into this chat when you hang up.",
+    },
+    {
+      id: "attach-image",
+      target: "attach-image",
+      title: "Attach an image",
+      body: "Add a picture to ask about it - a diagram, a screenshot, a page.",
+    },
+    {
+      id: "ask-button",
+      target: "ask-button",
+      title: "Ask",
+      body: "While it thinks you'll see the rabbit, not a wall of text; Stop or Esc cancels. Every answer opens with its gist, with the reasoning and sources folded beneath.",
+    },
+  ],
+};
+
+type TourStatus = "completed" | "skipped";
 
 type TourState = {
-  status: "idle" | "active" | "completed" | "skipped";
+  active: TourId | null;
   stepIndex: number;
+  done: Partial<Record<TourId, TourStatus>>;
 };
 
 const STORAGE_KEY = "clardentity-tour";
-const IDLE_STATE: TourState = { status: "idle", stepIndex: 0 };
+const IDLE_STATE: TourState = { active: null, stepIndex: 0, done: {} };
 
 /* Same shape as AppShell's sidebar-collapse store and lib/theme's approach to
    persisted UI state: a plain module-level value read through
-   useSyncExternalStore rather than useState + an effect, so a change is
-   observed the instant it happens (no separate "detect a flag on mount"
-   step, which would run once, too early, and never again - this component
-   tree is mounted once at the root and survives every client-side
-   navigation a new user makes). Unlike that store, this one *is* rendered
-   into the very first server-rendered HTML (the overlay lives in the root
-   layout, unconditionally), so getSnapshot must never run during SSR -
-   hence the explicit getServerSnapshot below, matching
-   useReducedMotion.ts's reasoning for the same hazard. */
+   useSyncExternalStore, so a change is observed the instant it happens. This
+   store *is* rendered into the first server-rendered HTML (the overlay lives
+   in the root layout), so getSnapshot must never run during SSR - hence the
+   explicit getServerSnapshot, matching useReducedMotion.ts. */
 let tourSnapshot: TourState | null = null;
 const tourListeners = new Set<() => void>();
 
@@ -79,18 +175,18 @@ function readStoredState(): TourState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return IDLE_STATE;
-    const parsed = JSON.parse(raw) as Partial<TourState>;
-    if (
-      (parsed.status === "idle" ||
-        parsed.status === "active" ||
-        parsed.status === "completed" ||
-        parsed.status === "skipped") &&
-      typeof parsed.stepIndex === "number"
-    ) {
-      return { status: parsed.status, stepIndex: parsed.stepIndex };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // The previous single-tour format ({status, stepIndex}) was a four-step
+    // tour that covered a fraction of what these two do, so a browser that
+    // finished it starts fresh rather than being credited with either.
+    if (typeof parsed.status === "string") return IDLE_STATE;
+    const active = parsed.active;
+    const done = (parsed.done && typeof parsed.done === "object" ? parsed.done : {}) as TourState["done"];
+    if ((active === null || active === "workspace" || active === "chat") && typeof parsed.stepIndex === "number") {
+      return { active: active as TourId | null, stepIndex: parsed.stepIndex, done };
     }
   } catch {
-    // Corrupt or blocked storage - treat as a user who's never started.
+    // Corrupt or blocked storage - treat as a browser that's seen nothing.
   }
   return IDLE_STATE;
 }
@@ -117,63 +213,75 @@ function setTourState(next: TourState) {
   tourListeners.forEach((fn) => fn());
 }
 
-/** Begin (or begin again) from step 1. Called when the /welcome questions
- *  are finished or skipped - and only from there. Whether an account should
- *  see the tour is the server's decision (`onboarding_completed_at`, which
- *  RequireAuth gates /welcome on), so this deliberately ignores whatever
- *  this browser remembers: after an account-level reset, a browser that
- *  once skipped the tour must still show it. */
-export function startTour() {
-  setTourState({ status: "active", stepIndex: 0 });
+/** Begin a tour from step 1. `force` restarts it even if this browser has
+ *  already finished or skipped it - used by the welcome page, because whether
+ *  an account should see the tours again is the server's decision, not this
+ *  browser's memory. Without `force`, a finished tour stays finished and a
+ *  tour already running is left alone. */
+export function startTour(id: TourId, options: { force?: boolean } = {}) {
+  const current = getTourSnapshot();
+  if (!options.force && (current.done[id] || current.active === id)) return;
+  const done = { ...current.done };
+  delete done[id];
+  setTourState({ active: id, stepIndex: 0, done });
 }
 
 export function advanceTour() {
   const current = getTourSnapshot();
-  if (current.status !== "active") return;
+  if (!current.active) return;
   const nextIndex = current.stepIndex + 1;
-  setTourState(
-    nextIndex >= TOUR_STEPS.length
-      ? { status: "completed", stepIndex: current.stepIndex }
-      : { status: "active", stepIndex: nextIndex },
-  );
+  if (nextIndex >= TOURS[current.active].length) {
+    setTourState({ active: null, stepIndex: 0, done: { ...current.done, [current.active]: "completed" } });
+  } else {
+    setTourState({ ...current, stepIndex: nextIndex });
+  }
 }
 
 /** Cancel at any time - "Skip tour" and Escape both call this. */
 export function endTour() {
   const current = getTourSnapshot();
-  if (current.status !== "active") return;
-  setTourState({ status: "skipped", stepIndex: current.stepIndex });
+  if (!current.active) return;
+  setTourState({ active: null, stepIndex: 0, done: { ...current.done, [current.active]: "skipped" } });
 }
 
 export function useTour() {
   const state = useSyncExternalStore(subscribeTour, getTourSnapshot, getServerTourSnapshot);
-  const active = state.status === "active";
-  const step = active ? (TOUR_STEPS[state.stepIndex] ?? null) : null;
+  const steps = state.active ? TOURS[state.active] : null;
+  const step = steps ? (steps[state.stepIndex] ?? null) : null;
   return {
-    active: active && step !== null,
+    tour: step ? state.active : null,
+    active: step !== null,
     step,
     stepIndex: state.stepIndex,
-    total: TOUR_STEPS.length,
-    isLast: state.stepIndex === TOUR_STEPS.length - 1,
+    total: steps?.length ?? 0,
+    isLast: steps ? state.stepIndex === steps.length - 1 : false,
     advance: advanceTour,
     skip: endTour,
   };
 }
 
-/** Watches the route for the one step that's waiting on a real page
- *  navigation rather than a "Next" click, and advances the moment it
- *  happens. Renders nothing itself - TourOverlay (mounted alongside this in
- *  the root layout) is the visible piece. */
+const WORKSPACE_PAGE = /^\/workspace\/[^/]+$/;
+const CHAT_PAGE = /^\/chat\//;
+
+/** Starts each tour the first time its screen is opened, and hands over
+ *  from the workspace tour to the chat tour when the user moves on (a
+ *  half-finished workspace tour is counted as done - they've clearly found
+ *  the thing it was leading to). Renders nothing itself; TourOverlay,
+ *  mounted alongside this in the root layout, is the visible piece. */
 export function TourProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { active, step } = useTour();
+  const state = useSyncExternalStore(subscribeTour, getTourSnapshot, getServerTourSnapshot);
 
   useEffect(() => {
-    if (!active || !step?.autoAdvanceWhenPathMatches) return;
-    if (step.autoAdvanceWhenPathMatches.test(pathname)) {
-      advanceTour();
+    if (CHAT_PAGE.test(pathname)) {
+      if (state.active === "workspace") {
+        setTourState({ active: null, stepIndex: 0, done: { ...state.done, workspace: "completed" } });
+      }
+      if (state.active === null && !state.done.chat) startTour("chat");
+    } else if (WORKSPACE_PAGE.test(pathname)) {
+      if (state.active === null && !state.done.workspace) startTour("workspace");
     }
-  }, [active, step, pathname]);
+  }, [pathname, state]);
 
   return <>{children}</>;
 }

@@ -130,6 +130,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
       <div ref={wrapRef} className="relative">
         <button
           type="button"
+          data-tour="model-picker"
           disabled={disabled}
           onClick={() => setOpen((v) => !v)}
           aria-haspopup="menu"

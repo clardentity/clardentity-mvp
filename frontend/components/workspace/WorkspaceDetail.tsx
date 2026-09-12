@@ -157,7 +157,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           see what you're asking; attachments and search moved to the sidebar,
           where navigation lives. What's left is the one thing you came here
           to do and the list of what you did before. */}
-      <Card padded={false}>
+      <Card padded={false} tourId="chat-list">
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold text-ink">Chats</h2>
           <span className="text-xs text-ink-muted">

@@ -163,6 +163,7 @@ export function MessageInput({
             lengths: dictate one message, or have a conversation. */}
         <button
           type="button"
+          data-tour="live-call"
           onClick={onStartCall}
           disabled={disabled || !onStartCall}
           title="Start a live call"
@@ -187,6 +188,7 @@ export function MessageInput({
 
         <button
           type="button"
+          data-tour="attach-image"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           title="Attach an image"
@@ -224,6 +226,7 @@ export function MessageInput({
               before. */}
           <button
             type="button"
+            data-tour="ask-button"
             onClick={isGenerating ? onStop : handleSend}
             disabled={isGenerating ? !onStop : disabled || !value.trim()}
             className={cx(
@@ -250,6 +253,7 @@ export function MessageInput({
 
         <textarea
           ref={textareaRef}
+          data-tour="composer-input"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}

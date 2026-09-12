@@ -10,13 +10,17 @@ export function Card({
   children,
   className,
   padded = true,
+  tourId,
 }: {
   children: ReactNode;
   className?: string;
   padded?: boolean;
+  /** Marks this card as a coachmark target (`data-tour`). */
+  tourId?: string;
 }) {
   return (
     <section
+      data-tour={tourId}
       className={cx(
         "rounded-xl border border-hairline bg-surface",
         padded && "p-5",
