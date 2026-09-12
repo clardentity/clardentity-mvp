@@ -210,6 +210,22 @@ class StructuredOutputError(RuntimeError):
     """The model returned something that isn't the requested object."""
 
 
+def _translate_tool(tool: dict) -> dict:
+    """Call sites describe tools in the primary provider's shape; this API has
+    its own names for the same server-side tools. Only the search tool is
+    translated, because it is the only server tool anything here passes:
+    Claude's version-pinned `web_search_<date>` is this API's
+    `web_search_preview`. Passing the Claude shape through was a 400 on every
+    fallback search, which web_research swallows into "no sources" - so an
+    outage of the primary provider quietly turned every claim into a zero
+    rather than into an error anyone would see. Anything else passes
+    through untouched."""
+    tool_type = str(tool.get("type", ""))
+    if tool_type.startswith("web_search"):
+        return {"type": "web_search_preview"}
+    return tool
+
+
 async def generate_structured(
     *,
     instructions: str,
@@ -234,7 +250,7 @@ async def generate_structured(
         }
     }
     if tools:
-        kwargs["tools"] = tools
+        kwargs["tools"] = [_translate_tool(t) for t in tools]
 
     response = await _resilient_call(_create_response, **kwargs, stream=False)
     raw = response.output_text

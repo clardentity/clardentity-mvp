@@ -155,3 +155,39 @@ class TestIsProviderUnavailableError:
 
     def test_a_plain_bug_does_not_count(self):
         assert not is_provider_unavailable_error(ValueError("not json"))
+
+
+class TestFallbackToolTranslation:
+    """web_research describes the search tool in Claude's shape. When a call
+    falls back to OpenAI that shape is a 400 there, which web_research
+    swallows into "no sources" - every claim scores zero and the answer is
+    labelled fabricated, with nothing in the response to say why. The
+    fallback client has to speak its own provider's names."""
+
+    @pytest.mark.asyncio
+    async def test_claudes_search_tool_becomes_this_apis_search_tool(self, monkeypatch):
+        from app.services import web_research
+
+        seen: dict = {}
+
+        async def fake_resilient_call(fn, **kwargs):
+            seen.update(kwargs)
+
+            class _Resp:
+                output_text = '{"sources": []}'
+
+            return _Resp()
+
+        monkeypatch.setattr(openai_client, "_resilient_call", fake_resilient_call)
+        await openai_client.generate_structured(
+            instructions="x",
+            input_text="y",
+            schema={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+            schema_name="web_sources",
+            tools=[web_research._WEB_SEARCH_TOOL],
+        )
+        assert seen["tools"] == [{"type": "web_search_preview"}]
+
+    def test_other_tools_pass_through_untouched(self):
+        fn_tool = {"type": "function", "name": "lookup", "parameters": {}}
+        assert openai_client._translate_tool(fn_tool) is fn_tool
