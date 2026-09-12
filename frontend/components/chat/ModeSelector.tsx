@@ -50,6 +50,7 @@ export function ModeSelector({
         <div
           role="radiogroup"
           aria-label="Cognitive mode"
+          data-tour="mode-picker"
           className="grid gap-2 sm:grid-cols-2"
         >
           {COGNITIVE_MODES.map((mode) => {
@@ -92,6 +93,7 @@ export function ModeSelector({
         ref={stripRef}
         role="radiogroup"
         aria-label="Cognitive mode"
+        data-tour="mode-picker"
         // Four pills already fill 375px edge to edge. Rather than wrap them
         // into a ragged second row or shrink the text below legibility, the
         // row scrolls: every mode stays one tap away and the control keeps

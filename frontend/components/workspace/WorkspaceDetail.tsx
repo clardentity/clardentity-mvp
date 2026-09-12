@@ -127,6 +127,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
             variant="primary"
             onClick={() => handleNewConversation()}
             disabled={creating !== null}
+            data-tour="new-chat"
           >
             {creating === "any" ? "Creating…" : "New chat"}
           </Button>

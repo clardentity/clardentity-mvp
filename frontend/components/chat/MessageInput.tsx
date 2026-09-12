@@ -140,7 +140,10 @@ export function MessageInput({
           accent colour every time the caret lands there was decoration that
           fired constantly and told you nothing you didn't already know. The
           caret is the indicator. */}
-      <div className="flex flex-col gap-1.5 rounded-xl border border-hairline-strong bg-surface-raised p-2 sm:flex-row sm:items-end sm:gap-2">
+      <div
+        data-tour="composer"
+        className="flex flex-col gap-1.5 rounded-xl border border-hairline-strong bg-surface-raised p-2 sm:flex-row sm:items-end sm:gap-2"
+      >
         {/* On a phone the five controls and the textarea competed for one
             390px row, and the textarea lost - "Ask a question..." wrapped
             onto three lines inside a box two words wide. Stacked, the

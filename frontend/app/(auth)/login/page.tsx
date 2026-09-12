@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, useAuth } from "@/lib/auth";
+import { startTour } from "@/lib/tour";
 import { Button, Field, Input } from "@/components/ui/primitives";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
@@ -23,6 +24,12 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
+      // Idempotent - no-ops for anyone who's already started, finished, or
+      // skipped the tour. This is what puts it in front of accounts that
+      // existed before the tour shipped: they never registered again, so
+      // register/page.tsx's own call never fires for them - their first
+      // login after this ships is the only remaining moment that will.
+      startTour();
       router.push("/workspace?enter=1");
     } catch (err) {
       setError(authErrorMessage(err));

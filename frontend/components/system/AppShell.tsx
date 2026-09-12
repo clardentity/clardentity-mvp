@@ -459,7 +459,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {starting ? "Starting…" : "New chat"}
       </button>
 
-      <div className="mt-0.5 flex flex-col gap-0.5">
+      <div data-tour="library" className="mt-0.5 flex flex-col gap-0.5">
         {/* Real routes, not `#documents` anchors. As anchors these silently
             did nothing: a same-route hash is not re-scrolled by the App
             Router, and with no workspace resolved they fell back to the

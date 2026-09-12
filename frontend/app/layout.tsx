@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
+import { TourProvider } from "@/lib/tour";
+import { TourOverlay } from "@/components/tour/TourOverlay";
 
 /* Registered from the document rather than a client component, so it runs
    once per page load regardless of which route mounted. Failure is silent and
@@ -67,7 +69,12 @@ export default function RootLayout({
           so signed-out pages - landing, login, register - stay full-bleed. */}
       <body className="min-h-full bg-canvas text-ink">
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <TourProvider>
+              {children}
+              <TourOverlay />
+            </TourProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

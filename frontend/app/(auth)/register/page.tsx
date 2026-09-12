@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, useAuth } from "@/lib/auth";
+import { startTour } from "@/lib/tour";
 import { Button, Field, Input } from "@/components/ui/primitives";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
@@ -24,6 +25,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await register(email, password, displayName);
+      startTour();
       router.push("/workspace?enter=1");
     } catch (err) {
       setError(authErrorMessage(err));
