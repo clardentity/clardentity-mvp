@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { ImportHistory } from "@/components/profile/ImportHistory";
 import { CompanionNames } from "@/components/profile/CompanionNames";
+import { DeleteAccount } from "@/components/profile/DeleteAccount";
 import { authErrorMessage } from "@/lib/auth";
 import { AspectList, type Aspect } from "@/components/profile/AspectList";
 import {
@@ -228,6 +229,8 @@ export function ProfileView() {
               </p>
             )}
           </Card>
+
+          <DeleteAccount />
         </div>
       )}
     </div>

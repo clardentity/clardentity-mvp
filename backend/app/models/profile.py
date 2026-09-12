@@ -11,10 +11,12 @@ from app.models.base import Base
 class UserProfile(Base):
     """A long-lived, evolving picture of one user.
 
-    Built by inference from their own conversations and documents, never from
-    an onboarding interrogation. `personality_md` is the human-readable
-    artifact the user can read and edit; `roles` is the structured
-    25-role classification behind it.
+    Built by inference from their own conversations and documents, plus the
+    few open-ended things they chose to tell us at first run (see
+    `onboarding_answers`) - those are evidence like any other message, not a
+    form that fills fields directly. `personality_md` is the human-readable
+    artifact the user can read and edit; `roles` is the structured 25-role
+    classification behind it.
     """
 
     __tablename__ = "user_profiles"
@@ -32,6 +34,12 @@ class UserProfile(Base):
     imported_context: Mapped[str | None] = mapped_column(Text, nullable=True)
     imported_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What they told us at first run, in their own words:
+    #   [{"question": "...", "answer": "..."}]
+    # Stored, not just inferred from once, so every later rebuild still sees
+    # it - otherwise the first automatic rebuild (eight messages in) would
+    # quietly drop the one thing they typed deliberately.
+    onboarding_answers: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # The same picture as a list of separate, editable facts:
     #   [{"id": "...", "label": "Work", "value": "...", "source": "inferred"}]
     #

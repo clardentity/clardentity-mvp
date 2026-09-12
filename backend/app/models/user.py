@@ -38,6 +38,13 @@ class User(Base):
     location_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Set when the first-run welcome questions have been answered or skipped.
+    # NULL means the app should route this account through them (and then the
+    # coachmark tour) on its next sign-in - which is how a fleet-wide reset is
+    # done: null the column, and everyone gets the flow again.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")

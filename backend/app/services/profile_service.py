@@ -3,8 +3,12 @@ import uuid
 classification behind it.
 
 Built by inference from the user's own conversations and uploaded documents,
-never from an onboarding questionnaire - the product goal is that someone can
-start using it immediately and have it get to know them over time.
+plus whatever they chose to say at first run. The first-run questions are
+open-ended and every one can be skipped: they are treated as evidence for the
+same inference, not as a form that fills fields directly, so someone who skips
+them straight through still gets a profile that grows from real usage - the
+original "start immediately and let it learn you over time" goal is intact,
+it just also has a head start when the person wants to give it one.
 
 Two rules the rest of the code depends on:
   * A profile the user has edited is never overwritten by inference
@@ -103,10 +107,25 @@ async def gather_evidence(db: AsyncSession, user_id: uuid.UUID) -> tuple[str, in
     )
     filenames = [f for (f,) in doc_rows.all() if f]
 
-    # History imported from another assistant, if any. Listed first: it is
-    # usually much older than anything here and reads as the backstory.
     parts = []
     profile = await db.scalar(select(UserProfile).where(UserProfile.user_id == user_id))
+
+    # What they told us directly at first run comes first: it is the one part
+    # of the evidence they wrote *about themselves*, on purpose, rather than
+    # something they happened to ask.
+    raw_answers = (profile.onboarding_answers or []) if profile is not None else []
+    answered = [
+        a for a in raw_answers if isinstance(a, dict) and str(a.get("answer") or "").strip()
+    ]
+    if answered:
+        qa = "\n".join(
+            f"Q: {str(a.get('question') or '').strip()}\nA: {str(a.get('answer') or '').strip()}"
+            for a in answered
+        )
+        parts.append(f"WHAT THEY TOLD US ABOUT THEMSELVES WHEN THEY JOINED:\n{qa[:_MESSAGE_CHARS]}")
+
+    # History imported from another assistant, if any. Usually much older than
+    # anything here and reads as the backstory.
     if profile is not None and profile.imported_context:
         parts.append(
             f"THEIR EARLIER MESSAGES, IMPORTED FROM {profile.imported_source or 'another assistant'}:\n"

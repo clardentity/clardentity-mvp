@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import User, UserProfile
 from app.schemas.profile import (
+    OnboardingRequest,
     ProfileAspectIn,
     ProfileAspectOut,
     ProfileOut,
@@ -225,6 +226,47 @@ async def request_rebuild(
 
     rebuild_profile_task.delay(str(current_user.id))
     return {"status": "rebuilding"}
+
+
+@router.post("/onboarding", status_code=status.HTTP_202_ACCEPTED)
+async def complete_onboarding(
+    payload: OnboardingRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Record the first-run answers (or the decision to skip them) and stamp
+    the account as onboarded, so the client stops routing it to /welcome.
+
+    Answers are stored as evidence and the profile is rebuilt out-of-band,
+    exactly like an imported history - never written into profile fields
+    directly. Blank answers are kept too, so the record shows which questions
+    were asked; only non-blank ones reach inference (see gather_evidence).
+    """
+    profile = await get_profile(db, current_user.id)
+    if profile is None:
+        profile = UserProfile(user_id=current_user.id)
+        db.add(profile)
+
+    answers = [
+        {"question": a.question.strip(), "answer": clean_output(a.answer).strip()}
+        for a in payload.answers
+    ]
+    profile.onboarding_answers = answers
+    # Stamp on the user, not the profile: the profile can be cleared by the
+    # user ("forget everything") without that meaning they should be walked
+    # through the welcome questions again.
+    current_user.onboarding_completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    if any(a["answer"] for a in answers):
+        # Best-effort, like the welcome email: a broker hiccup must never leave
+        # someone stuck on the welcome page - the stamp above is already saved.
+        try:
+            rebuild_profile_task.delay(str(current_user.id))
+        except Exception:  # noqa: BLE001
+            pass
+        return {"status": "building"}
+    return {"status": "skipped"}
 
 
 # Bigger than any plausible export of *messages* after filtering, small enough

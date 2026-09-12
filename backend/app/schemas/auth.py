@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -37,6 +38,9 @@ class UserPublic(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str | None
+    # None until the first-run welcome questions are answered or skipped; the
+    # client routes a signed-in user with None through them before the app.
+    onboarding_completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

@@ -37,9 +37,16 @@ class TestRoutes:
             f"{API}/realtime/session",
             f"{API}/pro/interest",
             f"{API}/profile/import",
+            f"{API}/profile/onboarding",
             f"{API}/chat/{{conversation_id}}/call-transcript",
         ):
             assert path in paths, f"missing route: {path}"
+
+    def test_me_exposes_the_onboarding_stamp_and_can_be_deleted(self):
+        spec = app.openapi()
+        assert "delete" in spec["paths"][f"{API}/auth/me"]
+        user = spec["components"]["schemas"]["UserPublic"]["properties"]
+        assert "onboarding_completed_at" in user, "the client gates /welcome on this field"
 
     def test_claim_schema_carries_the_fields_the_ui_reads(self):
         claim = app.openapi()["components"]["schemas"]["ClaimOut"]["properties"]
@@ -186,6 +193,94 @@ class TestFullAuthFlow:
                 await db.execute(delete(Workspace).where(Workspace.id == wsid))
                 await db.execute(delete(User).where(User.id == uid))
                 await db.commit()
+
+
+class TestOnboardingAndAccountDeletion:
+    """Register -> not yet onboarded -> answer the welcome questions -> stamped,
+    answers stored as evidence -> delete the account -> everything gone.
+    Needs a database. Profile inference is queued out-of-band and is stubbed
+    here; the contract under test is the stamp and the stored answers."""
+
+    async def test_full_lifecycle(self, monkeypatch):
+        from app.api import profile as profile_api
+        from app.models import UserProfile
+
+        queued: list[str] = []
+        monkeypatch.setattr(
+            profile_api.rebuild_profile_task, "delay", lambda user_id: queued.append(user_id)
+        )
+
+        email = f"onboard-{uuid.uuid4().hex[:8]}@example.com"
+        password = "onboard-password-123"
+        uid = None
+        try:
+            async with client() as c:
+                reg = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": email, "password": password, "display_name": "Onboard"},
+                )
+                if reg.status_code >= 500:
+                    pytest.skip("no database available")
+                assert reg.status_code == 201, reg.text
+                token = reg.json()["access_token"]
+                uid = uuid.UUID(reg.json()["user"]["id"])
+                headers = {"Authorization": f"Bearer {token}"}
+
+                # A brand-new account has not been onboarded - this is the
+                # field the client routes /welcome on, and it must be an
+                # explicit null, not absent.
+                me = await c.get(f"{API}/auth/me", headers=headers)
+                assert me.status_code == 200
+                assert "onboarding_completed_at" in me.json()
+                assert me.json()["onboarding_completed_at"] is None
+
+                answers = [
+                    {"question": "What brings you here?", "answer": "Deciding on a career move."},
+                    {"question": "What are you working on?", "answer": ""},
+                ]
+                done = await c.post(
+                    f"{API}/profile/onboarding", json={"answers": answers}, headers=headers
+                )
+                assert done.status_code == 202, done.text
+                assert done.json()["status"] == "building"
+                assert queued == [str(uid)], "a non-blank answer must queue an inference rebuild"
+
+                me = await c.get(f"{API}/auth/me", headers=headers)
+                assert me.json()["onboarding_completed_at"] is not None
+
+            async with AsyncSessionLocal() as db:
+                profile = await db.get(UserProfile, uid)
+                assert profile is not None
+                # Blank answers are kept for the record; only non-blank ones
+                # reach inference, which gather_evidence filters.
+                assert [a["question"] for a in profile.onboarding_answers] == [
+                    a["question"] for a in answers
+                ]
+                from app.services.profile_service import gather_evidence
+
+                evidence, _ = await gather_evidence(db, uid)
+                assert "Deciding on a career move." in evidence
+                assert "What are you working on?" not in evidence
+
+            async with client() as c:
+                gone = await c.delete(f"{API}/auth/me", headers=headers)
+                assert gone.status_code == 204, gone.text
+                # The token still parses but the account it names is gone.
+                assert (await c.get(f"{API}/auth/me", headers=headers)).status_code == 401
+
+            async with AsyncSessionLocal() as db:
+                assert await db.get(User, uid) is None
+                assert await db.get(UserProfile, uid) is None
+                owned = await db.execute(select(Workspace).where(Workspace.owner_id == uid))
+                assert owned.scalars().all() == []
+            uid = None
+        finally:
+            if uid is not None:
+                async with AsyncSessionLocal() as db:
+                    await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == uid))
+                    await db.execute(delete(Workspace).where(Workspace.owner_id == uid))
+                    await db.execute(delete(User).where(User.id == uid))
+                    await db.commit()
 
 
 class TestContextQuestionGate:

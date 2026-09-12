@@ -36,9 +36,26 @@ export function TourOverlay() {
   const [calloutPos, setCalloutPos] = useState<Pos | null>(null);
   const focusedStepRef = useRef<number | null>(null);
   const scrolledStepRef = useRef<number | null>(null);
+  // The most recently resolved target, so the advance button on an action
+  // step can perform the action itself (click "New chat" for the user)
+  // rather than only waiting for them to find and click it.
+  const targetRef = useRef<HTMLElement | null>(null);
 
   const titleId = "tour-step-title";
   const bodyId = "tour-step-body";
+
+  function handleAdvance() {
+    const el = targetRef.current;
+    if (step?.autoAdvanceWhenPathMatches && el && !el.hasAttribute("disabled")) {
+      // The next step lives on the page this action navigates to, so
+      // incrementing alone would strand the callout on the wrong page.
+      // Clicking the real control runs its real handler; TourProvider's
+      // route watcher then advances once the navigation lands.
+      el.click();
+      return;
+    }
+    advance();
+  }
 
   /* Re-resolves every frame rather than once, for two reasons specific to
    * this app, not general paranoia:
@@ -64,6 +81,7 @@ export function TourOverlay() {
       if (cancelled) return;
       const panel = panelRef.current;
       const target = resolveVisibleTarget(step!.target);
+      targetRef.current = target;
 
       if (panel) {
         const panelRect = panel.getBoundingClientRect();
@@ -234,15 +252,25 @@ export function TourOverlay() {
           >
             Skip tour
           </button>
-          {step.showNext && (
-            <button
-              type="button"
-              onClick={advance}
-              className="rounded-full bg-brand px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-dark"
+          <button
+            type="button"
+            onClick={handleAdvance}
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-dark"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className="h-3.5 w-3.5"
             >
-              {isLast ? "Finish" : "Next"}
-            </button>
-          )}
+              <path d="M5 12.5l4.5 4.5L19 7" />
+            </svg>
+            {isLast ? "Finish" : "Next"}
+          </button>
         </div>
       </div>
     </>,

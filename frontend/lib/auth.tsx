@@ -82,6 +82,12 @@ export type User = {
   id: string;
   email: string;
   display_name: string | null;
+  /** null = the first-run welcome questions haven't been answered or
+   *  skipped yet, and RequireAuth routes to /welcome. Optional (not just
+   *  nullable) so a client deployed ahead of the backend that added this
+   *  field sees `undefined` and gates nothing, rather than sending every
+   *  signed-in user to a page that can't complete yet. */
+  onboarding_completed_at?: string | null;
 };
 
 type AuthContextValue = {

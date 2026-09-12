@@ -51,6 +51,18 @@ class ProfileOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class OnboardingAnswerIn(BaseModel):
+    question: str = Field(min_length=1, max_length=300)
+    # Empty is allowed and means "left blank" - every first-run question is
+    # optional, and a skipped page still records which question was shown.
+    answer: str = Field(default="", max_length=2000)
+
+
+class OnboardingRequest(BaseModel):
+    # An empty list is a full skip: the account is still marked onboarded.
+    answers: list[OnboardingAnswerIn] = Field(default_factory=list, max_length=10)
+
+
 class ProfileUpdate(BaseModel):
     personality_md: str | None = Field(default=None, max_length=20000)
     # Omit to leave names untouched; send {} to clear them all.

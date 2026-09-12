@@ -9,15 +9,12 @@ export type TourStep = {
   target: string;
   title: string;
   body: string;
-  /** False only for the one step whose only forward path is the real action
-   *  it's pointing at - a manual "Next" there would let someone skip past it
-   *  without ever navigating to where the next step's target exists. */
-  showNext: boolean;
-  /** Set only on the step that precedes a real page navigation. Watched by
-   *  `TourProvider` (mounted at the root, so it survives that navigation)
-   *  rather than by any one "New chat" button's onClick - both the workspace
-   *  page's and the sidebar's own "New chat" end up here, and either one
-   *  should count. */
+  /** Set on a step whose "next" is a real page navigation. Two effects:
+   *  the step's own advance button performs the highlighted action (clicks
+   *  the target) instead of just incrementing, since the next target only
+   *  exists on the next page; and `TourProvider` (mounted at the root, so it
+   *  survives the navigation) advances when the path matches - whichever
+   *  "New chat" control the user actually used, the page's or the sidebar's. */
   autoAdvanceWhenPathMatches?: RegExp;
 };
 
@@ -26,8 +23,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "new-chat",
     target: "new-chat",
     title: "Start here",
-    body: 'Click "New chat" to begin your first conversation.',
-    showNext: false,
+    body: 'Click "New chat" - or the tick below - to begin your first conversation.',
     autoAdvanceWhenPathMatches: /^\/chat\//,
   },
   {
@@ -35,21 +31,18 @@ export const TOUR_STEPS: TourStep[] = [
     target: "mode-picker",
     title: "Pick a cognitive mode",
     body: "Each mode changes how Clardentity thinks with you - pick whichever fits what you're trying to do.",
-    showNext: true,
   },
   {
     id: "composer",
     target: "composer",
     title: "Ask your first question",
     body: "Type here, then hit Ask (or press Enter) for a checked, cited answer.",
-    showNext: true,
   },
   {
     id: "library",
     target: "library",
     title: "Your documents and history",
     body: "Attachments ground every answer against your own files. Chats holds everything you've asked before.",
-    showNext: true,
   },
 ];
 
@@ -124,13 +117,13 @@ function setTourState(next: TourState) {
   tourListeners.forEach((fn) => fn());
 }
 
-/** Called once, synchronously, from register/page.tsx's own success handler
- *  - the only place in the app that knows for certain "this is a genuine
- *  fresh signup," as opposed to `?enter=1`, which login and Google sign-in
- *  share. No-ops for anyone who's already seen (or skipped, or is mid-way
- *  through) the tour. */
+/** Begin (or begin again) from step 1. Called when the /welcome questions
+ *  are finished or skipped - and only from there. Whether an account should
+ *  see the tour is the server's decision (`onboarding_completed_at`, which
+ *  RequireAuth gates /welcome on), so this deliberately ignores whatever
+ *  this browser remembers: after an account-level reset, a browser that
+ *  once skipped the tour must still show it. */
 export function startTour() {
-  if (getTourSnapshot().status !== "idle") return;
   setTourState({ status: "active", stepIndex: 0 });
 }
 
