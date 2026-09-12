@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useHasStoredSession } from "@/lib/auth";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
+import { InstallAppButton } from "@/components/system/InstallAppButton";
 import { WordRotator } from "@/components/marketing/WordRotator";
 import { ModeFlipCarousel } from "@/components/marketing/ModeFlipCarousel";
 
@@ -55,12 +56,16 @@ export default function Home() {
   // and a visitor with a stale token sat looking at a landing page with no way
   // in until the auth request came back - up to a minute on a cold backend.
   const { user } = useAuth();
-  const primaryHref = user ? "/workspace" : "/register";
-  const primaryLabel = user ? "Open your workspace" : "Get started";
+  // A stored token counts as signed in straight away; /auth/me only ever
+  // downgrades it (by clearing the token) if it turns out to be dead.
+  const hasStoredSession = useHasStoredSession();
+  const signedIn = Boolean(user) || hasStoredSession;
+  const primaryHref = signedIn ? "/workspace" : "/register";
+  const primaryLabel = signedIn ? "Open your workspace" : "Get started";
 
   return (
     <div className="bg-canvas">
-      <Nav signedIn={!!user} />
+      <Nav signedIn={signedIn} />
 
       {/* Hero ------------------------------------------------------------
           Deliberately compact, not the full-height opener it used to be: at
@@ -124,7 +129,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Seven modes - the centrepiece, and now the first thing after the
+      {/* The modes - the centrepiece, and now the first thing after the
           hero. It used to sit behind the problem statement, which meant a
           visitor read two screens of argument before seeing what the thing
           does. The case for it lands better once you know what it is. */}
@@ -132,7 +137,7 @@ export default function Home() {
         <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-              One companion. Seven modes of companionship.
+              One companion. Nine modes of companionship.
             </p>
             <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
@@ -254,14 +259,20 @@ export default function Home() {
           Start with a question.
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-ink-secondary">
-          No setup, no tour. Sign in and ask - your workspace is already there.
+          Three quick questions to get to know you, a short tour, and you&apos;re
+          asking - your workspace is already there.
         </p>
-        <Link
-          href={primaryHref}
-          className="mt-9 inline-block rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
-        >
-          {primaryLabel}
-        </Link>
+        <div className="mt-9 flex flex-col items-center gap-3">
+          <Link
+            href={primaryHref}
+            className="inline-block rounded-full bg-brand px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-dark"
+          >
+            {primaryLabel}
+          </Link>
+          <InstallAppButton className="text-[13px] text-ink-muted underline-offset-4 transition-colors hover:text-ink hover:underline">
+            Install the app on this device
+          </InstallAppButton>
+        </div>
       </section>
 
       <footer className="border-t border-hairline px-6 py-10">

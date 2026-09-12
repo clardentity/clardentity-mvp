@@ -8,6 +8,7 @@ was reasoned through rather than changed when the attribute was added.
 
 from app.services.claim_parser import (
     ClaimTagStripper,
+    CruxSplitter,
     extract_claims,
     extract_crux,
     strip_claim_tags,
@@ -141,3 +142,65 @@ class TestStreamingStripperWithOpinionTag:
 
     def test_non_streaming_strip_matches(self):
         assert strip_claim_tags('<claim id="1" opinion="true">My view.</claim>') == "My view."
+
+
+class TestCruxSplitter:
+    """The streaming twin of extract_crux: the crux is announced once, as its
+    own thing, and never leaks into the body deltas - however the stream is
+    chunked."""
+
+    @staticmethod
+    def _run(chunks):
+        splitter = CruxSplitter()
+        crux = None
+        body = ""
+        for ch in chunks:
+            c, passthrough = splitter.feed(ch)
+            if c is not None:
+                assert crux is None, "crux announced twice"
+                crux = c
+            body += passthrough
+        body += splitter.flush()
+        return crux, body
+
+    def test_whole_stream_in_one_chunk(self):
+        crux, body = self._run(["<crux>Bottom line.</crux>\n\nThe rest of it."])
+        assert crux == "Bottom line."
+        # Whitespace between the crux and the body is dropped, exactly as
+        # extract_crux drops it for the non-streaming path.
+        assert body == "The rest of it."
+
+    def test_character_by_character(self):
+        full = "<crux>Bottom line.</crux>\n\nThe rest <claim id=\"1\">of it</claim>."
+        crux, body = self._run(list(full))
+        assert crux == "Bottom line."
+        assert body == "The rest <claim id=\"1\">of it</claim>."
+
+    def test_same_result_regardless_of_chunking(self):
+        full = "<crux>Bottom line.</crux>\n\nBody text here."
+        whole = self._run([full])
+        halves = self._run([full[:20], full[20:]])
+        chars = self._run(list(full))
+        assert whole == halves == chars == ("Bottom line.", "Body text here.")
+
+    def test_no_crux_releases_everything_verbatim(self):
+        crux, body = self._run(list("Just an answer with no crux at all."))
+        assert crux is None
+        assert body == "Just an answer with no crux at all."
+
+    def test_leading_whitespace_before_crux_is_tolerated(self):
+        crux, body = self._run(["  \n", "<crux>", "Line.", "</crux>", " After."])
+        assert crux == "Line."
+        assert body == "After."
+
+    def test_a_tag_that_is_not_crux_is_not_held(self):
+        # "<claim" shares a first character with "<crux>"; it must be released
+        # as soon as the prefix stops matching, not held to the end.
+        splitter = CruxSplitter()
+        assert splitter.feed("<cl") == (None, "<cl")
+        assert splitter.feed("aim>x") == (None, "aim>x")
+
+    def test_unclosed_crux_is_released_on_flush(self):
+        splitter = CruxSplitter()
+        assert splitter.feed("<crux>never closes") == (None, "")
+        assert splitter.flush() == "<crux>never closes"

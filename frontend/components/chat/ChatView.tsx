@@ -17,6 +17,9 @@ import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { ModeSuggestionCard } from "@/components/chat/ModeSuggestionCard";
+import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
+import { MODE_BY_VALUE } from "@/lib/modes";
+import { setSmartSwitching, useSmartSwitching } from "@/lib/modeSwitching";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
 import { RefinedQuestionCard } from "@/components/chat/RefinedQuestionCard";
 import { ClarifyingOptionsCard } from "@/components/chat/ClarifyingOptionsCard";
@@ -45,6 +48,8 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
   mentoring: "open_hand_explaining",
   therapy: "chin_stroke",
   creative: "presenting",
+  hurry: "presenting",
+  legal: "open_hand_explaining",
 };
 
 export function ChatView({ conversationId }: { conversationId: string }) {
@@ -53,6 +58,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // "Start a chat" empty state for the second or two the fetch took.
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [mode, setMode] = useState<CognitiveMode | null>(null);
+  // Smart switching: the companion may stop and propose a better-suited mode
+  // before answering. Manual: never. See lib/modeSwitching.
+  const smartSwitching = useSmartSwitching();
+  // Set when a suggested switch was accepted, so the previous mode is one
+  // click away - "how do I go back to Knowing?" was the first thing asked.
+  const [switchedFrom, setSwitchedFrom] = useState<{
+    from: CognitiveMode;
+    to: CognitiveMode;
+  } | null>(null);
+  // Which locked mode (or model) opened the plans dialog, for its headline.
+  const [upsell, setUpsell] = useState<string | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
   // The message whose claims are still being verified. It is already on
@@ -250,7 +266,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           data: img.data,
           mime_type: img.mimeType,
         })),
-        mode_confirmed: modeConfirmed,
+        // Manual switching means the server never gets to ask.
+        mode_confirmed: modeConfirmed || !smartSwitching,
         context_acknowledged: contextAcknowledged,
         context_rounds: contextRounds,
         refined_confirmed: refinedConfirmed,
@@ -260,6 +277,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       },
       {
         onStatus: setStatus,
+        onCrux: (text) => {
+          setStatus(null);
+          setStreaming((prev) => (prev ? { ...prev, crux: text } : prev));
+        },
         onDelta: (text) => {
           // The first token is the end of waiting; anything the server says
           // it is doing after this belongs to the post-answer phase.
@@ -726,11 +747,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onSwitch={() => {
               const next = pendingMode.suggestion.suggested_mode as CognitiveMode;
               setMode(next);
+              setSwitchedFrom({ from: pendingMode.mode, to: next });
               void handleSend(pendingMode.content, pendingMode.images, next, true);
             }}
             onContinue={() =>
               void handleSend(pendingMode.content, pendingMode.images, pendingMode.mode, true)
             }
+            onUpgrade={() => {
+              const next = pendingMode.suggestion.suggested_mode as CognitiveMode;
+              setUpsell(MODE_BY_VALUE[next]?.label ?? next);
+            }}
           />
         )}
 
@@ -879,9 +905,57 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                 as cards - gets the full row instead of shrink-wrapping next
                 to the avatar. */}
             <div className="min-w-0 flex-1">
-              <ModeSelector value={mode} onChange={setMode} disabled={sending} />
+              <ModeSelector
+                value={mode}
+                onChange={(next) => {
+                  // Picking a mode by hand supersedes any accepted suggestion.
+                  setSwitchedFrom(null);
+                  setMode(next);
+                }}
+                disabled={sending}
+                onLocked={(locked) => setUpsell(MODE_BY_VALUE[locked]?.label ?? locked)}
+              />
             </div>
+            {mode && (
+              <button
+                type="button"
+                onClick={() => setSmartSwitching(!smartSwitching)}
+                title={
+                  smartSwitching
+                    ? "Smart: the companion may suggest a better-suited mode before answering. Click for manual."
+                    : "Manual: the mode is whatever you pick; no suggestions. Click for smart."
+                }
+                className="shrink-0 rounded-md px-2 py-1 text-[11px] text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+              >
+                Switching: {smartSwitching ? "Smart" : "Manual"}
+              </button>
+            )}
           </div>
+          {switchedFrom && mode === switchedFrom.to && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-muted px-3 py-1.5 text-xs text-ink-secondary">
+              <span>
+                Switched to {MODE_BY_VALUE[switchedFrom.to]?.label ?? switchedFrom.to}.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(switchedFrom.from);
+                  setSwitchedFrom(null);
+                }}
+                className="font-medium text-brand hover:underline"
+              >
+                Back to {MODE_BY_VALUE[switchedFrom.from]?.label ?? switchedFrom.from}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSwitchedFrom(null)}
+                aria-label="Dismiss"
+                className="ml-auto rounded px-1 text-ink-muted hover:text-ink"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <MessageInput
             disabled={!mode || sending}
             disabledReason={
@@ -897,6 +971,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onStop={handleStop}
           />
         </div>
+        <UpgradeDialog open={upsell !== null} trigger={upsell} onClose={() => setUpsell(null)} />
       </div>
     </div>
   );

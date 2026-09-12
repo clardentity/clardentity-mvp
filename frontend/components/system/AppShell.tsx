@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
+import { InstallAppButton } from "@/components/system/InstallAppButton";
 import { cx } from "@/components/ui/primitives";
 
 /* Sidebar collapse lives in a tiny external store read through
@@ -91,6 +92,8 @@ const icons = {
 
 type RecentConversation = { id: string; title: string | null; created_at: string };
 
+const RECENTS_SHOWN = 12;
+
 /** Recent conversations in the active room.
  *
  *  Its own component so the sidebar doesn't re-render on every keystroke of a
@@ -108,6 +111,10 @@ function RecentConversations({
   onNavigate?: () => void;
 }) {
   const [items, setItems] = useState<RecentConversation[]>([]);
+  // Total in the workspace, so the list can say when it is showing only the
+  // newest few - chats past the cut-off had simply "vanished" as far as
+  // anyone could tell from here.
+  const [total, setTotal] = useState(0);
   const [confirming, setConfirming] = useState<string | null>(null);
   const router = useRouter();
 
@@ -116,7 +123,9 @@ function RecentConversations({
     let cancelled = false;
     apiFetch<RecentConversation[]>(`/chat/conversations?workspace_id=${workspaceId}`)
       .then((rows) => {
-        if (!cancelled) setItems(rows.slice(0, 12));
+        if (cancelled) return;
+        setTotal(rows.length);
+        setItems(rows.slice(0, RECENTS_SHOWN));
       })
       .catch(() => {
         // A sidebar that can't list history is not worth an error state; the
@@ -130,6 +139,7 @@ function RecentConversations({
   async function remove(id: string) {
     setConfirming(null);
     setItems((prev) => prev.filter((c) => c.id !== id));
+    setTotal((n) => Math.max(0, n - 1));
     try {
       await apiFetch(`/chat/conversations/${id}`, { method: "DELETE" });
     } catch {
@@ -183,7 +193,10 @@ function RecentConversations({
                 onClick={() => setConfirming(c.id)}
                 title="Delete chat"
                 aria-label={`Delete ${c.title || "Untitled chat"}`}
-                className="mr-1 shrink-0 rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-band-low focus-visible:opacity-100 group-hover/recent:opacity-100"
+                // Always present, muted: hover-revealed controls don't exist
+                // on a touch screen, which left no way to delete a chat from
+                // here on a phone.
+                className="mr-1 shrink-0 rounded p-1 text-ink-muted/70 transition-colors hover:text-band-low"
               >
                 <Icon path={icons.trash} className="h-3.5 w-3.5" />
               </button>
@@ -191,6 +204,15 @@ function RecentConversations({
           </li>
         ))}
       </ul>
+      {total > items.length && (
+        <Link
+          href={`/workspace/${workspaceId}/search`}
+          onClick={onNavigate}
+          className="mt-1 rounded-lg px-2.5 py-1.5 text-[12px] text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+        >
+          See all {total} chats
+        </Link>
+      )}
     </div>
   );
 }
@@ -510,6 +532,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </span>
         Upgrade
       </button>
+      <InstallAppButton className="flex w-full shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink">
+        <span className="flex h-4 w-4 items-center justify-center">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4">
+            <path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          </svg>
+        </span>
+        Install app
+      </InstallAppButton>
       <NavItem
         href="/profile"
         icon={icons.profile}

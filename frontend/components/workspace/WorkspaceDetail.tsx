@@ -45,6 +45,8 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmingWorkspace, setConfirmingWorkspace] = useState(false);
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Which mode is being started, so only the card you clicked shows a
   // pending label. `"any"` covers the plain "New chat" button.
@@ -106,6 +108,21 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
       setError(authErrorMessage(err));
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function handleDeleteWorkspace() {
+    setDeletingWorkspace(true);
+    setError(null);
+    try {
+      await apiFetch(`/workspaces/${workspaceId}`, { method: "DELETE" });
+      // The list page re-provisions a workspace on sign-in if this was the
+      // last one, so there is always somewhere to land.
+      router.replace("/workspace");
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setDeletingWorkspace(false);
+      setConfirmingWorkspace(false);
     }
   }
 
@@ -202,6 +219,35 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
           </ul>
         )}
       </Card>
+
+      {workspace.role === "owner" && (
+        // Owners only - a member leaving isn't the same operation and isn't
+        // offered here. Everything in the workspace goes with it: chats,
+        // attachments, memory. Same two-click confirm as every other delete.
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-hairline px-4 py-3 sm:px-5">
+          <div>
+            <p className="text-sm font-medium text-ink">Delete this workspace</p>
+            <p className="text-xs text-ink-muted">
+              Removes every chat and attachment in it. This can&apos;t be undone.
+            </p>
+          </div>
+          {confirmingWorkspace ? (
+            <Button
+              variant="danger"
+              autoFocus
+              onBlur={() => !deletingWorkspace && setConfirmingWorkspace(false)}
+              onClick={handleDeleteWorkspace}
+              disabled={deletingWorkspace}
+            >
+              {deletingWorkspace ? "Deleting…" : "Sure? Delete workspace"}
+            </Button>
+          ) : (
+            <Button variant="danger" onClick={() => setConfirmingWorkspace(true)}>
+              Delete workspace
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -254,7 +300,10 @@ function DeleteConversation({
       onBlur={() => setConfirming(false)}
       title={`Delete "${label}"`}
       aria-label={`Delete "${label}"`}
-      className="mr-2 shrink-0 rounded-md p-1.5 sm:mr-3 text-ink-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-band-low focus-visible:opacity-100 group-hover/row:opacity-100"
+      // Always visible, not hover-revealed: on a phone there is no hover, so
+      // a hover-only control is simply absent - "unable to delete chats from
+      // the workspace" was this, on mobile. Muted until pointed at instead.
+      className="mr-2 shrink-0 rounded-md p-1.5 sm:mr-3 text-ink-muted transition-colors hover:bg-surface-hover hover:text-band-low"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-3.5 w-3.5">

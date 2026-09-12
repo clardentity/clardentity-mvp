@@ -255,6 +255,12 @@ export function MessageInput({
           onKeyDown={handleKeyDown}
           rows={2}
           disabled={disabled}
+          // Explicit, not left to the browser default: the built-in spelling
+          // and (in Chromium/Safari) grammar check is the free Grammarly tier
+          // people asked for, and it only runs when the field opts in.
+          spellCheck
+          autoCorrect="on"
+          autoCapitalize="sentences"
           placeholder={
             disabled
               ? disabledReason ?? "Select a mode to start typing"

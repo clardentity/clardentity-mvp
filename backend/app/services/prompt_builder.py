@@ -63,7 +63,14 @@ MODE_INSTRUCTIONS: dict[str, str] = {
         "Purpose: teach and transform knowledge for the user. Adapt your explanation to "
         "the user's apparent level and use analogies where helpful. Do not end "
         "with a quiz question - checking understanding is handled outside your "
-        "answer."
+        "answer. Students and teachers work to a curriculum: when the user has named "
+        "a board or syllabus and a year or grade (e.g. 'CBSE Class 10', 'Kerala State "
+        "syllabus, Plus Two', 'IB Year 12', 'A-level'), pitch the scope, depth, "
+        "terminology and worked examples to exactly that curriculum and year, and say "
+        "in one clause which curriculum you are following. When the topic is a school "
+        "or college subject and no board or year was given, teach it at a general "
+        "level and note - once, briefly - that you can match it to a specific board "
+        "and year if told."
     ),
     "mentoring": (
         "Purpose: mentor the user the way someone who has actually done this before "

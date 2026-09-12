@@ -20,32 +20,30 @@ type Tile = {
   accent?: boolean;
 };
 
+/* The four plans as specified by the client (features subject to change on
+ * their side). Presentational only until billing exists: nothing here is
+ * enforced, and "Notify me" is the only action. */
 const TILES: Tile[] = [
   {
-    title: "The full Clar range",
-    body: "Clar Pro for specialist work, Clar Max for wider context and deeper checking, Clar Ultra when getting it right matters more than getting it fast. Or leave it on Auto and let Clardentity choose.",
-    span: "sm:col-span-4",
+    title: "Clar-Basic · Free",
+    body: "Knowing and Thinking-trainer. A daily allowance of prompts, no card needed - and a bonus day's allowance when you sign up. Bring your profile over from another assistant.",
+    span: "sm:col-span-3",
+  },
+  {
+    title: "Clar-Pro · $20/mo",
+    body: "Adds Decision-making and Co-Creative. 2,000 premium credits a month.",
+    span: "sm:col-span-3",
     accent: true,
   },
   {
-    title: "Live call",
-    body: "Talk to your companion out loud, hands free.",
-    span: "sm:col-span-2",
+    title: "Clar-Max · $40/mo",
+    body: "Every mode - Learning, Mentoring and Reflect & Relieve included - plus your choice of model and version in Co-Creative. 5,500 elite credits a month.",
+    span: "sm:col-span-3",
   },
   {
-    title: "Unlimited attachments",
-    body: "Bring your whole library. Every answer stays cited against it.",
-    span: "sm:col-span-2",
-  },
-  {
-    title: "Deeper checking",
-    body: "Second-pass verification and wider web research on every claim.",
-    span: "sm:col-span-2",
-  },
-  {
-    title: "Priority speed",
-    body: "Your questions go first, even at peak.",
-    span: "sm:col-span-2",
+    title: "Clar-Ultra · $100/mo · Teams",
+    body: "Clar-Max for a whole organisation: shared workspaces, co-working and team controls. 13,000 ultra-elite credits a month.",
+    span: "sm:col-span-3",
   },
 ];
 
@@ -116,7 +114,7 @@ export function UpgradeDialog({
               Clardentity Pro
             </p>
             <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">
-              {trigger ? `${trigger} is part of Pro.` : "Unlock every model."}
+              {trigger ? `${trigger} is part of Pro.` : "Unlock every mode and model."}
             </h2>
             <p className="mt-1 text-sm text-ink-muted">
               {/* Was "add the models you already trust", which made sense when

@@ -33,7 +33,12 @@ async def transcribe(
 
     contents = await file.read()
     result = await transcribe_audio(contents, file.filename or "audio.webm")
-    return TranscribeOut(transcript=result["transcript"], duration_seconds=result["duration_seconds"])
+    return TranscribeOut(
+        transcript=result["transcript"],
+        duration_seconds=result["duration_seconds"],
+        language=result.get("language"),
+        heard_speech=result.get("heard_speech", True),
+    )
 
 
 @router.post("/tts")

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { API_BASE_URL, ApiError, apiFetch } from "@/lib/apiClient";
@@ -27,12 +28,40 @@ export function setTokens(accessToken: string, refreshToken: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  sessionListeners.forEach((fn) => fn());
 }
 
 export function clearTokens(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  sessionListeners.forEach((fn) => fn());
+}
+
+const sessionListeners = new Set<() => void>();
+
+function subscribeStoredSession(onChange: () => void) {
+  sessionListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    sessionListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+/** Whether this browser holds a session at all - known synchronously, before
+ *  `/auth/me` has confirmed it. The landing page uses it to show "Open" the
+ *  instant a returning user arrives: waiting for the round trip meant up to
+ *  a minute of "Log in" on a cold backend, which read as having been logged
+ *  out. If the token turns out to be dead, hydrate() clears it and this
+ *  flips back on its own. Server snapshot is false so the signed-out HTML
+ *  stays the default for a fresh visitor. */
+export function useHasStoredSession(): boolean {
+  return useSyncExternalStore(
+    subscribeStoredSession,
+    () => getRefreshToken() !== null,
+    () => false,
+  );
 }
 
 type TokenResponse = { access_token: string; refresh_token: string };

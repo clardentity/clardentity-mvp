@@ -164,10 +164,11 @@ export function CitationPopover({
      redefine its containing block, so `fixed` + viewport measurements
      finally mean what they say. */
   useLayoutEffect(() => {
-    if (!open) {
-      setPos(null);
-      return;
-    }
+    // No reset on close: the portal isn't rendered while closed, and on
+    // reopen this layout effect recomputes before the browser paints, so a
+    // stale `pos` is never visible. (Resetting here was also a setState in
+    // an effect body, which the lint rules forbid.)
+    if (!open) return;
     const btn = buttonRef.current;
     const pop = popoverRef.current;
     if (!btn || !pop) return;

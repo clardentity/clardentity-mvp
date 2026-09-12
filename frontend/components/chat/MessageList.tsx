@@ -12,6 +12,7 @@ import type {
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CruxCard } from "@/components/chat/CruxCard";
 import { CitationPopover } from "@/components/chat/CitationPopover";
+import { OpinionMarker } from "@/components/chat/OpinionMarker";
 import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/ResponseFlip";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { ClarifierCard } from "@/components/chat/ClarifierCard";
@@ -26,6 +27,9 @@ import { cx, Spinner } from "@/components/ui/primitives";
 export type StreamingMessage = {
   mode_used: string;
   content: string;
+  /** Arrives before any body text (its own SSE event), so the gist is the
+   *  first thing on screen and the body streams in behind the fold. */
+  crux?: string | null;
 };
 
 export function MessageList({
@@ -191,14 +195,17 @@ export function MessageList({
           the old `!streaming` here was never true and this never rendered -
           you got an empty bubble for the whole wait instead. What matters is
           whether any text has arrived, not whether a stream object exists. */}
-      {busy && !streaming?.content && (
+      {busy && !streaming?.content && !streaming?.crux && (
         <div className="flex justify-start">
           <div className="rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3">
             <ThinkingIndicator label={statusLabel} />
           </div>
         </div>
       )}
-      {streaming?.content && (
+      {/* The bubble appears as soon as there is a gist to show, even if no
+          body text has arrived yet - the gist is meant to be the first thing
+          read, with the body filling in behind the fold underneath it. */}
+      {(streaming?.content || streaming?.crux) && (
         <MessageBubble
           id="streaming"
           role="assistant"
@@ -207,6 +214,7 @@ export function MessageList({
           confidenceScore={null}
           confidenceBand={null}
           claims={[]}
+          crux={streaming.crux ?? null}
           isStreaming
         />
       )}
@@ -214,13 +222,25 @@ export function MessageList({
   );
 }
 
-/** "10:04 AM" - just the time, not the date. A conversation's own messages
- *  are read in the context of the conversation, which already establishes
- *  the day; repeating it on every bubble would be the date, not the time,
- *  competing for the same dozen characters other message-list rows already
- *  spend on it (see WorkspaceDetail's shortDate for that fuller form). */
+/** "10:04" for anything from today, "8 Sept, 10:04" otherwise. Conversations
+ *  here run across days, and a bare time on a message from last week read as
+ *  if it were from today - the date is only dropped when it would be
+ *  redundant. Same shape as WorkspaceDetail's shortDate for older rows. */
 function formatMessageTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return time;
+  const date = d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+  return `${date}, ${time}`;
 }
 
 /** The tier (`entailment_label`) and score belong to the CLAIM the marker's
@@ -239,17 +259,16 @@ function findEvidenceForMarker(
   return null;
 }
 
-function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
-  // Messages written before the backend stripped markup still have it stored.
-  const parts = cleanMessageText(text).split(/(\[\d+\])/g);
+function renderCitations(text: string, claims: Claim[], keyPrefix: string): ReactNode[] {
+  const parts = text.split(/(\[\d+\])/g);
   return parts.map((part, i) => {
     const match = part.match(/^\[(\d+)\]$/);
-    if (!match) return <span key={i}>{part}</span>;
+    if (!match) return <span key={`${keyPrefix}-${i}`}>{part}</span>;
     const marker = parseInt(match[1], 10);
     const found = findEvidenceForMarker(claims, marker);
     return (
       <CitationPopover
-        key={i}
+        key={`${keyPrefix}-${i}`}
         marker={marker}
         evidence={found?.evidence ?? null}
         claimScore={found?.claimScore ?? null}
@@ -257,6 +276,37 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
       />
     );
   });
+}
+
+/** Citation markers become popovers; sentences the model tagged as its own
+ *  opinion get an inline "opinion" tag after them. Opinions have no citation
+ *  by definition, so this tag is the only thing that distinguishes them from
+ *  sourced text now that the evidence panel is gone. Located by matching the
+ *  claim's text inside the prose - the claim text is lifted from that same
+ *  prose, so an exact match is the normal case; a claim that doesn't match
+ *  (reflection reworded it) simply goes untagged rather than mis-tagged. */
+function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
+  // Messages written before the backend stripped markup still have it stored.
+  const clean = cleanMessageText(text);
+  const cuts: number[] = [];
+  for (const claim of claims) {
+    if (claim.entailment_label !== "opinion") continue;
+    const needle = cleanMessageText(claim.claim_text).trim();
+    if (needle.length < 8) continue;
+    const at = clean.indexOf(needle);
+    if (at !== -1) cuts.push(at + needle.length);
+  }
+  if (cuts.length === 0) return renderCitations(clean, claims, "t");
+
+  const out: ReactNode[] = [];
+  let from = 0;
+  for (const [n, cut] of [...new Set(cuts)].sort((a, b) => a - b).entries()) {
+    out.push(...renderCitations(clean.slice(from, cut), claims, `s${n}`));
+    out.push(<OpinionMarker key={`op${n}`} />);
+    from = cut;
+  }
+  out.push(...renderCitations(clean.slice(from), claims, "tail"));
+  return out;
 }
 
 function MessageBubble({
@@ -365,9 +415,12 @@ function MessageBubble({
   const verdictIsMeaningful =
     panel === "evidence" && (modeUsed === "knowing" || citedAnything);
   // Whether the crux exists at all decides whether there's a fold in the
-  // first place - a message with no crux (streaming, or written before this
-  // shipped) just renders the answer flat, exactly as before this feature.
-  const hasCrux = !isUser && !isStreaming && Boolean(crux);
+  // first place - a message with no crux (written before this shipped, or a
+  // stream whose gist hasn't landed yet) just renders the answer flat. While
+  // streaming, the gist arrives as its own event before any body text, so
+  // the fold exists from the first token: the body writes itself in behind
+  // it rather than scrolling past the reader first.
+  const hasCrux = !isUser && Boolean(crux);
   // Collapsed by default, even the first time this message is seen: the
   // whole point of the crux is to make reading the full answer optional,
   // not to show it in full anyway and add a summary on top.
@@ -501,6 +554,15 @@ function MessageBubble({
               <path d="m9 18 6-6-6-6" />
             </svg>
             {detailOpen ? detailLabels.hide : detailLabels.show}
+            {isStreaming && (
+              // The body is still being written behind this fold; say so,
+              // so a closed fold doesn't read as "the answer is just the
+              // gist".
+              <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] normal-case">
+                <Spinner className="h-3 w-3" />
+                Writing…
+              </span>
+            )}
           </button>
         )}
         {(!hasCrux || detailOpen) && (

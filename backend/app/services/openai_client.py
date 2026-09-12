@@ -281,14 +281,60 @@ async def _create_speech(**kwargs):
 class TranscriptionResult(TypedDict):
     transcript: str
     duration_seconds: float | None
+    #: ISO-ish language name the model detected ("english", "hindi"), if given.
+    language: str | None
+    #: False when the audio most likely contained no speech at all.
+    heard_speech: bool
+
+
+# What Whisper writes when handed silence or noise: it was trained on
+# captioned video, so an empty clip becomes the sign-off of a YouTube video.
+# Matched after lower-casing and stripping punctuation; a real message that
+# happens to be one of these is vanishingly unlikely.
+_SILENCE_HALLUCINATIONS = {
+    "thank you for watching",
+    "thanks for watching",
+    "thank you so much for watching",
+    "thank you",
+    "thanks",
+    "please subscribe",
+    "subtitles by the amara org community",
+    "you",
+    "bye",
+}
+_NO_SPEECH_THRESHOLD = 0.6
+
+
+def _looks_like_silence(text: str, segments: list | None) -> bool:
+    normalised = " ".join("".join(ch for ch in text.lower() if ch.isalnum() or ch.isspace()).split())
+    if not normalised:
+        return True
+    if normalised in _SILENCE_HALLUCINATIONS:
+        return True
+    # verbose_json reports, per segment, the model's own belief that the
+    # segment contained no speech. All segments confident there was none is
+    # the strongest signal available - it catches hallucinations not in the
+    # list above.
+    probs = [
+        getattr(s, "no_speech_prob", None) if not isinstance(s, dict) else s.get("no_speech_prob")
+        for s in (segments or [])
+    ]
+    probs = [p for p in probs if isinstance(p, (int, float))]
+    return bool(probs) and all(p > _NO_SPEECH_THRESHOLD for p in probs)
 
 
 async def transcribe_audio(
     file_bytes: bytes, filename: str, model: str | None = None
 ) -> TranscriptionResult:
     """§12.1: forwards recorded/uploaded audio to OpenAI's speech-to-text
-    endpoint. verbose_json gets us duration alongside the transcript in one
-    call, matching the /audio/transcribe response shape (§11.4).
+    endpoint. verbose_json gets us duration, detected language and per-segment
+    no-speech probabilities alongside the transcript in one call.
+
+    Two things the raw transcript can't be trusted on, both reported rather
+    than guessed at here: silence comes back as a stock sign-off phrase, and
+    an unclear recording comes back confidently transcribed in the wrong
+    language. The client uses `heard_speech` to refuse the former and
+    `language` to let the user confirm the latter.
     """
     result = await _resilient_call(
         _create_transcription,
@@ -296,7 +342,15 @@ async def transcribe_audio(
         model=model or settings.openai_stt_model,
         response_format="verbose_json",
     )
-    return {"transcript": result.text, "duration_seconds": getattr(result, "duration", None)}
+    text = (result.text or "").strip()
+    segments = getattr(result, "segments", None)
+    silence = _looks_like_silence(text, segments)
+    return {
+        "transcript": "" if silence else text,
+        "duration_seconds": getattr(result, "duration", None),
+        "language": getattr(result, "language", None),
+        "heard_speech": not silence,
+    }
 
 
 async def generate_speech(text: str, voice: str | None = None, model: str | None = None) -> bytes:

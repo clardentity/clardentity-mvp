@@ -189,6 +189,64 @@ def extract_claims(full_text: str) -> list[ParsedClaim]:
     return claims
 
 
+class CruxSplitter:
+    """Streaming counterpart of extract_crux.
+
+    The crux is the first thing the model writes, and the reader should see it
+    first too - as its own card, not as the opening line of a body that then
+    keeps scrolling. So deltas are held back until the leading <crux> block
+    either closes (it is announced once, and only the text after it flows on)
+    or provably isn't there (the text no longer matches a <crux> prefix, and
+    everything held is released unchanged). Holding costs at most the length
+    of one sentence.
+    """
+
+    _OPEN = "<crux>"
+
+    def __init__(self) -> None:
+        self._held = ""
+        self._resolved = False
+        # After a crux, the body's leading whitespace is dropped (as
+        # extract_crux does) - tracked separately so the result is the same
+        # whether that whitespace arrived in the crux's chunk or the next one.
+        self._trim_leading = False
+
+    def _pass(self, text: str) -> str:
+        if self._trim_leading:
+            text = text.lstrip()
+            if text:
+                self._trim_leading = False
+        return text
+
+    def feed(self, chunk: str) -> tuple[str | None, str]:
+        """Returns (crux_text_if_it_just_resolved, text_to_pass_downstream)."""
+        if self._resolved:
+            return None, self._pass(chunk)
+        self._held += chunk
+        stripped = self._held.lstrip()
+        match = _CRUX_RE.match(self._held)
+        if match:
+            self._resolved = True
+            self._trim_leading = True
+            rest = self._held[match.end():]
+            self._held = ""
+            return match.group(1).strip(), self._pass(rest)
+        # Nothing but whitespace so far, a partial "<cru", or an opened block
+        # that hasn't closed yet: keep holding.
+        if not stripped or self._OPEN.startswith(stripped[: len(self._OPEN)]):
+            return None, ""
+        # Definitely not a crux. Release what was held, verbatim.
+        self._resolved = True
+        rest, self._held = self._held, ""
+        return None, rest
+
+    def flush(self) -> str:
+        """Anything still held when the stream ends (e.g. an unclosed crux)."""
+        rest, self._held = self._held, ""
+        self._resolved = True
+        return rest
+
+
 def extract_crux(full_text: str) -> tuple[str | None, str]:
     """Pulls a leading <crux>...</crux> block off the front of raw text.
 

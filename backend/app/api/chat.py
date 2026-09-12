@@ -31,6 +31,7 @@ from app.services.avatar_cue_service import compute_avatar_cue
 from app.services.claim_loader import load_claims_for_messages
 from app.services.claim_parser import (
     ClaimTagStripper,
+    CruxSplitter,
     extract_claims,
     extract_crux,
     strip_claim_tags,
@@ -876,6 +877,7 @@ async def send_message(
     async def event_stream() -> AsyncIterator[dict]:
         full_text = ""
         stripper = ClaimTagStripper()
+        crux_splitter = CruxSplitter()
 
         # Named phases, so the wait says what is being waited on. Silence for
         # eight seconds and "Weighing sources" for eight seconds are the same
@@ -901,11 +903,21 @@ async def send_message(
             ):
                 if event["type"] == "delta":
                     full_text += event["text"]
-                    visible = stripper.feed(event["text"])
+                    # The leading one-sentence crux goes out as its own event
+                    # the moment it closes, and never as body text - the
+                    # client shows it as the first thing, above a body that
+                    # streams in behind a fold. See CruxSplitter.
+                    crux_now, passthrough = crux_splitter.feed(event["text"])
+                    if crux_now:
+                        yield {"event": "crux", "data": json.dumps({"text": clean_output(crux_now)})}
+                    visible = stripper.feed(passthrough) if passthrough else ""
                     if visible:
                         yield {"event": "delta", "data": json.dumps({"text": visible})}
                 elif event["type"] == "done":
                     full_text = event["full_text"]
+            tail = stripper.feed(crux_splitter.flush())
+            if tail:
+                yield {"event": "delta", "data": json.dumps({"text": tail})}
         except Exception as exc:  # noqa: BLE001 - surfaced to the client as an SSE error event
             decision_task.cancel()
             # The raw exception never reaches the client: it can name a
@@ -952,6 +964,12 @@ async def send_message(
                 mode_used=mode,
                 reasoning_lens=reasoning_lens if mode == "thinking" else None,
                 parent_id=assistant_parent_id,
+                # Written now, not in the finalize block: the "answer" event
+                # is built from this row, and the client swaps its streaming
+                # bubble for that payload - so a crux missing here vanished
+                # from the screen for the whole claim-checking wait and came
+                # back with "final". A reload in that window lost it too.
+                crux_text=clean_output(crux_text) if crux_text else None,
             )
             answer_db.add(assistant_message)
             await answer_db.flush()
@@ -1237,7 +1255,6 @@ async def send_message(
             # produced, and rewrites the text only if reflection changed it.
             assistant_message = await gen_db.get(Message, assistant_message_id)
             assistant_message.content = display_text
-            assistant_message.crux_text = clean_output(crux_text) if crux_text else None
             assistant_message.confidence_score = message_score.score
             assistant_message.confidence_band = message_score.band
             assistant_message.distortion_penalty_applied = message_score.distortion_penalty_applied
@@ -1285,11 +1302,24 @@ async def send_message(
                 await gen_db.flush()
                 marker_to_citation_id[marker] = citation.id
 
-            for c in scored_claims:
+            # The claim rows carry the sentence *as it ships*, not as drafted.
+            # Verification ran on the draft's claims, but reflection may have
+            # reworded the prose - it keeps the claim count (or is discarded),
+            # so the i-th shipped claim is the i-th scored one. Storing the
+            # draft wording left the client unable to find an opinion claim
+            # in the text it was rendering, so opinions went unmarked.
+            shipped = extract_claims(final_text)
+            shipped_text = (
+                [clean_output(s.claim_text) for s in shipped]
+                if len(shipped) == len(scored_claims)
+                else [c.claim_text for c in scored_claims]
+            )
+
+            for c, text_as_shipped in zip(scored_claims, shipped_text):
                 claim_row = MessageClaim(
                     message_id=assistant_message.id,
                     claim_index=c.claim_index,
-                    claim_text=c.claim_text,
+                    claim_text=text_as_shipped,
                     claim_score=c.claim_score,
                     entailment_label=c.entailment_label,
                     distortion_flag=c.distortion_flag,
@@ -1335,7 +1365,9 @@ async def send_message(
         claims_out = [
             ClaimOut(
                 claim_index=c.claim_index,
-                claim_text=c.claim_text,
+                # Same as-shipped wording the rows were stored with, so the
+                # live "final" event and a later reload agree.
+                claim_text=text_as_shipped,
                 claim_score=c.claim_score,
                 entailment_label=c.entailment_label,
                 distortion_flag=c.distortion_flag,
@@ -1358,7 +1390,7 @@ async def send_message(
                     for e in c.evidence
                 ],
             )
-            for c in scored_claims
+            for c, text_as_shipped in zip(scored_claims, shipped_text)
         ]
 
         final_payload = {

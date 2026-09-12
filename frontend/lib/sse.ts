@@ -161,6 +161,9 @@ export type ChatStatus = { phase: string; label: string };
 
 export type ChatStreamHandlers = {
   onDelta: (text: string) => void;
+  /** The model's leading one-sentence bottom line, sent the moment it's
+   *  complete - before any body text - so it can be shown first. */
+  onCrux?: (text: string) => void;
   /** The answer is written and saved, but not yet analysed. Fires well before
    *  `onFinal` - claim verification and scoring take several seconds - and is
    *  the point at which the composer should become usable again.
@@ -340,6 +343,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
   try {
     const parsed = JSON.parse(data);
     if (eventType === "delta") handlers.onDelta(parsed.text);
+    else if (eventType === "crux") handlers.onCrux?.(parsed.text);
     else if (eventType === "answer") handlers.onAnswer(parsed.message, parsed.user_message);
     else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);

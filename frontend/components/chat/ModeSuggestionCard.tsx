@@ -1,7 +1,8 @@
 "use client";
 
-import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { COMING_SOON_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
 import { companionLabel, useCompanionNames } from "@/lib/companionNames";
+import { setSmartSwitching } from "@/lib/modeSwitching";
 import { cx } from "@/components/ui/primitives";
 
 /* Offered before the answer exists, not after.
@@ -13,9 +14,12 @@ import { cx } from "@/components/ui/primitives";
  * appears: no message saved, no answer generated, so either choice costs the
  * same single round trip.
  *
- * The chosen mode wins by default in the sense that continuing is always one
- * click and never a dead end - this is a suggestion, and the product's promise
- * is that the user picks the mode.
+ * Wording and buttons follow the client's spec verbatim: "Switching to X mode
+ * because it suits this better" / the reason / Ok | Stay in <current>.
+ *
+ * A suggestion for a mode that isn't open yet can't be taken: it becomes an
+ * upgrade prompt instead, with "stay" still one click away - the product's
+ * promise that the user picks the mode holds either way.
  */
 
 export function ModeSuggestionCard({
@@ -25,6 +29,7 @@ export function ModeSuggestionCard({
   busy,
   onSwitch,
   onContinue,
+  onUpgrade,
 }: {
   suggestedMode: string;
   reason: string | null;
@@ -32,20 +37,25 @@ export function ModeSuggestionCard({
   busy?: boolean;
   onSwitch: () => void;
   onContinue: () => void;
+  /** Opens the plans dialog. Called instead of `onSwitch` when the suggested
+   *  mode is locked. */
+  onUpgrade?: () => void;
 }) {
   const names = useCompanionNames();
   const suggested = MODE_BY_VALUE[suggestedMode as CognitiveMode];
   const current = MODE_BY_VALUE[currentMode as CognitiveMode];
   if (!suggested) return null;
 
+  const suggestedLabel = companionLabel(names, suggestedMode, suggested.label);
+  const currentLabel = companionLabel(names, currentMode, current?.label ?? currentMode);
+  const locked = COMING_SOON_MODES.includes(suggestedMode as CognitiveMode);
+
   return (
     <div className="mt-2 rounded-xl border border-brand-border bg-brand-soft p-3.5">
       <p className="text-sm font-medium text-ink">
-        {/* Named companions are addressed by name - that is the point of
-            naming one. Unnamed modes read exactly as before. */}
-        {names[suggestedMode]
-          ? `This suits your companion ${names[suggestedMode]} (${suggested.label}).`
-          : `${suggested.label} mode suits this better.`}
+        {locked
+          ? `${suggestedLabel} mode would suit this better - it's part of Clardentity Pro.`
+          : `Switching to ${suggestedLabel} mode because it suits this better.`}
       </p>
       {reason && (
         <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{reason}</p>
@@ -56,24 +66,52 @@ export function ModeSuggestionCard({
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onSwitch}
-          disabled={busy}
-          className={cx(
-            "rounded-full bg-brand px-3.5 py-1.5 text-xs font-medium text-white",
-            "transition-colors hover:bg-brand-dark disabled:opacity-60",
-          )}
-        >
-          {busy ? "Asking…" : `Answer in ${companionLabel(names, suggestedMode, suggested.label)}`}
-        </button>
+        {locked ? (
+          <button
+            type="button"
+            onClick={onUpgrade}
+            disabled={busy || !onUpgrade}
+            className={cx(
+              "rounded-full bg-brand px-3.5 py-1.5 text-xs font-medium text-white",
+              "transition-colors hover:bg-brand-dark disabled:opacity-60",
+            )}
+          >
+            See Pro
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSwitch}
+            disabled={busy}
+            className={cx(
+              "rounded-full bg-brand px-3.5 py-1.5 text-xs font-medium text-white",
+              "transition-colors hover:bg-brand-dark disabled:opacity-60",
+            )}
+          >
+            {busy ? "Asking…" : "Ok"}
+          </button>
+        )}
         <button
           type="button"
           onClick={onContinue}
           disabled={busy}
           className="rounded-full px-3 py-1.5 text-xs text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-60"
         >
-          Stay in {companionLabel(names, currentMode, current?.label ?? currentMode)}
+          Stay in {currentLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // Manual switching from here on: the mode is whatever they
+            // picked, and this card stops appearing. Reversible from the
+            // "Suggestions" control beside the mode picker.
+            setSmartSwitching(false);
+            onContinue();
+          }}
+          disabled={busy}
+          className="ml-auto text-[11px] text-ink-muted transition-colors hover:text-ink disabled:opacity-60"
+        >
+          Don&apos;t suggest modes
         </button>
       </div>
     </div>

@@ -158,6 +158,16 @@ class TestContextQuestionGuards:
         asked = "What has been going on between you two?"
         assert _validate_context_question(asked) == asked
 
+    def test_the_curriculum_question_the_instructions_suggest_survives(self):
+        # Learning mode's board-and-year question contains both "and" and
+        # "or" but is still one question; the conjunction guard must not
+        # mistake the illustrative "CBSE Class 10 or A-level Year 12" for a
+        # second stacked question.
+        from app.services.guidance import _validate_context_question
+
+        asked = "Which board and year is this for - like CBSE Class 10 or A-level Year 12?"
+        assert _validate_context_question(asked) == asked
+
     def test_refusals_are_dropped(self):
         from app.services.guidance import _validate_context_question
 

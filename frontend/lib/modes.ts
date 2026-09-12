@@ -1,4 +1,4 @@
-/** The seven modes of the single cognitive companion.
+/** The modes of the single cognitive companion.
  *
  *  One definition shared by the landing page and the composer, so the words a
  *  visitor reads before signing up are the same ones they see when choosing a
@@ -75,13 +75,35 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "creative",
-    label: "Creative",
-    companion: "Creative Companion",
-    hint: "Make something",
+    // "Co-Creative": it works *with* you on a document, it doesn't produce
+    // one unasked - the client's preferred framing over plain "Creative".
+    label: "Co-Creative",
+    companion: "Co-Creative Companion",
+    hint: "Make something together",
     when: "When you want help writing, coding, or building a document from scratch.",
     cta: "Try making something.",
     detail:
       "Writes, codes, and builds structured documents - reports, presentations, spreadsheets - offered as an actual file, not just described in chat.",
+  },
+  {
+    value: "hurry",
+    label: "Hurry Burry",
+    companion: "Hurry Burry Companion",
+    hint: "Get a fast answer",
+    when: "When you need a quick, direct answer now and can check the details later.",
+    cta: "Try the fast lane.",
+    detail:
+      "Answers in a few lines with the checking kept light, and tells you which parts it skipped so you know what to come back and verify.",
+  },
+  {
+    value: "legal",
+    label: "Legal Companion",
+    companion: "Legal Companion",
+    hint: "Understand where you stand",
+    when: "When you need a legal situation explained in plain language before you speak to a professional.",
+    cta: "Try understanding your position.",
+    detail:
+      "Explains the rules that apply, the questions a lawyer will ask, and what to gather beforehand. Orientation, not legal advice - it says so, and points you to a professional for anything that turns on your specific facts.",
   },
 ] as const;
 
@@ -98,4 +120,13 @@ export const MODE_BY_VALUE: Record<CognitiveMode, (typeof COGNITIVE_MODES)[numbe
  *  (the landing page carousel) and the composer agree on what exists. The
  *  backend already answers requests in these modes; this is purely about
  *  when the UI lets someone start one. */
-export const COMING_SOON_MODES: readonly CognitiveMode[] = ["mentoring", "therapy", "creative"];
+export const COMING_SOON_MODES: readonly CognitiveMode[] = [
+  "mentoring",
+  "therapy",
+  "creative",
+  // Announced, not built: no prompt behind either yet, and the backend's
+  // mode validator doesn't accept them. They exist here so the pickers show
+  // the roadmap the client asked for; they can't be started.
+  "hurry",
+  "legal",
+];

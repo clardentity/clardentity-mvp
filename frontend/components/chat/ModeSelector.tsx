@@ -19,10 +19,15 @@ export function ModeSelector({
   value,
   onChange,
   disabled,
+  onLocked,
 }: {
   value: CognitiveMode | null;
   onChange: (mode: CognitiveMode) => void;
   disabled?: boolean;
+  /** A "Soon" mode was tapped. When provided, those modes stay greyed but
+   *  respond - opening the plans dialog - rather than being dead buttons that
+   *  give no hint of what would unlock them. */
+  onLocked?: (mode: CognitiveMode) => void;
 }) {
   const names = useCompanionNames();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -61,9 +66,13 @@ export function ModeSelector({
                 type="button"
                 role="radio"
                 aria-checked={false}
-                disabled={disabled || comingSoon}
-                onClick={() => onChange(mode.value)}
-                className="rounded-xl border border-hairline bg-surface p-3 text-left transition-colors hover:border-brand-border hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-hairline disabled:hover:bg-surface"
+                aria-disabled={comingSoon || undefined}
+                disabled={disabled || (comingSoon && !onLocked)}
+                onClick={() => (comingSoon ? onLocked?.(mode.value) : onChange(mode.value))}
+                className={cx(
+                  "rounded-xl border border-hairline bg-surface p-3 text-left transition-colors hover:border-brand-border hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-hairline disabled:hover:bg-surface",
+                  comingSoon && "opacity-60",
+                )}
               >
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
                   {companionLabel(names, mode.value, mode.label)}
@@ -110,11 +119,13 @@ export function ModeSelector({
               type="button"
               role="radio"
               aria-checked={selected}
-              disabled={disabled || comingSoon}
-              onClick={() => onChange(mode.value)}
+              aria-disabled={comingSoon || undefined}
+              disabled={disabled || (comingSoon && !onLocked)}
+              onClick={() => (comingSoon ? onLocked?.(mode.value) : onChange(mode.value))}
               title={comingSoon ? `${mode.when} (coming soon)` : mode.when}
               className={cx(
                 "shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:px-3",
+                comingSoon && "opacity-60",
                 selected
                   ? "bg-brand text-white"
                   : "text-ink-secondary hover:bg-surface-hover hover:text-ink",
