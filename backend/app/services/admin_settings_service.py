@@ -21,6 +21,7 @@ DEFAULTS: dict[str, Any] = {
         "plausible_cutoff": 70,
     },
     "avatar_gesture_map": {
+        "rapid": "presenting",
         "knowing": "presenting",
         "thinking": "chin_stroke",
         "decision": "weighing_scales",

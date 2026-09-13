@@ -66,6 +66,8 @@ _INTERROGATIVE = re.compile(
 )
 
 _MODE_SUMMARY = (
+    "rapid: the fastest useful answer, unchecked - the user's own choice to "
+    "trade depth for speed, never something to recommend.\n"
     "knowing: retrieve and state facts precisely, with sources.\n"
     "thinking: reason through a problem step by step to a conclusion.\n"
     "decision: compare options against criteria and recommend one.\n"
@@ -178,7 +180,9 @@ _SCHEMA = {
     "properties": {
         "suggested_mode": {
             "type": ["string", "null"],
-            "enum": [*COGNITIVE_MODES, None],
+            # Never rapid: it skips the checking this product exists for,
+            # and the user can pick it themselves.
+            "enum": [*(m for m in COGNITIVE_MODES if m != "rapid"), None],
             "description": "A mode that fits better, or null.",
         },
         "mode_reason": {

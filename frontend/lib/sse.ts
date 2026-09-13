@@ -296,6 +296,10 @@ export async function streamChatMessage(
     } catch {
       // no JSON body
     }
+    // Still 401 after the refresh above was tried: the session really is
+    // over (a token past its 30 days, or revoked by a password reset). Say
+    // that, in words - the server's "Not authenticated" read as a bug.
+    if (res.status === 401) detail = "Your session has expired. Please sign in again.";
     handlers.onError(detail);
     return;
   }

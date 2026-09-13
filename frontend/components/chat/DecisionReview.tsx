@@ -39,7 +39,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
   const unsound = review.options.filter((o) => !o.sound).length;
 
   return (
-    <section className="mt-2.5 rounded-xl border border-hairline bg-surface-muted p-3">
+    <section className="mb-2.5 rounded-xl border border-hairline bg-surface-muted p-3">
       {hasOptions && (
       <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
         Your options, checked

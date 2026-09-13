@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
+import { initialMode, rememberMode } from "@/lib/lastMode";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import {
   streamChatMessage,
@@ -47,7 +48,7 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
   mentoring: "open_hand_explaining",
   therapy: "chin_stroke",
   creative: "presenting",
-  hurry: "presenting",
+  rapid: "presenting",
   legal: "open_hand_explaining",
 };
 
@@ -56,7 +57,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // Distinct from "no messages". Without it, reopening a chat rendered the
   // "Start a chat" empty state for the second or two the fetch took.
   const [loadingHistory, setLoadingHistory] = useState(true);
-  const [mode, setMode] = useState<CognitiveMode | null>(null);
+  // Never null in practice: a chat opens in the mode this device last used
+  // (else the default), so the box is ready to type in the moment the page
+  // is. The conversation's own remembered mode, if it has one, replaces it
+  // once history loads. The type keeps `null` only because ModeSelector and
+  // the gates below still speak it.
+  const [mode, setMode] = useState<CognitiveMode | null>(() => initialMode());
   // Smart switching: the companion may stop and propose a better-suited mode
   // before answering. Manual: never. See lib/modeSwitching.
   const smartSwitching = useSmartSwitching();
@@ -205,6 +211,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
+    rememberMode(sendMode);
     setPendingMode(null);
     setPendingContext(null);
     setPendingRefined(null);
@@ -724,6 +731,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           messageListFor(messages, streaming)
         )}
 
+        {/* The pre-answer gates sit between the thread and the composer as
+            flex items. Left to the default rules they shrank: an item with
+            overflow hidden has no automatic minimum height, so on a phone the
+            options card was squeezed to a sliver behind the composer and the
+            fourth option was never seen (the "follow-up boxes hidden under
+            the input" reports). shrink-0 makes the thread give way instead,
+            and the cap keeps a long card scrollable within itself rather than
+            pushing the composer off the bottom. */}
+        <div className="scroll-slim max-h-[50vh] shrink-0 overflow-y-auto">
         {pendingMode && (
           <ModeSuggestionCard
             suggestedMode={pendingMode.suggestion.suggested_mode}
@@ -867,13 +883,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           />
         )}
 
+        </div>
+
         {error && (
-          <div className="mb-3 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
+          <div className="mb-3 shrink-0 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
             {error}
           </div>
         )}
 
-        <div className="space-y-3 border-t border-hairline py-4">
+        <div className="shrink-0 space-y-2 border-t border-hairline py-3 sm:space-y-3 sm:py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* Once there are messages the companion moves down here, beside
                 the controls it reacts to. While the chat is empty it is the

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 # §7.1 / §8.4 - gesture is determined purely by mode_used.
 GESTURE_BY_MODE: dict[str, str] = {
+    "rapid": "presenting",
     "knowing": "presenting",
     "thinking": "chin_stroke",
     "decision": "weighing_scales",
@@ -28,13 +29,17 @@ class AvatarCue:
 
 
 def compute_avatar_cue(
-    mode: str, band: str, distortion_applied: bool, gesture_map: dict[str, str] | None = None
+    mode: str,
+    band: str | None,
+    distortion_applied: bool,
+    gesture_map: dict[str, str] | None = None,
 ) -> AvatarCue:
     """§8.4: two independent signals combine once confidence scoring
     completes. A distortion flag overrides the expression to "concerned"
     regardless of the numeric band - a response that reasons via wishful or
     magical thinking should never look fully confident. `gesture_map` is the
-    §11.8/FR14 admin override; falls back to the spec default per mode.
+    §11.8/FR14 admin override; falls back to the spec default per mode. No
+    band (an unscored rapid-mode answer) reads as thoughtful, not confident.
     """
     gesture = (gesture_map or GESTURE_BY_MODE).get(mode, GESTURE_BY_MODE.get(mode, "presenting"))
     expression = (

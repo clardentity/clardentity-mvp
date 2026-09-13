@@ -14,35 +14,42 @@ import { cx } from "@/components/ui/primitives";
 
 type Tile = {
   title: string;
+  /** The companions this tier opens - named, per the client, rather than
+   *  counted, so someone can see whether the one they wanted is in it. */
+  companions: string;
   body: string;
-  /** Column span in the 6-column grid. */
   span: string;
   accent?: boolean;
 };
 
 /* The four plans as specified by the client (features subject to change on
  * their side). Presentational only until billing exists: nothing here is
- * enforced, and "Notify me" is the only action. */
+ * enforced, and "Notify me" is the only action. Each tier lets you choose
+ * which companions you keep, up to its count; Basic's three are fixed. */
 const TILES: Tile[] = [
   {
     title: "Clar-Basic · Free",
-    body: "Knowing and Thinking-trainer. A daily allowance of prompts, no card needed - and a bonus day's allowance when you sign up. Bring your profile over from another assistant.",
+    companions: "Rapid-fire, Knowing and Thinking-trainer",
+    body: "A daily allowance of prompts, no card needed - and a bonus day's allowance when you sign up. Bring your profile over from another assistant.",
     span: "sm:col-span-3",
   },
   {
     title: "Clar-Pro · $20/mo",
-    body: "Adds Decision-making and Co-Creative. 2,000 premium credits a month.",
+    companions: "Any 5 of the 9 companions",
+    body: "Your pick - Decision-making and Co-Creative are the usual additions. 2,000 premium credits a month.",
     span: "sm:col-span-3",
     accent: true,
   },
   {
     title: "Clar-Max · $40/mo",
-    body: "Every mode - Learning, Mentoring and Reflect & Relieve included - plus your choice of model and version in Co-Creative. 5,500 elite credits a month.",
+    companions: "Any 7 of the 9 companions",
+    body: "Plus your choice of model and version in Co-Creative. 5,500 elite credits a month.",
     span: "sm:col-span-3",
   },
   {
     title: "Clar-Ultra · $100/mo · Teams",
-    body: "Clar-Max for a whole organisation: shared workspaces, co-working and team controls. 13,000 ultra-elite credits a month.",
+    companions: "All 9 companions",
+    body: "Everything in Max for a whole organisation - shared workspaces, co-working and team controls - with model choice in Co-Creative. 13,000 ultra-elite credits a month.",
     span: "sm:col-span-3",
   },
 ];
@@ -165,6 +172,7 @@ export function UpgradeDialog({
               >
                 {tile.title}
               </p>
+              <p className="mt-1 text-xs font-medium text-ink">{tile.companions}</p>
               <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{tile.body}</p>
             </div>
           ))}

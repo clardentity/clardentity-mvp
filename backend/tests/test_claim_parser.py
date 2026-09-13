@@ -204,3 +204,27 @@ class TestCruxSplitter:
         splitter = CruxSplitter()
         assert splitter.feed("<crux>never closes") == (None, "")
         assert splitter.flush() == "<crux>never closes"
+
+
+class TestSplitLeadingSentence:
+    """Rapid mode's fallback when the model skipped the <crux> wrapper: the
+    first claim becomes the gist, unless it is the whole answer."""
+
+    def test_peels_the_first_claim_off(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = '<claim id="1">Notion wins for a small team.</claim>\n<claim id="2">It is quicker to set up.</claim>'
+        crux, rest = split_leading_sentence(text)
+        assert crux == "Notion wins for a small team."
+        assert rest == '<claim id="2">It is quicker to set up.</claim>'
+
+    def test_a_one_sentence_answer_is_left_whole(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = '<claim id="1">Canberra.</claim>'
+        assert split_leading_sentence(text) == (None, text)
+
+    def test_untagged_text_is_left_alone(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        assert split_leading_sentence("Plain prose.\nMore.") == (None, "Plain prose.\nMore.")

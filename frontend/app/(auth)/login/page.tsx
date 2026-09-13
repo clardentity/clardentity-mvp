@@ -25,7 +25,7 @@ export default function LoginPage() {
       await login(email, password);
       // Whether this account still owes the welcome questions (and then the
       // tour) is the server's call - RequireAuth reads it and redirects.
-      router.push("/workspace?enter=1");
+      router.push("/start");
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {

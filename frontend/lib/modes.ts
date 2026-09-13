@@ -1,4 +1,6 @@
-/** The modes of the single cognitive companion.
+/** The modes of the single cognitive companion, in the order the pickers
+ *  show them (the client's sequence: the instant one first, then the checked
+ *  modes from most to least common, then the roadmap).
  *
  *  One definition shared by the landing page and the composer, so the words a
  *  visitor reads before signing up are the same ones they see when choosing a
@@ -11,6 +13,19 @@
  */
 export const COGNITIVE_MODES = [
   {
+    value: "rapid",
+    // The instant answer, like a chat model with its thinking turned off:
+    // no pre-answer questions, no reflection pass, no claim checking. The
+    // client's name for it (over "Hurry Burry" and "Instanter").
+    label: "Rapid-fire",
+    companion: "Rapid-fire Companion",
+    hint: "Instant response",
+    when: "When you want the answer now - straight to the gist, no reasoning pass, no checking.",
+    cta: "Try the fast lane.",
+    detail:
+      "Skips the questions, the reflection and the claim-by-claim checking and answers in a few lines, fast. Unscored by design - it says what would need checking rather than pretending it was.",
+  },
+  {
     value: "knowing",
     label: "Knowing",
     companion: "Knowing Companion",
@@ -19,16 +34,6 @@ export const COGNITIVE_MODES = [
     cta: "Explore the unknown.",
     detail:
       "Answers stay close to your documents, and every claim carries its source. When the answer isn't in what you've given it, it says so instead of filling the gap.",
-  },
-  {
-    value: "thinking",
-    label: "Thinking-trainer",
-    companion: "Thinking-trainer Companion",
-    hint: "Think correctly",
-    when: "When you want to improve your thinking skills, not just the conclusion.",
-    cta: "Try thinking it through.",
-    detail:
-      "Works through a problem in visible steps you can follow and challenge. Choose a reasoning lens - critical, creative, step-by-step - to change how it approaches the problem.",
   },
   {
     value: "decision",
@@ -41,6 +46,16 @@ export const COGNITIVE_MODES = [
       "Lays out the real options and what each one costs you, then makes a recommendation. It also flags the cognitive biases that tend to distort this kind of decision - before you commit, not after.",
   },
   {
+    value: "thinking",
+    label: "Thinking-trainer",
+    companion: "Thinking-trainer Companion",
+    hint: "Think correctly",
+    when: "When you want to improve your thinking skills, not just the conclusion.",
+    cta: "Try thinking it through.",
+    detail:
+      "Works through a problem in visible steps you can follow and challenge. Choose a reasoning lens - critical, creative, step-by-step - to change how it approaches the problem.",
+  },
+  {
     value: "learning",
     label: "Learning",
     companion: "Learning Companion",
@@ -49,6 +64,18 @@ export const COGNITIVE_MODES = [
     cta: "Try learning something new.",
     detail:
       "Meets you at your level and builds from there, drawing on established learning science. Ends by checking you've actually got it.",
+  },
+  {
+    value: "creative",
+    // "Co-Creative": it works *with* you on a document, it doesn't produce
+    // one unasked - the client's preferred framing over plain "Creative".
+    label: "Co-Creative",
+    companion: "Co-Creative Companion",
+    hint: "Make something together",
+    when: "When you want help writing, coding, or building a document from scratch.",
+    cta: "Try making something.",
+    detail:
+      "Writes, codes, and builds structured documents - reports, presentations, spreadsheets - offered as an actual file, not just described in chat.",
   },
   {
     value: "mentoring",
@@ -72,28 +99,6 @@ export const COGNITIVE_MODES = [
     cta: "Try talking it through.",
     detail:
       "Listens fully and reflects back what's actually being said, helping you notice your own patterns. Companionship, not clinical treatment - it says so plainly when something calls for a licensed professional.",
-  },
-  {
-    value: "creative",
-    // "Co-Creative": it works *with* you on a document, it doesn't produce
-    // one unasked - the client's preferred framing over plain "Creative".
-    label: "Co-Creative",
-    companion: "Co-Creative Companion",
-    hint: "Make something together",
-    when: "When you want help writing, coding, or building a document from scratch.",
-    cta: "Try making something.",
-    detail:
-      "Writes, codes, and builds structured documents - reports, presentations, spreadsheets - offered as an actual file, not just described in chat.",
-  },
-  {
-    value: "hurry",
-    label: "Hurry Burry",
-    companion: "Hurry Burry Companion",
-    hint: "Get a fast answer",
-    when: "When you need a quick, direct answer now and can check the details later.",
-    cta: "Try the fast lane.",
-    detail:
-      "Answers in a few lines with the checking kept light, and tells you which parts it skipped so you know what to come back and verify.",
   },
   {
     value: "legal",
@@ -124,9 +129,13 @@ export const COMING_SOON_MODES: readonly CognitiveMode[] = [
   "mentoring",
   "therapy",
   "creative",
-  // Announced, not built: no prompt behind either yet, and the backend's
-  // mode validator doesn't accept them. They exist here so the pickers show
-  // the roadmap the client asked for; they can't be started.
-  "hurry",
+  // Announced, not built: no prompt behind it yet, and the backend's mode
+  // validator doesn't accept it. It exists here so the pickers show the
+  // roadmap the client asked for; it can't be started.
   "legal",
 ];
+
+/** What a new chat opens in when nothing else has been chosen: the checked,
+ *  cited mode the product is built around. The composer never waits on a
+ *  mode pick - there is always one selected. */
+export const DEFAULT_MODE: CognitiveMode = "knowing";

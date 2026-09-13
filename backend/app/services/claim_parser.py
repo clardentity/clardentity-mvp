@@ -260,6 +260,28 @@ def extract_crux(full_text: str) -> tuple[str | None, str]:
     return match.group(1).strip(), full_text[match.end():]
 
 
+_FIRST_CLAIM_RE = re.compile(
+    r'^\s*<claim id="\d+"(?: opinion="true")?>(.*?)</claim>\s*', re.DOTALL
+)
+
+
+def split_leading_sentence(full_text: str) -> tuple[str | None, str]:
+    """Fallback for an answer that opens with no <crux> block: peel the first
+    claim off the front and hand it back as the crux, on the grounds that the
+    first sentence of an answer written to lead with its bottom line *is* the
+    bottom line. Used only where the prompt asked for exactly that shape
+    (rapid mode) and only when there is more to the answer than that one
+    sentence - a one-liner is its own gist. Returns (None, full_text) when
+    nothing sensible can be split."""
+    match = _FIRST_CLAIM_RE.match(full_text)
+    if not match:
+        return None, full_text
+    rest = full_text[match.end():]
+    if not rest.strip():
+        return None, full_text
+    return match.group(1).strip(), rest
+
+
 def strip_claim_tags(full_text: str) -> str:
     """Non-streaming version of the same stripping, for text we already have
     in full (e.g. after a reflection revision)."""

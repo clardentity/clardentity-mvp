@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
-import { type CognitiveMode } from "@/lib/modes";
+import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
 import {
   Badge,
   Button,
@@ -204,8 +204,8 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                       for - and a mode label is worth keeping when it is the
                       only way to tell two similarly-named chats apart. */}
                   {conv.default_mode && (
-                    <Badge tone="neutral" className="max-w-[5.5rem] shrink-0 truncate uppercase">
-                      {conv.default_mode}
+                    <Badge tone="neutral" className="max-w-[6.5rem] shrink-0 truncate uppercase">
+                      {MODE_BY_VALUE[conv.default_mode as CognitiveMode]?.label ?? conv.default_mode}
                     </Badge>
                   )}
                 </Link>

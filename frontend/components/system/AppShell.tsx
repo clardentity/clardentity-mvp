@@ -14,6 +14,8 @@ import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
 import { InstallAppButton } from "@/components/system/InstallAppButton";
+import { rememberWorkspace } from "@/lib/lastWorkspace";
+import { startTour, type TourId } from "@/lib/tour";
 import { cx } from "@/components/ui/primitives";
 
 /* Sidebar collapse lives in a tiny external store read through
@@ -447,8 +449,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chatWorkspaceId =
     conversationId && resolved?.id === conversationId ? resolved.workspaceId : null;
   const activeWorkspaceId = workspaceMatch ? workspaceMatch[1] : chatWorkspaceId;
+  // The entry route (/start) opens a chat in the workspace you were in last.
+  useEffect(() => {
+    if (activeWorkspaceId) rememberWorkspace(activeWorkspaceId);
+  }, [activeWorkspaceId]);
   const conversationTitle =
     conversationId && resolved?.id === conversationId ? resolved.title : null;
+  // Which tour, if any, walks the page in view - drives the replay button.
+  const tourHere: TourId | null = conversationId
+    ? "chat"
+    : /^\/workspace\/[^/]+$/.test(pathname)
+      ? "workspace"
+      : null;
   const [starting, setStarting] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   // Bumped after a conversation is created or deleted here, so the recents
@@ -712,6 +724,34 @@ export function AppShell({ children }: { children: ReactNode }) {
             conversationTitle={conversationTitle}
           />
           <ThemeToggle className="ml-auto shrink-0" tourId="theme-toggle" />
+          {tourHere && (
+            // The coachmarks, again, on request - for anyone who skipped them
+            // or wants a second look. Only where a tour exists for the page
+            // in view; `force` because the whole point is replaying one this
+            // browser has already finished.
+            <button
+              type="button"
+              onClick={() => startTour(tourHere, { force: true })}
+              title="Show me around this page"
+              aria-label="Show me around this page"
+              className="shrink-0 rounded-md p-1.5 text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className="h-4 w-4"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7" />
+                <path d="M12 17h.01" />
+              </svg>
+            </button>
+          )}
         </header>
 
         <main className="scroll-slim flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -749,6 +789,7 @@ function Breadcrumbs({
     workspace: "Workspaces",
     chat: "Conversation",
     profile: "Your profile",
+    start: "Opening a chat",
   };
 
   const crumbs: Array<{ label: string; href?: string }> = [];

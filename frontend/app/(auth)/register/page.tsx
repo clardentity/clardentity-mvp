@@ -26,7 +26,7 @@ export default function RegisterPage() {
       await register(email, password, displayName);
       // RequireAuth routes a not-yet-onboarded account to /welcome from
       // here; the tour starts when those questions are finished or skipped.
-      router.push("/workspace?enter=1");
+      router.push("/start");
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {

@@ -11,6 +11,8 @@ import type {
 } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CruxCard } from "@/components/chat/CruxCard";
+import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { SourcesFooter } from "@/components/chat/SourcesFooter";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { OpinionMarker } from "@/components/chat/OpinionMarker";
 import { ResponseFlip, FlipButton, useCounterfactual } from "@/components/chat/ResponseFlip";
@@ -128,14 +130,17 @@ export function MessageList({
 
   if (messages.length === 0 && !streaming && !busy) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
+      // min-h-0 + overflow so this gives way, on a short screen, to a gate
+      // card and the composer beneath it rather than pushing them off the
+      // bottom - the same reason the thread itself scrolls.
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-16 sm:px-6">
         {emptyStateAvatar}
         <div className="mt-4 max-w-sm text-center">
           <p className="text-sm font-medium text-ink">Start a chat</p>
           <p className="mt-1 text-sm text-ink-muted">
-            Pick a cognitive mode below, then ask your question. Every answer is
-            broken into claims and checked against its sources, so you can see
-            what each part of it rests on.
+            Ask your question below. Change the cognitive mode above the box any
+            time. Every answer is broken into claims and checked against its
+            sources, so you can see what each part of it rests on.
           </p>
         </div>
       </div>
@@ -532,7 +537,7 @@ function MessageBubble({
                 and naming it ("critical", "non-linear") asked the reader to
                 hold a vocabulary that was only ever meant for the model. */}
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-              <span>{modeUsed}</span>
+              <span>{MODE_BY_VALUE[modeUsed as CognitiveMode]?.label ?? modeUsed}</span>
             </div>
             <div className="flex items-center gap-1.5">
               {!isStreaming && content && (
@@ -589,17 +594,18 @@ function MessageBubble({
             disabled={busy}
           />
         )}
-        {hasCrux && <CruxCard text={crux as string} />}
         {/* The reasoning-contrast / decision-verdict box is the analysis
-            itself, not detail to hide behind a click - it stays outside the
-            fold and always leads, with the raw paragraph text (which only
-            elaborates on it) tucked behind a mode-named expand toggle below. */}
+            itself, not detail to hide behind a click - it leads, above the
+            gist (the client's order: verdict box, then the one-line answer,
+            then the journey folded beneath), with the raw paragraph text
+            tucked behind a mode-named expand toggle below. */}
         {!isUser && !isStreaming && panel === "thinking" && thinkingReview && (
           <ThinkingReview review={thinkingReview} />
         )}
         {!isUser && !isStreaming && panel === "decision" && decisionReview && (
           <DecisionReview review={decisionReview} />
         )}
+        {hasCrux && <CruxCard text={crux as string} />}
         {hasCrux && isStreaming && (
           // The rest is still being written, out of sight. No fold yet -
           // there's nothing finished behind it to open.
@@ -697,6 +703,7 @@ function MessageBubble({
             }
           />
         )}
+        {!isUser && !isStreaming && !editing && <SourcesFooter claims={claims} />}
 
         {isValidating && (
           // The answer above is complete and saved. This says what is still

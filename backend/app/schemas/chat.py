@@ -15,7 +15,14 @@ class ConversationCreate(BaseModel):
     # violation at commit time.
     default_mode: (
         Literal[
-            "knowing", "thinking", "decision", "learning", "mentoring", "therapy", "creative"
+            "rapid",
+            "knowing",
+            "thinking",
+            "decision",
+            "learning",
+            "mentoring",
+            "therapy",
+            "creative",
         ]
         | None
     ) = None

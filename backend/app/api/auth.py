@@ -269,11 +269,16 @@ async def refresh(
     if user is None or token_payload.get("ver") != user.refresh_token_version:
         raise invalid_token
 
-    # Rotate: bump the version so the presented refresh token can't be reused.
-    user.refresh_token_version += 1
-    await db.commit()
-    await db.refresh(user)
-
+    # A fresh pair, same version. This used to bump the version on every
+    # refresh - "rotation" - which, with one version per *user* rather than
+    # per device, meant a refresh on the phone silently invalidated the
+    # laptop's token and vice versa: whichever was opened second, within
+    # fifteen minutes of the other, was signed out with "Not authenticated"
+    # in the middle of a chat. Two tabs racing to refresh did the same to
+    # each other. Revocation still works - a password reset or account
+    # deletion bumps the version and every device is out - and a token still
+    # expires on its own schedule; what's gone is the per-refresh churn that
+    # only ever punished having two devices.
     return _issue_tokens(user)
 
 

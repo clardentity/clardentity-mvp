@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { startTour } from "@/lib/tour";
+import { resetTours } from "@/lib/tour";
 import { Button, Spinner, Textarea, cx } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 
@@ -13,8 +13,9 @@ import { ThemeToggle } from "@/components/system/ThemeToggle";
  * first sign-in after this shipped). Every one is optional and the whole
  * thing can be skipped - what's typed here is evidence for the same profile
  * inference that reads the user's conversations, not a form that fills
- * fields, so nothing depends on it being answered. The tour begins when this
- * page is finished or skipped, which is why it starts here and nowhere else. */
+ * fields, so nothing depends on it being answered. Finishing or skipping this
+ * page also resets the coachmark tours, so they play on the screens that
+ * follow. */
 
 const QUESTIONS = [
   {
@@ -48,7 +49,7 @@ export default function WelcomePage() {
   useEffect(() => {
     if (loading) return;
     if (!user) router.replace("/login");
-    else if (user.onboarding_completed_at !== null) router.replace("/workspace?enter=1");
+    else if (user.onboarding_completed_at !== null) router.replace("/start");
   }, [loading, user, router]);
 
   async function finish(skipAll: boolean) {
@@ -67,10 +68,10 @@ export default function WelcomePage() {
       // Re-read the user so RequireAuth sees the stamp and stops sending
       // people back here, then hand over to the tour.
       await refresh();
-      // Force: an account-level reset must re-show the tour even in a
-      // browser that dismissed it before.
-      startTour("workspace", { force: true });
-      router.replace("/workspace?enter=1");
+      // An account-level reset must re-show the tours even in a browser
+      // that dismissed them before; the chat they land in starts the first.
+      resetTours();
+      router.replace("/start");
     } catch {
       setError("That didn't save. Check your connection and try again.");
       setSubmitting(false);

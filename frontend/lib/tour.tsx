@@ -19,10 +19,14 @@ export type TourStep = {
 
 /* Two tours, one per screen a new user meets, each started the first time
  * that screen is opened (per browser) and never again - except that
- * finishing the welcome questions restarts the workspace tour, which is how
- * an account-level reset re-shows it in a browser that already dismissed it.
- * Steps here point only at things that exist on an empty account: no step
- * depends on a chat or an attachment already existing. */
+ * finishing the welcome questions forgets both, which is how an
+ * account-level reset re-shows them in a browser that already dismissed
+ * them, and the header's "Show me around" button replays the current page's
+ * on demand. Since sign-in lands straight in a chat, the chat tour is
+ * usually the first one seen; the workspace tour waits for the first visit
+ * to a workspace page. Steps here point only at things that exist on an
+ * empty account: no step depends on a chat or an attachment already
+ * existing. */
 export const TOURS: Record<TourId, TourStep[]> = {
   workspace: [
     {
@@ -82,8 +86,8 @@ export const TOURS: Record<TourId, TourStep[]> = {
     {
       id: "new-chat",
       target: "new-chat",
-      title: "When you're ready",
-      body: "Start your first chat here. We'll show you around the chat screen when you get there.",
+      title: "Start a chat",
+      body: "A new chat in this workspace. The question mark in the top bar replays this tour any time.",
     },
   ],
   chat: [
@@ -96,8 +100,8 @@ export const TOURS: Record<TourId, TourStep[]> = {
     {
       id: "mode-picker",
       target: "mode-picker",
-      title: "Pick a cognitive mode",
-      body: "How Clardentity should think about this question - find facts, train your thinking, weigh a decision, learn. Change it any time.",
+      title: "Choose how it thinks",
+      body: "You're already in a mode, so you can just ask. Switch here for a different kind of answer - the instant one, facts with sources, a weighed decision, a lesson.",
     },
     {
       id: "switching-toggle",
@@ -235,6 +239,15 @@ export function advanceTour() {
   } else {
     setTourState({ ...current, stepIndex: nextIndex });
   }
+}
+
+/** Forget both tours, so each starts again the next time its screen is
+ *  opened. The welcome page calls this: whether an account should see the
+ *  tours again is the server's decision (it just sent them through the
+ *  welcome questions), not this browser's memory. Nothing starts here -
+ *  TourProvider starts whichever tour matches the page they land on. */
+export function resetTours() {
+  setTourState({ active: null, stepIndex: 0, done: {} });
 }
 
 /** Cancel at any time - "Skip tour" and Escape both call this. */

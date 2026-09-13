@@ -326,3 +326,40 @@ class TestPromptCaching:
         assert "critical" in with_lens[-1]["text"].lower()
         assert "DEMAND -> COMBINATION" in without_lens[0]["text"]
         assert len(without_lens) == 1  # no variable content when no lens chosen
+
+
+class TestRapidMode:
+    """The fastest useful answer: a real mode everywhere a mode is checked,
+    with its own brief, and never something smart switching recommends."""
+
+    def test_rapid_is_a_valid_mode_with_its_own_brief(self):
+        from app.services.router import validate_mode
+
+        assert validate_mode("rapid") == "rapid"
+        brief = MODE_INSTRUCTIONS["rapid"]
+        assert "four short sentences" in brief
+        # It is unchecked and must say so to the model, so it doesn't write
+        # as if a verifier were coming behind it.
+        assert "checked" in brief
+
+    def test_smart_switching_never_suggests_rapid(self):
+        from app.services.guidance import _SCHEMA
+
+        allowed = _SCHEMA["properties"]["suggested_mode"]["enum"]
+        assert "rapid" not in allowed
+        assert "knowing" in allowed and None in allowed
+
+    def test_the_conversation_default_mode_accepts_rapid(self):
+        from app.schemas.chat import ConversationCreate
+        import uuid
+
+        c = ConversationCreate(workspace_id=uuid.uuid4(), default_mode="rapid")
+        assert c.default_mode == "rapid"
+
+    def test_every_mode_has_a_gesture(self):
+        from app.services.avatar_cue_service import GESTURE_BY_MODE, compute_avatar_cue
+
+        for mode in COGNITIVE_MODES:
+            assert mode in GESTURE_BY_MODE
+        # Unscored (rapid) answers carry no band and must not read as confident.
+        assert compute_avatar_cue("rapid", None, False).expression == "thoughtful"

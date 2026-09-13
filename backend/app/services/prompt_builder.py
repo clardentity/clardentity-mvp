@@ -46,6 +46,14 @@ IDENTITY = (
 
 # Section 7.1 "System Prompt Emphasis" per mode.
 MODE_INSTRUCTIONS: dict[str, str] = {
+    "rapid": (
+        "Purpose: the fastest useful answer. The user chose speed over depth, so "
+        "give the bottom line and only what is needed to act on it - at most "
+        "four short sentences after the crux, no lists, no options menu, no "
+        "hedging preamble. Nothing you write here is checked against sources "
+        "afterwards, so state only what you are confident of and say plainly, in "
+        "one clause, when something would need checking."
+    ),
     "knowing": (
         "Purpose: retrieve and state facts precisely and briefly, citing sources when "
         "they're available. Prefer a direct answer over a long preamble."

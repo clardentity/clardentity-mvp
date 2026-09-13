@@ -29,7 +29,7 @@ function Nav({ signedIn }: { signedIn: boolean }) {
         <nav className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[13px]">
           {signedIn ? (
             <Link
-              href="/workspace"
+              href="/start"
               className="rounded-full bg-brand px-4 py-1.5 font-medium text-white transition-colors hover:bg-brand-dark"
             >
               Open
@@ -60,8 +60,8 @@ export default function Home() {
   // downgrades it (by clearing the token) if it turns out to be dead.
   const hasStoredSession = useHasStoredSession();
   const signedIn = Boolean(user) || hasStoredSession;
-  const primaryHref = signedIn ? "/workspace" : "/register";
-  const primaryLabel = signedIn ? "Open your workspace" : "Get started";
+  const primaryHref = signedIn ? "/start" : "/register";
+  const primaryLabel = signedIn ? "Open a chat" : "Get started";
 
   return (
     <div className="bg-canvas">

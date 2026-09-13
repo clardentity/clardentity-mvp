@@ -1091,3 +1091,54 @@ class TestMessageDeletion:
                 assert res.status_code == 404
         finally:
             await self._cleanup(convo_id, user_id)
+
+
+class TestRefreshAcrossDevices:
+    """Two devices hold two refresh tokens for one account. Refreshing on one
+    must not sign the other out - which is exactly what per-refresh version
+    rotation did, since the version lives on the user, not the device. A
+    password reset still revokes everything (covered by the version bump
+    there). Needs a database."""
+
+    async def test_refreshing_on_one_device_keeps_the_other_signed_in(self):
+        email = f"devices-{uuid.uuid4().hex[:8]}@example.com"
+        password = "two-devices-password-1"
+        token = None
+        try:
+            async with client() as c:
+                reg = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": email, "password": password, "display_name": "Two"},
+                )
+                if reg.status_code >= 500:
+                    pytest.skip("no database available")
+                assert reg.status_code == 201, reg.text
+                laptop = reg.json()["refresh_token"]
+                token = reg.json()["access_token"]
+
+                phone_login = await c.post(
+                    f"{API}/auth/login", json={"email": email, "password": password}
+                )
+                assert phone_login.status_code == 200, phone_login.text
+                phone = phone_login.json()["refresh_token"]
+
+                # The phone refreshes (its access token expired)...
+                r1 = await c.post(f"{API}/auth/refresh", json={"refresh_token": phone})
+                assert r1.status_code == 200, r1.text
+                token = r1.json()["access_token"]
+
+                # ...and the laptop, opened later, must still be able to.
+                r2 = await c.post(f"{API}/auth/refresh", json={"refresh_token": laptop})
+                assert r2.status_code == 200, r2.text
+
+                # Same token twice - a reload racing another tab - is fine too.
+                r3 = await c.post(f"{API}/auth/refresh", json={"refresh_token": laptop})
+                assert r3.status_code == 200, r3.text
+
+                # Garbage is still refused.
+                bad = await c.post(f"{API}/auth/refresh", json={"refresh_token": laptop + "x"})
+                assert bad.status_code == 401
+        finally:
+            if token:
+                async with client() as c:
+                    await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})

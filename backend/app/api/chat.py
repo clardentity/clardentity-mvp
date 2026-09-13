@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_conversation_for_user, get_current_user, require_workspace_member
+from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
 from app.db.session import AsyncSessionLocal, get_db
 from app.models import AudioTranscript, Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
@@ -34,6 +35,7 @@ from app.services.claim_parser import (
     CruxSplitter,
     extract_claims,
     extract_crux,
+    split_leading_sentence,
     strip_claim_tags,
 )
 from app.services.companion_names import name_for
@@ -645,8 +647,14 @@ async def send_message(
 
         # Started here rather than awaited here: its latency overlaps the
         # history and memory reads below, so the pre-answer check is close to
-        # free.
-        guidance_task = asyncio.create_task(propose_guidance(effective_content, mode))
+        # free. Rapid mode skips it outright: every gate it can raise -
+        # sharpen the wording, pick an option, add context, switch mode - is
+        # a round trip before the answer, and the user chose this mode to
+        # not have those. They get the answer to the question as asked.
+        guidance_task = (
+            None if mode == "rapid"
+            else asyncio.create_task(propose_guidance(effective_content, mode))
+        )
 
         history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
         memory_summary = await get_memory_summary(db, conversation_id)
@@ -658,7 +666,18 @@ async def send_message(
         # reader to discard work they can see. It only reads the question and
         # the chosen mode, so it needs nothing from retrieval and runs while
         # the history and memory load.
-        guidance = await guidance_task
+        guidance = await guidance_task if guidance_task is not None else None
+
+        # One question back, at most, before answering. The client embeds
+        # each answered gate into the message ("(Clardentity asked: ...)"),
+        # so its presence means the user has already been stopped once for
+        # this question and answered. The three gates about the question
+        # itself - sharpen the wording, pick an option, add context - must
+        # not then take turns: seen in the wild as options, then a mode
+        # suggestion, then a context question, then "did you mean", four
+        # round trips for one question. Only the mode suggestion may still
+        # follow, and only once (mode_confirmed).
+        answered_a_gate = "(Clardentity asked:" in effective_content
 
         # Sharpening the phrasing comes before either of the checks below -
         # judging whether more context or a different mode is needed against
@@ -667,6 +686,7 @@ async def send_message(
         # the message is not saved and no answer is generated.
         if (
             not payload.refined_confirmed
+            and not answered_a_gate
             and guidance
             and guidance.get("refined_question")
         ):
@@ -686,7 +706,12 @@ async def send_message(
         # of either guessing or opening a free-text box. Also resolves before
         # context/mode, for the same reason: both are about the wording, not
         # about the user's situation or the chosen mode.
-        if not payload.clarifying_confirmed and guidance and guidance.get("clarifying_options"):
+        if (
+            not payload.clarifying_confirmed
+            and not answered_a_gate
+            and guidance
+            and guidance.get("clarifying_options")
+        ):
             suggestion = {
                 "question": guidance.get("clarifying_question"),
                 "options": guidance["clarifying_options"],
@@ -713,6 +738,7 @@ async def send_message(
         # case where it doesn't.
         if (
             not payload.context_acknowledged
+            and not answered_a_gate
             and payload.context_rounds < MAX_CONTEXT_ROUNDS
             and guidance
             and guidance.get("context_question")
@@ -802,7 +828,8 @@ async def send_message(
     # Decision classification picks a *bias domain* only, and never influences
     # which cognitive mode is in play (§7.2).
     async def _classify() -> DecisionClassification:
-        if not flags.get("bias_screening_enabled", True):
+        # Rapid mode runs no verification, so there is nothing to scope.
+        if not flags.get("bias_screening_enabled", True) or mode == "rapid":
             return NO_DECISION
         return await classify_decision(effective_content)
 
@@ -822,7 +849,10 @@ async def send_message(
     # whether the documents have anything is a database round-trip, and
     # waiting for that answer before starting a search adds the whole search
     # latency on top. So both go at once and the loser is discarded.
-    web_enabled = flags.get("web_search_enabled", True)
+    # Rapid mode answers from what it knows and what the workspace holds -
+    # the search is the slowest thing on this path and its results would go
+    # unchecked anyway.
+    web_enabled = flags.get("web_search_enabled", True) and mode != "rapid"
     web_task = (
         asyncio.create_task(gather_context(retrieval_query)) if web_enabled else None
     )
@@ -872,6 +902,11 @@ async def send_message(
                 data = f"data:{attachment.mime_type};base64,{data}"
             input_images.append(data)
     gen_model = admin_settings.get("openai_model")
+    # The auxiliary model is the point of rapid mode: it is what makes the
+    # answer arrive in a couple of seconds rather than ten. An explicit admin
+    # model override still wins.
+    if mode == "rapid" and not gen_model:
+        gen_model = settings.anthropic_fast_model
     gen_temperature = admin_settings.get("openai_temperature")
 
     async def event_stream() -> AsyncIterator[dict]:
@@ -954,6 +989,12 @@ async def send_message(
         # extraction, the counterfactual - works from crux-free text and
         # none of them can reintroduce or duplicate it.
         crux_text, full_text = extract_crux(full_text)
+        if mode == "rapid" and crux_text is None:
+            # The fast model sometimes skips the <crux> wrapper. The brief
+            # asked for the bottom line first, so the first sentence is it -
+            # and the gist card is most of what rapid mode shows, so an
+            # answer without one would read as a wall of text.
+            crux_text, full_text = split_leading_sentence(full_text)
         draft_display_text = clean_output(strip_claim_tags(full_text))
 
         async with AsyncSessionLocal() as answer_db:
@@ -990,6 +1031,51 @@ async def send_message(
             "event": "answer",
             "data": json.dumps({"message": answer_payload, "user_message": user_message_payload}),
         }
+
+        if mode == "rapid":
+            # That was the whole job. No reflection, no claims, no evidence,
+            # no score, no counterfactual - the answer ships as drafted, with
+            # no verdict attached, and says so by carrying none. The client
+            # shows no confidence badge for a message with no band, so the
+            # absence reads as "not checked", not as a low score.
+            decision_task.cancel()
+            avatar_cue = compute_avatar_cue(mode, None, False, gesture_map)
+            async with AsyncSessionLocal() as gen_db:
+                assistant_message = await gen_db.get(Message, assistant_message_id)
+                assistant_message.avatar_expression = avatar_cue.expression
+                assistant_message.avatar_gesture = avatar_cue.gesture
+                await gen_db.commit()
+                await gen_db.refresh(assistant_message)
+                total_messages = await gen_db.scalar(
+                    select(func.count())
+                    .select_from(Message)
+                    .where(Message.conversation_id == conversation_id)
+                )
+            if should_rebuild_memory(total_messages or 0):
+                rebuild_memory_task.delay(str(conversation_id))
+            async with AsyncSessionLocal() as profile_db:
+                if await should_rebuild_profile(profile_db, current_user.id):
+                    rebuild_profile_task.delay(str(current_user.id))
+            yield {
+                "event": "final",
+                "data": json.dumps(
+                    {
+                        "message": _serialize_message(assistant_message, []).model_dump(mode="json"),
+                        "counterfactual_content": None,
+                        "decision_review": None,
+                        "thinking_review": None,
+                        "research_notes": [],
+                        "claims": [],
+                        "confidence": {"score": None, "band": None},
+                        "avatar_cue": {
+                            "expression": avatar_cue.expression,
+                            "gesture": avatar_cue.gesture,
+                        },
+                    }
+                ),
+            }
+            return
+
         yield {
             "event": "status",
             "data": json.dumps({"phase": "validating", "label": "Weighing the evidence"}),

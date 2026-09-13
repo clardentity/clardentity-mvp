@@ -19,7 +19,7 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
   if (!review.sound?.length || !review.biased?.length) return null;
 
   return (
-    <section className="mt-2.5 rounded-xl border border-hairline bg-surface-muted p-3">
+    <section className="mb-2.5 rounded-xl border border-hairline bg-surface-muted p-3">
       <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
         How to think about this
       </h4>

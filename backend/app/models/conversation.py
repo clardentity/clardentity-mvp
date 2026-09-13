@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 COGNITIVE_MODES = (
+    "rapid",
     "knowing",
     "thinking",
     "decision",
