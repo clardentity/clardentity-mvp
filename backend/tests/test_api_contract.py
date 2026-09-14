@@ -326,7 +326,7 @@ class TestContextQuestionGate:
 
         asked = "What is going on that has led you to want a divorce?"
 
-        async def fake_guidance(question, mode):
+        async def fake_guidance(question, mode, history=None):
             return {
                 "context_question": asked,
                 "suggested_mode": None,
@@ -414,7 +414,7 @@ class TestRefinedQuestionGate:
 
         refined = "How do I get better at long-distance running specifically?"
 
-        async def fake_guidance(question, mode):
+        async def fake_guidance(question, mode, history=None):
             return {
                 "context_question": None,
                 "suggested_mode": None,
@@ -499,7 +499,7 @@ class TestClarifyingOptionsGate:
 
         options = ["A sport", "A musical instrument", "A language", "A work skill"]
 
-        async def fake_guidance(question, mode):
+        async def fake_guidance(question, mode, history=None):
             return {
                 "context_question": None,
                 "suggested_mode": None,
