@@ -411,3 +411,58 @@ class TestDecisionSuggestionSet:
 
         for bad in (None, "suggestions", {}, [None, 42, "x"]):
             assert _build_suggestions(bad) == []
+
+
+class TestGuidanceSeesTheConversation:
+    """The gates judge a follow-up against the whole thread, not the newest
+    line alone - the "asked me the region and my fitness level again" report."""
+
+    async def test_history_is_in_the_prompt_oldest_first_and_clipped(self, monkeypatch):
+        from app.services import guidance
+
+        seen: dict = {}
+
+        async def fake(**kwargs):
+            seen.update(kwargs)
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "context_question": None,
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        history = [
+            ("user", "Planning a 4-day trek in the Himalayas for five of us, moderate fitness."),
+            ("assistant", "Here are three options for October..." + "x" * 2000),
+        ]
+        await guidance.propose_guidance(
+            "I can't make those dates - the first weekend of November instead?",
+            "decision",
+            history,
+        )
+        text = seen["input_text"]
+        assert "CONVERSATION SO FAR" in text
+        assert text.index("Himalayas") < text.index("three options")
+        assert text.index("three options") < text.index("first weekend of November")
+        # Long turns are clipped, not dropped.
+        assert "x" * 2000 not in text and "…" in text
+        # The rule itself is stated to the model.
+        assert "never re-ask" in seen["instructions"][0]["text"].lower() or any(
+            "never re-ask" in str(part).lower() for part in seen["instructions"]
+        )
+
+    async def test_no_history_means_no_block(self, monkeypatch):
+        from app.services import guidance
+
+        seen: dict = {}
+
+        async def fake(**kwargs):
+            seen.update(kwargs)
+            return {"suggested_mode": None, "mode_reason": None, "refined_question": None,
+                    "refinement_reason": None, "context_question": None}
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        await guidance.propose_guidance("what is the capital of France", "knowing")
+        assert "CONVERSATION SO FAR" not in seen["input_text"]

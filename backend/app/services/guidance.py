@@ -83,6 +83,17 @@ _INSTRUCTIONS = (
     "A user asked a question in a chosen cognitive mode. Judge four things "
     "about the question - not about the answer.\n\n"
     f"THE MODES:\n{_MODE_SUMMARY}\n\n"
+    "The question may come after a CONVERSATION SO FAR block: the earlier "
+    "turns of this same chat, oldest first. Everything in it is already "
+    "known. Read the newest message as continuing that thread - a short "
+    "follow-up ('what about the first weekend of November instead?', 'and "
+    "something a bit harder?') inherits its subject, scope and every detail "
+    "already given (region, dates, group, level, budget, reasons), so it is "
+    "neither vague nor missing context. Never ask, by any of the four "
+    "judgements below, for anything stated anywhere in the conversation, and "
+    "never re-ask a question an earlier turn already asked and had answered. "
+    "When the conversation has covered what you would otherwise ask, return "
+    "null for refined_question, clarifying_options and context_question.\n\n"
     "1) suggested_mode: if a different mode genuinely fits the question "
     "better, name it. Only when the mismatch is real and would change the "
     "shape of a good answer - someone weighing options in knowing mode, or "
@@ -338,8 +349,36 @@ def _reject_placeholders(text: str | None) -> str | None:
     return text
 
 
-async def propose_guidance(question: str, mode: str) -> dict | None:
+# How much of the conversation the gates get to see. The last few turns,
+# each clipped, is enough to know what has been asked and answered; the
+# whole thread would cost latency on a call that sits before every answer.
+_HISTORY_TURNS = 8
+_HISTORY_TURN_CHARS = 700
+
+
+def _history_block(history: list[tuple[str, str]] | None) -> str:
+    if not history:
+        return ""
+    lines = []
+    for role, content in history[-_HISTORY_TURNS:]:
+        text = (content or "").strip()
+        if len(text) > _HISTORY_TURN_CHARS:
+            text = text[: _HISTORY_TURN_CHARS - 1] + "…"
+        lines.append(f"{'User' if role == 'user' else 'Assistant'}: {text}")
+    return "CONVERSATION SO FAR (oldest first):\n" + "\n".join(lines) + "\n\n"
+
+
+async def propose_guidance(
+    question: str, mode: str, history: list[tuple[str, str]] | None = None
+) -> dict | None:
     """Returns the guidance object stored on the message, or None.
+
+    `history` is the recent turns of the conversation as (role, content)
+    pairs, oldest first. Without it the gates judged every message as if it
+    were the first: a follow-up like "I can't make those dates - the first
+    weekend of November instead?" was asked, again, which region and how fit
+    they were, both answered two turns earlier. With it, a follow-up is read
+    as continuing the thread.
 
     Never raises: this is an optional flourish on a turn that has already
     succeeded, and a failure here must not cost the user their answer.
@@ -347,7 +386,10 @@ async def propose_guidance(question: str, mode: str) -> dict | None:
     try:
         parsed = await generate_structured(
             instructions=cached(_INSTRUCTIONS),
-            input_text=f"CHOSEN MODE: {mode}\n\nQUESTION:\n{question}",
+            input_text=(
+                f"CHOSEN MODE: {mode}\n\n{_history_block(history)}"
+                f"QUESTION (the newest message, the one to judge):\n{question}"
+            ),
             schema=_SCHEMA,
             schema_name="turn_guidance",
             fast=True,

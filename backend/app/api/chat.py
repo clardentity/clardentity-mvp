@@ -651,12 +651,20 @@ async def send_message(
         # sharpen the wording, pick an option, add context, switch mode - is
         # a round trip before the answer, and the user chose this mode to
         # not have those. They get the answer to the question as asked.
+        # History first: the gates need it. Judged on the newest message
+        # alone they re-asked, on a follow-up, what the conversation had
+        # already established two turns earlier.
+        history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
         guidance_task = (
             None if mode == "rapid"
-            else asyncio.create_task(propose_guidance(effective_content, mode))
+            else asyncio.create_task(
+                propose_guidance(
+                    effective_content,
+                    mode,
+                    [(m.role, m.content or "") for m in history],
+                )
+            )
         )
-
-        history = active_path(all_messages, effective_parent_id)[-HISTORY_WINDOW:]
         memory_summary = await get_memory_summary(db, conversation_id)
 
         # The mode nudge has to happen *before* generating, not after: a
