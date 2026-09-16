@@ -21,6 +21,7 @@ from app.schemas.chat import (
     CallTranscript,
     ClaimOut,
     ConversationCreate,
+    ConversationMove,
     ConversationOut,
     EvidenceOut,
     ExportFileIn,
@@ -255,6 +256,23 @@ async def get_conversation(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationOut:
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    return ConversationOut.model_validate(conversation)
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
+async def move_conversation(
+    conversation_id: uuid.UUID,
+    payload: ConversationMove,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationOut:
+    """Move a chat to another workspace. Membership of both sides is required;
+    the destination check is the same one creating a chat there would pass."""
+    conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
+    await require_workspace_member(db, payload.workspace_id, current_user.id)
+    conversation.workspace_id = payload.workspace_id
+    await db.commit()
+    await db.refresh(conversation)
     return ConversationOut.model_validate(conversation)
 
 
@@ -878,8 +896,11 @@ async def send_message(
             )
 
         # Convenience pre-fill only (§7.2) - never read back as an automatic
-        # mode choice.
-        conversation.default_mode = mode
+        # mode choice. The quick path is not a choice anyone made - it is the
+        # "Quick answer" button pressed during a slow answer - so it must not
+        # become what the chat reopens in.
+        if mode != "rapid":
+            conversation.default_mode = mode
 
         # Title the conversation from its opening question. Without this
         # every row in the workspace list reads "Untitled chat", which is
@@ -926,21 +947,6 @@ async def send_message(
     # retrieval and is some way into the search.
     retrieval_query, chunks, web_task, search_started = await prefetch_task
 
-    web_sources: list[WebSource] = []
-    if web_task is not None:
-        if chunks:
-            web_task.cancel()
-        else:
-            # The budget counts from when the search started, not from now.
-            remaining = max(0.0, _PRE_SEARCH_BUDGET_SECONDS - (time.monotonic() - search_started))
-            try:
-                web_sources = await asyncio.wait_for(web_task, timeout=remaining)
-            except asyncio.TimeoutError:
-                logger.info("web pre-search over budget; answering without web context")
-                web_sources = []
-            except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
-                web_sources = []
-
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
     bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
@@ -960,8 +966,6 @@ async def send_message(
         profile_block,
         companion_name=name_for(current_user.companion_names, mode),
     )
-    context_block = build_context_block(chunks, web_sources)
-    input_text = build_conversation_input(context_block, memory_summary, history, effective_content)
     scoring_weights = ScoringWeights.from_settings(admin_settings["scoring_weights"])
     gesture_map = admin_settings["avatar_gesture_map"]
 
@@ -984,6 +988,44 @@ async def send_message(
         full_text = ""
         stripper = ClaimTagStripper()
         crux_splitter = CruxSplitter()
+
+        # An early warning the client acts on: this answer is going to be a
+        # long one, so offer the quick way out now rather than after a fixed
+        # wait. The tell is that nothing in the workspace matched - the
+        # answer then leans on a web search up front and, worse, on
+        # per-claim research afterwards, which is where most of the time
+        # goes. Decision and Thinking add their own review call on top.
+        # Quick answers themselves never warn; there is nothing quicker.
+        if mode != "rapid" and (not chunks or mode in ("decision", "thinking")):
+            yield {
+                "event": "status",
+                "data": json.dumps(
+                    {"phase": "slow", "label": "This one will take a little longer"}
+                ),
+            }
+
+        # The wait for the web search happens here, inside the stream, so the
+        # warning above reaches the client before it rather than after.
+        web_sources: list[WebSource] = []
+        if web_task is not None:
+            if chunks:
+                web_task.cancel()
+            else:
+                # The budget counts from when the search started, not from now.
+                remaining = max(
+                    0.0, _PRE_SEARCH_BUDGET_SECONDS - (time.monotonic() - search_started)
+                )
+                try:
+                    web_sources = await asyncio.wait_for(web_task, timeout=remaining)
+                except asyncio.TimeoutError:
+                    logger.info("web pre-search over budget; answering without web context")
+                    web_sources = []
+                except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
+                    web_sources = []
+        context_block = build_context_block(chunks, web_sources)
+        input_text = build_conversation_input(
+            context_block, memory_summary, history, effective_content
+        )
 
         # Named phases, so the wait says what is being waited on. Silence for
         # eight seconds and "Weighing sources" for eight seconds are the same

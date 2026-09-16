@@ -101,13 +101,13 @@ export const TOURS: Record<TourId, TourStep[]> = {
       id: "mode-picker",
       target: "mode-picker",
       title: "Choose how it thinks",
-      body: "You're already in a mode, so you can just ask. Switch here for a different kind of answer - the instant one, facts with sources, a weighed decision, a lesson.",
+      body: "You open in Tailored - every claim checked against a source. Switch here for a different kind of answer: Decision-making weighs options, Thinking-trainer shows its reasoning, Learning teaches.",
     },
     {
       id: "switching-toggle",
       target: "switching-toggle",
       title: "Smart switching",
-      body: "Once a mode is picked, a Switching toggle appears beside it. On Smart, if a question fits another mode better we say so before answering and you choose; Manual turns the suggestions off.",
+      body: "On Smart, a question that fits another mode better is answered there automatically, with one tap to have it answered in your mode instead. Manual keeps you where you are.",
     },
     {
       id: "composer-input",
@@ -143,7 +143,7 @@ export const TOURS: Record<TourId, TourStep[]> = {
       id: "ask-button",
       target: "ask-button",
       title: "Ask",
-      body: "While it thinks you'll see the rabbit, not a wall of text; Stop or Esc cancels. Every answer opens with its gist, with the reasoning and sources folded beneath.",
+      body: "While it thinks you'll see the rabbit, not a wall of text; Stop or Esc cancels. If an answer is going to take a while, a Quick answer button appears - tap it for an instant, unchecked one. Every answer opens with its gist, with the reasoning and sources folded beneath.",
     },
   ],
 };

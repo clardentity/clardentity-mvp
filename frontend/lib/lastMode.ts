@@ -1,4 +1,4 @@
-import { COGNITIVE_MODES, COMING_SOON_MODES, DEFAULT_MODE, type CognitiveMode } from "@/lib/modes";
+import { COGNITIVE_MODES, COMING_SOON_MODES, DEFAULT_MODE, type PickableMode } from "@/lib/modes";
 
 /** The mode a new chat opens in: whatever this device last asked a question
  *  in, else the default. Written when a message is sent, read once when a
@@ -6,7 +6,9 @@ import { COGNITIVE_MODES, COMING_SOON_MODES, DEFAULT_MODE, type CognitiveMode } 
  *  remembered mode that has since gone coming-soon (or away) falls back. */
 const KEY = "clardentity-last-mode";
 
-export function rememberMode(mode: CognitiveMode) {
+export function rememberMode(mode: string) {
+  // The quick path isn't a mode anyone chose; it must not become the default.
+  if (!COGNITIVE_MODES.some((m) => m.value === mode)) return;
   try {
     localStorage.setItem(KEY, mode);
   } catch {
@@ -14,7 +16,7 @@ export function rememberMode(mode: CognitiveMode) {
   }
 }
 
-export function initialMode(): CognitiveMode {
+export function initialMode(): PickableMode {
   try {
     const stored = localStorage.getItem(KEY);
     const known = COGNITIVE_MODES.find((m) => m.value === stored);

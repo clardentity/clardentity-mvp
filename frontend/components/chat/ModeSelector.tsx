@@ -139,7 +139,7 @@ export function ModeSelector({
       {/* The one-line promise under the strip. Not on phones: the pill
           already names the mode, and on a 760px screen this line was one of
           the things pushing the thread down to a third of the height. */}
-      <p className="hidden text-xs text-ink-muted sm:block">{MODE_BY_VALUE[value].hint}</p>
+      <p className="hidden text-xs text-ink-muted sm:block">{MODE_BY_VALUE[value]?.hint}</p>
     </div>
   );
 }

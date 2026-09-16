@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { authErrorMessage } from "@/lib/auth";
-import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { modeLabel, type CognitiveMode } from "@/lib/modes";
 import {
   Badge,
   Button,
@@ -43,8 +43,12 @@ type Conversation = {
 export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  // Every workspace the user belongs to - the destinations a chat can be
+  // moved to. Fetched with the rest; an empty list just hides the control.
+  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
   const [confirmingWorkspace, setConfirmingWorkspace] = useState(false);
   const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,11 +62,13 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     Promise.all([
       apiFetch<Workspace>(`/workspaces/${workspaceId}`),
       apiFetch<Conversation[]>(`/chat/conversations?workspace_id=${workspaceId}`),
+      apiFetch<Workspace[]>("/workspaces").catch(() => [] as Workspace[]),
     ])
-      .then(([ws, convs]) => {
+      .then(([ws, convs, all]) => {
         if (cancelled) return;
         setWorkspace(ws);
         setConversations(convs);
+        setAllWorkspaces(all);
       })
       .catch((err) => {
         if (!cancelled) setError(authErrorMessage(err));
@@ -72,6 +78,24 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
       cancelled = true;
     };
   }, [workspaceId]);
+
+  async function handleMove(conversationId: string, targetId: string) {
+    if (moving) return;
+    setMoving(conversationId);
+    setError(null);
+    try {
+      await apiFetch(`/chat/conversations/${conversationId}`, {
+        method: "PATCH",
+        body: { workspace_id: targetId },
+      });
+      // It now lives elsewhere: out of this list, no refetch needed.
+      setConversations((prev) => (prev ? prev.filter((c) => c.id !== conversationId) : prev));
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setMoving(null);
+    }
+  }
 
   async function handleNewConversation(mode?: CognitiveMode) {
     if (creating) return;
@@ -205,10 +229,16 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                       only way to tell two similarly-named chats apart. */}
                   {conv.default_mode && (
                     <Badge tone="neutral" className="max-w-[6.5rem] shrink-0 truncate uppercase">
-                      {MODE_BY_VALUE[conv.default_mode as CognitiveMode]?.label ?? conv.default_mode}
+                      {modeLabel(conv.default_mode)}
                     </Badge>
                   )}
                 </Link>
+                <MoveConversation
+                  title={conv.title}
+                  busy={moving === conv.id}
+                  destinations={allWorkspaces.filter((w) => w.id !== workspaceId)}
+                  onMove={(target) => handleMove(conv.id, target)}
+                />
                 <DeleteConversation
                   title={conv.title}
                   busy={deleting === conv.id}
@@ -258,6 +288,101 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
  *  asks first - but a modal for a row you can see is heavier than the thing
  *  it is protecting. The button becomes its own "Sure?" and reverts if you
  *  look away. */
+/** "Move to…" - re-file a chat under another of the user's workspaces.
+ *  A small menu on the row, same footprint as delete beside it; shown only
+ *  when there is somewhere else to move it to. */
+function MoveConversation({
+  title,
+  busy,
+  destinations,
+  onMove,
+}: {
+  title: string | null;
+  busy: boolean;
+  destinations: Workspace[];
+  onMove: (workspaceId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const label = title || "Untitled chat";
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  if (destinations.length === 0) return null;
+
+  return (
+    <span ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`Move "${label}" to another workspace`}
+        aria-label={`Move "${label}" to another workspace`}
+        className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+      >
+        {busy ? (
+          <span className="block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="h-4 w-4"
+          >
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v3" />
+            <path d="M3 7v10a2 2 0 0 0 2 2h7" />
+            <path d="M16 16h6m-3-3 3 3-3 3" />
+          </svg>
+        )}
+      </button>
+      {open && (
+        <span
+          role="menu"
+          className="absolute right-0 top-full z-20 mt-1 block w-52 rounded-lg border border-hairline bg-surface-raised p-1 shadow-lg"
+        >
+          <span className="block px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+            Move to
+          </span>
+          {destinations.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onMove(w.id);
+              }}
+              className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-ink transition-colors hover:bg-surface-hover"
+            >
+              {w.name}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function DeleteConversation({
   title,
   busy,

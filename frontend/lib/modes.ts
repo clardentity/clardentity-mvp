@@ -1,6 +1,6 @@
 /** The modes of the single cognitive companion, in the order the pickers
- *  show them (the client's sequence: the instant one first, then the checked
- *  modes from most to least common, then the roadmap).
+ *  show them (the client's sequence: the checked modes from most to least
+ *  common, then the roadmap).
  *
  *  One definition shared by the landing page and the composer, so the words a
  *  visitor reads before signing up are the same ones they see when choosing a
@@ -13,24 +13,14 @@
  */
 export const COGNITIVE_MODES = [
   {
-    value: "rapid",
-    // The instant answer, like a chat model with its thinking turned off:
-    // no pre-answer questions, no reflection pass, no claim checking. The
-    // client's name for it (over "Hurry Burry" and "Instanter").
-    label: "Rapid-fire",
-    companion: "Rapid-fire Companion",
-    hint: "Instant response",
-    when: "When you want the answer now - straight to the gist, no reasoning pass, no checking.",
-    cta: "Try the fast lane.",
-    detail:
-      "Skips the questions, the reflection and the claim-by-claim checking and answers in a few lines, fast. Unscored by design - it says what would need checking rather than pretending it was.",
-  },
-  {
     value: "knowing",
-    label: "Knowing",
-    companion: "Knowing Companion",
-    hint: "Find out facts",
-    when: "When you need a fact you can trust and the evidence behind it.",
+    // "Tailored" (the client's name, over "Knowing" / "Verified Knowing"):
+    // the answer is fitted to your documents and your profile, and every
+    // claim in it is checked against a source.
+    label: "Tailored",
+    companion: "Tailored Companion",
+    hint: "Checked against your sources",
+    when: "When you need an answer fitted to your documents and checked claim by claim.",
     cta: "Explore the unknown.",
     detail:
       "Answers stay close to your documents, and every claim carries its source. When the answer isn't in what you've given it, it says so instead of filling the gap.",
@@ -112,20 +102,34 @@ export const COGNITIVE_MODES = [
   },
 ] as const;
 
-export type CognitiveMode = (typeof COGNITIVE_MODES)[number]["value"];
+/** A mode the user can pick. */
+export type PickableMode = (typeof COGNITIVE_MODES)[number]["value"];
 
-export const MODE_BY_VALUE: Record<CognitiveMode, (typeof COGNITIVE_MODES)[number]> =
-  Object.fromEntries(COGNITIVE_MODES.map((m) => [m.value, m])) as Record<
-    CognitiveMode,
-    (typeof COGNITIVE_MODES)[number]
-  >;
+/** Any mode a message can carry. `rapid` is the one that isn't in the
+ *  picker: the server's no-gates, no-checking path, reached only through the
+ *  "Quick answer" button while a slow answer is being written. */
+export type CognitiveMode = PickableMode | "rapid";
+
+export type ModeEntry = (typeof COGNITIVE_MODES)[number];
+
+export const MODE_BY_VALUE: { [mode: string]: ModeEntry | undefined } = Object.fromEntries(
+  COGNITIVE_MODES.map((m) => [m.value, m]),
+);
+
+/** The name shown for a mode wherever a message or chat carries one - the
+ *  picker's label, or "Quick answer" for the unpickable quick path. */
+export function modeLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  if (value === "rapid") return "Quick answer";
+  return MODE_BY_VALUE[value]?.label ?? value;
+}
 
 /** Visible in every picker, selectable in none of them yet - shown grayed
  *  out with a "Soon" badge rather than hidden outright, so the announcement
  *  (the landing page carousel) and the composer agree on what exists. The
  *  backend already answers requests in these modes; this is purely about
  *  when the UI lets someone start one. */
-export const COMING_SOON_MODES: readonly CognitiveMode[] = [
+export const COMING_SOON_MODES: readonly PickableMode[] = [
   "mentoring",
   "therapy",
   "creative",
@@ -138,4 +142,4 @@ export const COMING_SOON_MODES: readonly CognitiveMode[] = [
 /** What a new chat opens in when nothing else has been chosen: the checked,
  *  cited mode the product is built around. The composer never waits on a
  *  mode pick - there is always one selected. */
-export const DEFAULT_MODE: CognitiveMode = "knowing";
+export const DEFAULT_MODE: PickableMode = "knowing";

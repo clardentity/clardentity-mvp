@@ -469,7 +469,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const close = () => setMobileOpen(false);
 
   async function startConversation() {
-    if (starting || !activeWorkspaceId) return;
+    if (starting) return;
+    // No workspace in view (the profile page, the workspace list, /start
+    // itself): the entry route picks one - the last used, else the first,
+    // else a new one - and opens a chat there. The button is never dead.
+    if (!activeWorkspaceId) {
+      router.push("/start");
+      return;
+    }
     setStarting(true);
     try {
       const conv = await apiFetch<{ id: string }>("/chat/conversations", {
@@ -506,7 +513,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           close();
           void startConversation();
         }}
-        disabled={starting || !activeWorkspaceId}
+        disabled={starting}
         className="mt-3 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-brand transition-colors hover:bg-surface-hover disabled:opacity-50"
       >
         <span className="flex h-4 w-4 items-center justify-center">
@@ -723,7 +730,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             activeWorkspaceId={activeWorkspaceId}
             conversationTitle={conversationTitle}
           />
-          <ThemeToggle className="ml-auto shrink-0" tourId="theme-toggle" />
+          {/* One tap to a new chat on a phone, where the sidebar's button is
+              behind the drawer. Desktop has the sidebar in view. */}
+          <button
+            type="button"
+            onClick={() => void startConversation()}
+            disabled={starting}
+            aria-label="New chat"
+            title="New chat"
+            className="ml-auto shrink-0 rounded-md p-1.5 text-brand transition-colors hover:bg-surface-hover disabled:opacity-50 lg:hidden"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              strokeLinecap="round" aria-hidden="true" className="h-4 w-4">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <ThemeToggle className="shrink-0 lg:ml-auto" tourId="theme-toggle" />
           {tourHere && (
             // The coachmarks, again, on request - for anyone who skipped them
             // or wants a second look. Only where a tour exists for the page

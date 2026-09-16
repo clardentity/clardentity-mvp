@@ -11,7 +11,7 @@ import type {
 } from "@/lib/sse";
 import { ConfidenceBadge } from "@/components/chat/ConfidenceBadge";
 import { CruxCard } from "@/components/chat/CruxCard";
-import { MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { modeLabel } from "@/lib/modes";
 import { SourcesFooter } from "@/components/chat/SourcesFooter";
 import { CitationPopover } from "@/components/chat/CitationPopover";
 import { OpinionMarker } from "@/components/chat/OpinionMarker";
@@ -537,7 +537,7 @@ function MessageBubble({
                 and naming it ("critical", "non-linear") asked the reader to
                 hold a vocabulary that was only ever meant for the model. */}
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-              <span>{MODE_BY_VALUE[modeUsed as CognitiveMode]?.label ?? modeUsed}</span>
+              <span>{modeLabel(modeUsed)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               {!isStreaming && content && (
@@ -576,7 +576,7 @@ function MessageBubble({
                 </button>
               )}
               {confidenceBand && verdictIsMeaningful && (
-                <ConfidenceBadge band={confidenceBand} score={confidenceScore} />
+                <ConfidenceBadge band={confidenceBand} score={confidenceScore} claims={claims} />
               )}
             </div>
           </div>

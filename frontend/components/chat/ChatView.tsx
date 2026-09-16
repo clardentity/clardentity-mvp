@@ -7,7 +7,6 @@ import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import {
   streamChatMessage,
   type ChatMessage,
-  type ModeSuggestion,
   type RefinedQuestionSuggestion,
   type ClarifyingOptionsSuggestion,
 } from "@/lib/sse";
@@ -16,9 +15,8 @@ import { MessageList, type StreamingMessage } from "@/components/chat/MessageLis
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
-import { ModeSuggestionCard } from "@/components/chat/ModeSuggestionCard";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
-import { MODE_BY_VALUE } from "@/lib/modes";
+import { COMING_SOON_MODES, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
 import { setSmartSwitching, useSmartSwitching } from "@/lib/modeSwitching";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
 import { RefinedQuestionCard } from "@/components/chat/RefinedQuestionCard";
@@ -39,6 +37,10 @@ type Conversation = {
 };
 
 type AvatarCue = { expression: AvatarExpression; gesture: AvatarGesture };
+
+/** How long an answer may go with nothing to show before the Quick answer
+ *  button appears on its own (the server's "slow" warning shows it sooner). */
+const SLOW_AFTER_MS = 7000;
 
 const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
   knowing: "presenting",
@@ -66,14 +68,33 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // Smart switching: the companion may stop and propose a better-suited mode
   // before answering. Manual: never. See lib/modeSwitching.
   const smartSwitching = useSmartSwitching();
-  // Set when a suggested switch was accepted, so the previous mode is one
-  // click away - "how do I go back to Knowing?" was the first thing asked.
+  // Set when the companion switched mode for a question. Smart switching is
+  // automatic: the suggestion is taken and the answer written in the new
+  // mode straight away, with this banner saying so - and, while that answer
+  // is still being written, offering to stop it and answer in the original
+  // mode instead (hence the question itself is kept here). Afterwards it
+  // offers the way back for the *next* question - "how do I go back to
+  // Knowing?" was the first thing asked.
   const [switchedFrom, setSwitchedFrom] = useState<{
     from: CognitiveMode;
     to: CognitiveMode;
+    content: string;
+    images: PendingImage[];
   } | null>(null);
   // Which locked mode (or model) opened the plans dialog, for its headline.
   const [upsell, setUpsell] = useState<string | null>(null);
+  // "Quick answer" - the way out of a slow answer. Shown while an answer is
+  // being written once the server has said it will take a while (a status
+  // event with phase "slow": no documents matched, so a web search and the
+  // checking that follows are ahead) or, failing that, once a fixed number
+  // of seconds have passed with nothing to show. Tapping it stops the
+  // answer and asks the same question down the quick path: no gates, no
+  // search, no checking, the gist in a few seconds. Not a mode anyone picks
+  // - the composer stays in whatever they were in.
+  const [slowHint, setSlowHint] = useState(false);
+  const lastSendRef = useRef<{ content: string; images: PendingImage[]; mode: CognitiveMode } | null>(
+    null,
+  );
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
   // The message whose claims are still being verified. It is already on
@@ -91,14 +112,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [carousel, setCarousel] = useState(false);
   const [activeTrack, setActiveTrack] = useState(0);
   const [callOpen, setCallOpen] = useState(false);
-  // A pending question the server declined to answer until the mode is
-  // settled. Holds the original send so either choice can replay it.
-  const [pendingMode, setPendingMode] = useState<{
-    suggestion: ModeSuggestion;
-    content: string;
-    images: PendingImage[];
-    mode: CognitiveMode;
-  } | null>(null);
   // The server asked why before answering. Holds the accumulated send so far
   // (the original message plus any earlier rounds already answered) so a
   // reply is appended rather than replacing it, and `rounds` so the resend
@@ -153,7 +166,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         if (cancelled) return;
         setMessages(msgs);
         setLoadingHistory(false);
-        if (conv.default_mode) setMode(conv.default_mode);
+        // Only a mode from the picker: a chat whose last answer was a quick
+        // one must not reopen with the composer set to the unpickable path.
+        if (conv.default_mode && MODE_BY_VALUE[conv.default_mode]) setMode(conv.default_mode);
 
         const lastCued = [...msgs].reverse().find((m) => m.avatar_expression && m.avatar_gesture);
         if (lastCued) {
@@ -212,7 +227,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
     rememberMode(sendMode);
-    setPendingMode(null);
     setPendingContext(null);
     setPendingRefined(null);
     setPendingClarifyingOptions(null);
@@ -252,6 +266,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         };
     if (userMessage) setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: sendMode, content: "" });
+    lastSendRef.current = { content, images, mode: sendMode };
+    setSlowHint(false);
 
     hasAnsweredRef.current = false;
     pendingUserMessageIdRef.current = userMessage?.id ?? null;
@@ -278,7 +294,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         regenerate_of: fork?.regenerateOf,
       },
       {
+        onStatus: (status) => {
+          // The only phase the client acts on: the server's early warning
+          // that this answer will be a long one. Every other label stays
+          // under the hood (the rabbit only ever says Thinking).
+          if (status.phase === "slow" && sendMode !== "rapid") setSlowHint(true);
+        },
         onCrux: (text) => {
+          setSlowHint(false);
           setStreaming((prev) => (prev ? { ...prev, crux: text } : prev));
         },
         onDelta: (text) => {
@@ -295,6 +318,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // made the app feel like it was still working long after it had
           // clearly finished answering.
           hasAnsweredRef.current = true;
+          setSlowHint(false);
           setMessages((prev) => {
             // Swap the optimistic question for the real, persisted row - it
             // was displayed under a local placeholder id before the server
@@ -339,9 +363,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // gate entirely for it - so there's no optimistic message to roll
           // back in that case.)
           if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-          setPendingMode({ suggestion, content, images, mode: sendMode });
           setStreaming(null);
           setSending(false);
+          const next = suggestion.suggested_mode as PickableMode;
+          if (COMING_SOON_MODES.includes(next)) {
+            // Outside what can be started today: show the plans, and answer
+            // in the mode they chose meanwhile - closing the dialog without
+            // choosing simply leaves them where they were.
+            setUpsell(MODE_BY_VALUE[next]?.label ?? next);
+            void handleSend(content, images, sendMode, true);
+            return;
+          }
+          // Automatic: switch, say so, and answer. The banner under the mode
+          // strip carries "answer in <old mode> instead" for as long as the
+          // answer is being written.
+          setMode(next);
+          setSwitchedFrom({ from: sendMode, to: next, content, images });
+          void handleSend(content, images, next, true);
         },
         onContextQuestion: (asked) => {
           // Nothing was written server-side, so the optimistic user message is
@@ -384,6 +422,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setError(detail);
           setStreaming(null);
           setSending(false);
+          setSlowHint(false);
           setValidatingId(null);
         },
       },
@@ -406,8 +445,27 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     }
     setStreaming(null);
     setSending(false);
+    setSlowHint(false);
     setValidatingId(null);
   }
+
+  /** The Quick answer button: stop the slow answer, ask again down the quick
+   *  path. `mode_confirmed` so the server never re-raises the mode gate. */
+  function handleQuickAnswer() {
+    const last = lastSendRef.current;
+    if (!last) return;
+    handleStop();
+    void handleSend(last.content, last.images, "rapid", true);
+  }
+
+  // The fallback timer behind the slow hint: a stream with nothing to show
+  // after this long gets the button whether or not the server warned.
+  useEffect(() => {
+    if (!sending || hasAnsweredRef.current) return;
+    if (lastSendRef.current?.mode === "rapid") return;
+    const timer = setTimeout(() => setSlowHint(true), SLOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [sending]);
 
   // Esc is the standard "cancel what's running" key, and it only means that
   // here while something actually is - not bound at all otherwise, so it
@@ -740,28 +798,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             and the cap keeps a long card scrollable within itself rather than
             pushing the composer off the bottom. */}
         <div className="scroll-slim max-h-[50vh] shrink-0 overflow-y-auto">
-        {pendingMode && (
-          <ModeSuggestionCard
-            suggestedMode={pendingMode.suggestion.suggested_mode}
-            reason={pendingMode.suggestion.mode_reason}
-            currentMode={pendingMode.mode}
-            busy={sending}
-            onSwitch={() => {
-              const next = pendingMode.suggestion.suggested_mode as CognitiveMode;
-              setMode(next);
-              setSwitchedFrom({ from: pendingMode.mode, to: next });
-              void handleSend(pendingMode.content, pendingMode.images, next, true);
-            }}
-            onContinue={() =>
-              void handleSend(pendingMode.content, pendingMode.images, pendingMode.mode, true)
-            }
-            onUpgrade={() => {
-              const next = pendingMode.suggestion.suggested_mode as CognitiveMode;
-              setUpsell(MODE_BY_VALUE[next]?.label ?? next);
-            }}
-          />
-        )}
-
         {pendingContext && (
           <ContextQuestionCard
             // A new round is a new question with its own fresh textarea, not
@@ -885,6 +921,25 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
         </div>
 
+        {sending && slowHint && !streaming?.crux && (
+          // Hovers above the composer, the way a chat app offers the short
+          // version while the long one is being written.
+          <div className="flex shrink-0 justify-center pb-1">
+            <button
+              type="button"
+              onClick={handleQuickAnswer}
+              title="Stop this answer and get an instant, unchecked one instead"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-sm font-medium text-ink-inverse shadow-lg transition-colors hover:opacity-90 animate-[fade-in_0.3s_ease]"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-3.5 w-3.5">
+                <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
+              </svg>
+              Quick answer
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-3 shrink-0 rounded-lg border border-band-low-border bg-band-low-bg px-3 py-2 text-sm text-band-low">
             {error}
@@ -928,8 +983,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                 onClick={() => setSmartSwitching(!smartSwitching)}
                 title={
                   smartSwitching
-                    ? "Smart: the companion may suggest a better-suited mode before answering. Click for manual."
-                    : "Manual: the mode is whatever you pick; no suggestions. Click for smart."
+                    ? "Smart: a question that fits another mode better is answered there automatically, with a way back. Click for manual."
+                    : "Manual: the mode is whatever you pick; it never switches. Click for smart."
                 }
                 className="shrink-0 rounded-md px-2 py-1 text-[11px] text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
               >
@@ -938,20 +993,40 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             )}
           </div>
           {switchedFrom && mode === switchedFrom.to && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-muted px-3 py-1.5 text-xs text-ink-secondary">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-border bg-brand-soft px-3 py-1.5 text-xs text-ink-secondary">
               <span>
-                Switched to {MODE_BY_VALUE[switchedFrom.to]?.label ?? switchedFrom.to}.
+                Switched to {MODE_BY_VALUE[switchedFrom.to]?.label ?? switchedFrom.to} - it
+                suits this question better.
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode(switchedFrom.from);
-                  setSwitchedFrom(null);
-                }}
-                className="font-medium text-brand hover:underline"
-              >
-                Back to {MODE_BY_VALUE[switchedFrom.from]?.label ?? switchedFrom.from}
-              </button>
+              {sending ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Stop the answer being written and ask the same
+                    // question in the mode they had chosen, telling the
+                    // server the mode is settled so it doesn't suggest again.
+                    handleStop();
+                    setMode(switchedFrom.from);
+                    const { from, content, images } = switchedFrom;
+                    setSwitchedFrom(null);
+                    void handleSend(content, images, from, true);
+                  }}
+                  className="font-medium text-brand hover:underline"
+                >
+                  Answer in {MODE_BY_VALUE[switchedFrom.from]?.label ?? switchedFrom.from} instead
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(switchedFrom.from);
+                    setSwitchedFrom(null);
+                  }}
+                  className="font-medium text-brand hover:underline"
+                >
+                  Back to {MODE_BY_VALUE[switchedFrom.from]?.label ?? switchedFrom.from}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSwitchedFrom(null)}

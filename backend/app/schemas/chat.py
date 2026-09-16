@@ -28,6 +28,15 @@ class ConversationCreate(BaseModel):
     ) = None
 
 
+class ConversationMove(BaseModel):
+    """Re-file a conversation under another workspace the caller belongs to.
+    Its messages, citations and claims travel with it untouched - they are
+    history - but from here on retrieval reads the new workspace's
+    attachments."""
+
+    workspace_id: uuid.UUID
+
+
 class ConversationOut(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID

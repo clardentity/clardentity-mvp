@@ -1142,3 +1142,70 @@ class TestRefreshAcrossDevices:
             if token:
                 async with client() as c:
                     await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+
+class TestMoveConversation:
+    """A chat can be re-filed under another workspace the user belongs to,
+    and only such a workspace. Needs a database."""
+
+    async def test_move_between_own_workspaces_and_refuse_a_foreign_one(self):
+        email = f"move-{uuid.uuid4().hex[:8]}@example.com"
+        other_email = f"move-other-{uuid.uuid4().hex[:8]}@example.com"
+        password = "move-password-123"
+        tokens: list[str] = []
+        try:
+            async with client() as c:
+                reg = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": email, "password": password, "display_name": "Mover"},
+                )
+                if reg.status_code >= 500:
+                    pytest.skip("no database available")
+                assert reg.status_code == 201, reg.text
+                token = reg.json()["access_token"]
+                tokens.append(token)
+                h = {"Authorization": f"Bearer {token}"}
+
+                home = (await c.get(f"{API}/workspaces", headers=h)).json()[0]
+                second = (await c.post(f"{API}/workspaces", json={"name": "Second"}, headers=h)).json()
+                conv = (
+                    await c.post(
+                        f"{API}/chat/conversations",
+                        json={"workspace_id": home["id"], "default_mode": None},
+                        headers=h,
+                    )
+                ).json()
+
+                moved = await c.patch(
+                    f"{API}/chat/conversations/{conv['id']}",
+                    json={"workspace_id": second["id"]},
+                    headers=h,
+                )
+                assert moved.status_code == 200, moved.text
+                assert moved.json()["workspace_id"] == second["id"]
+                listed = (
+                    await c.get(f"{API}/chat/conversations", params={"workspace_id": second["id"]}, headers=h)
+                ).json()
+                assert [x["id"] for x in listed] == [conv["id"]]
+
+                # Someone else's workspace is not a destination.
+                other = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": other_email, "password": password, "display_name": "Other"},
+                )
+                tokens.append(other.json()["access_token"])
+                foreign = (
+                    await c.get(
+                        f"{API}/workspaces", headers={"Authorization": f"Bearer {tokens[1]}"}
+                    )
+                ).json()[0]
+                refused = await c.patch(
+                    f"{API}/chat/conversations/{conv['id']}",
+                    json={"workspace_id": foreign["id"]},
+                    headers=h,
+                )
+                assert refused.status_code in (403, 404), refused.text
+        finally:
+            async with client() as c:
+                for t in tokens:
+                    await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {t}"})

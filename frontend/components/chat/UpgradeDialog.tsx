@@ -29,26 +29,26 @@ type Tile = {
 const TILES: Tile[] = [
   {
     title: "Clar-Basic · Free",
-    companions: "Rapid-fire, Knowing and Thinking-trainer",
+    companions: "Tailored and Thinking-trainer",
     body: "A daily allowance of prompts, no card needed - and a bonus day's allowance when you sign up. Bring your profile over from another assistant.",
     span: "sm:col-span-3",
   },
   {
     title: "Clar-Pro · $20/mo",
-    companions: "Any 5 of the 9 companions",
+    companions: "Any 5 of the 8 companions",
     body: "Your pick - Decision-making and Co-Creative are the usual additions. 2,000 premium credits a month.",
     span: "sm:col-span-3",
     accent: true,
   },
   {
     title: "Clar-Max · $40/mo",
-    companions: "Any 7 of the 9 companions",
+    companions: "Any 7 of the 8 companions",
     body: "Plus your choice of model and version in Co-Creative. 5,500 elite credits a month.",
     span: "sm:col-span-3",
   },
   {
     title: "Clar-Ultra · $100/mo · Teams",
-    companions: "All 9 companions",
+    companions: "All 8 companions",
     body: "Everything in Max for a whole organisation - shared workspaces, co-working and team controls - with model choice in Co-Creative. 13,000 ultra-elite credits a month.",
     span: "sm:col-span-3",
   },

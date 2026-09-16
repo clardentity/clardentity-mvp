@@ -137,7 +137,7 @@ export default function Home() {
         <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-              One companion. Nine modes of companionship.
+              One companion. Eight modes of companionship.
             </p>
             <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
               You decide how it helps.
@@ -195,7 +195,7 @@ export default function Home() {
           <div className="rounded-3xl border border-hairline bg-canvas p-6">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                Knowing
+                Tailored
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-band-high-border bg-band-high-bg px-2 py-0.5 text-[11px] font-medium text-band-high">
                 <span className="h-1.5 w-1.5 rounded-full bg-band-high" />
