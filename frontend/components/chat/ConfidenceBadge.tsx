@@ -25,16 +25,17 @@ const BAND_MEANING: Record<string, string> = {
   "Likely Fact": "Most of the claims in this answer are directly backed by the sources cited.",
   Plausible: "The claims are partly backed - sound, but short of direct confirmation.",
   "Needs Verification":
-    "Few or none of the claims could be matched to a source. Worth checking before you rely on it - a correct answer with no citable source lands here too.",
+    "Few or none of the claims could be matched to a source. A claim marked not checked hasn't been disproved - no source was found to check it against - so this is worth verifying before you rely on it.",
 };
 
 /* Same five-tier vocabulary as the citation popover, counted up. */
 const TIER_LABELS: Array<[string, string]> = [
   ["verifiable_fact", "backed directly"],
   ["probable_fact", "strongly supported"],
-  ["gray_area", "not verifiable"],
+  ["gray_area", "sources neither confirm nor refute"],
   ["distorted", "overstated"],
-  ["fabricated", "nothing found"],
+  ["fabricated", "checked - nothing backs it"],
+  ["unsupported", "not checked - no source found"],
   ["opinion", "stated as opinion"],
 ];
 

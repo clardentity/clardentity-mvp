@@ -54,6 +54,14 @@ const TIERS: Record<string, { label: string; meaning: string; text: string }> = 
     meaning: "Nothing found here backs this up. Worth checking yourself.",
     text: "text-band-low",
   },
+  // Nothing was found to check against - neither confirmed nor disproved.
+  // Neutral, not alarmed: it is a gap in what could be checked, not a
+  // finding about the claim.
+  unsupported: {
+    label: "Not verified",
+    meaning: "No source was found to check this against. Not disproved - not confirmed either.",
+    text: "text-ink-secondary",
+  },
   // Zero evidence is correct and expected here - it was never claimed to be
   // sourced - so this reads as neutral disclosure, not a failed check, and
   // deliberately does not share fabricated's alarm styling.

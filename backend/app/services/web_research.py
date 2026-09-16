@@ -27,8 +27,9 @@ decorative link under it.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
+from app.services import openai_client
 from app.services.anthropic_client import cached, generate_structured
 
 logger = logging.getLogger("clardentity.web_research")
@@ -36,7 +37,11 @@ logger = logging.getLogger("clardentity.web_research")
 # Two extra rounds after the first. Each round is a search plus a judgement,
 # and the returns fall off fast - if a third attempt at the same claim is
 # still turning up nothing credible, that is itself the finding.
-MAX_ROUNDS = 3
+# Two, not three: with every unsupported claim now researched (not just the
+# first two), a third search-and-judge round per claim was the difference
+# between a phase that fits its deadline and one that doesn't - and the
+# supervisor's "abandon" verdict already ends the hopeless ones early.
+MAX_ROUNDS = 2
 
 # Below this the source doesn't get cited at all. Set where a source has to be
 # more than "plausibly related" - a passage that merely mentions the topic
@@ -181,6 +186,38 @@ def _search_tool(max_uses: int) -> dict:
     return {**_WEB_SEARCH_TOOL, "max_uses": max_uses}
 
 
+async def _search_structured(prompt: str, max_uses: int) -> dict | None:
+    """One search-and-summarise call. Goes to OpenAI's search tool first, by
+    measurement, not preference: the same round on Claude's search tool was
+    timed at 17-19s (search, read, search again, then write the JSON) against
+    4-8s here, and every round of the research phase sits inside a fixed
+    deadline - so the slower tool meant most claims went unchecked. Claude's
+    tool is the fallback when this one fails, and the shared client already
+    falls back the other way, so an outage on either side still gets a
+    search."""
+    try:
+        return await openai_client.generate_structured(
+            instructions=_SEARCH_INSTRUCTIONS,
+            input_text=prompt,
+            schema=_SEARCH_SCHEMA,
+            schema_name="web_sources",
+            tools=[_search_tool(max_uses)],
+        )
+    except Exception:
+        logger.warning("search round on the fast tool failed; trying the primary", exc_info=True)
+    try:
+        return await generate_structured(
+            instructions=cached(_SEARCH_INSTRUCTIONS),
+            input_text=prompt,
+            schema=_SEARCH_SCHEMA,
+            schema_name="web_sources",
+            tools=[_search_tool(max_uses)],
+        )
+    except Exception:
+        logger.exception("web search round failed")
+        return None
+
+
 async def _search_round(
     claim: str, guidance: str | None, max_uses: int = RESEARCH_SEARCHES
 ) -> list[WebSource]:
@@ -190,16 +227,8 @@ async def _search_round(
             f"\n\nA previous search for this claim was rejected. What to do "
             f"differently:\n{guidance}"
         )
-    try:
-        payload = await generate_structured(
-            instructions=cached(_SEARCH_INSTRUCTIONS),
-            input_text=prompt,
-            schema=_SEARCH_SCHEMA,
-            schema_name="web_sources",
-            tools=[_search_tool(max_uses)],
-        )
-    except Exception:
-        logger.exception("web search round failed")
+    payload = await _search_structured(prompt, max_uses)
+    if payload is None:
         return []
 
     sources: list[WebSource] = []
@@ -255,16 +284,30 @@ async def gather_context(query: str) -> list[WebSource]:
     return await _search_round(query, guidance=None, max_uses=CONTEXT_SEARCHES)
 
 
-async def research_claim(claim: str) -> ResearchResult:
-    """Search, judge, and keep going until it's good enough or it clearly won't be."""
+async def research_claim(
+    claim: str, seed: list[WebSource] | None = None
+) -> ResearchResult:
+    """Search, judge, and keep going until it's good enough or it clearly won't be.
+
+    `seed` is a set of sources already in hand - the pre-answer web search
+    that came back after the answer had to go ahead without it. Round one
+    then judges those against the claim instead of searching afresh, which
+    is what turns "over budget, so every claim is unsupported" into "over
+    budget, so the sources arrived a few seconds later". Each claim gets its
+    own copies: the supervisor writes its verdict onto the source objects,
+    and several claims judge the same set at once."""
     result = ResearchResult()
     current_claim = claim
     guidance: str | None = None
+    pending_seed = [replace(s) for s in seed] if seed else None
 
     for round_index in range(MAX_ROUNDS):
         result.rounds_used = round_index + 1
 
-        sources = await _search_round(current_claim, guidance)
+        if pending_seed:
+            sources, pending_seed = pending_seed, None
+        else:
+            sources = await _search_round(current_claim, guidance)
         if not sources:
             result.trail.append(
                 f"Round {result.rounds_used}: no sources addressed the claim."

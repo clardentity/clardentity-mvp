@@ -58,8 +58,15 @@ class TestVeracityTiers:
 
 
 class TestClaimScore:
-    def test_no_evidence_scores_zero(self):
-        assert compute_claim_score([]) == (0.0, "fabricated")
+    def test_no_evidence_is_unverified_not_fabricated(self):
+        # Nothing to check against is a different statement from "checked
+        # and found groundless": the score is still 0 (the message band must
+        # still say Needs Verification) but the tier says what happened.
+        assert compute_claim_score([]) == (0.0, "unsupported")
+
+    def test_checked_and_groundless_is_still_fabricated(self):
+        score, tier = compute_claim_score([ev(0.0, 0.0)])
+        assert score == 0.0 and tier == "fabricated"
 
     def test_uses_the_single_best_evidence_not_an_average(self):
         # One strong source and one useless one must not average out; the
@@ -270,3 +277,55 @@ class TestUnmeasuredRelevance:
         )
         measured = ScoredClaim(**{**claim.__dict__, "evidence": [ev(1.0, 1.0)]})
         assert compute_message_score([claim]).score == compute_message_score([measured]).score
+
+
+class TestSeededResearch:
+    """A pre-answer search that arrived late seeds the per-claim research:
+    the seed is judged first, without a new search, and each claim works on
+    its own copies of the sources."""
+
+    async def test_seed_is_judged_before_any_search(self, monkeypatch):
+        from app.services import web_research
+        from app.services.web_research import WebSource, research_claim
+
+        searched: list[str] = []
+
+        async def fake_search(claim, guidance, max_uses=2):
+            searched.append(claim)
+            return []
+
+        async def fake_supervise(claim, sources):
+            return {
+                "verdict": "accept",
+                "sources": [{"url": s.url, "score": 0.9, "note": "on point"} for s in sources],
+            }
+
+        monkeypatch.setattr(web_research, "_search_round", fake_search)
+        monkeypatch.setattr(web_research, "_supervise", fake_supervise)
+        seed = [WebSource(url="https://a.example/1", title="A", excerpt="India became independent in 1947.")]
+        result = await research_claim("India became independent in 1947.", seed=seed)
+        assert result.succeeded
+        assert searched == []
+        assert result.sources[0].credibility_score == 0.9
+        # The caller's seed objects were not written to.
+        assert seed[0].credibility_score is None
+
+    async def test_rejected_seed_falls_through_to_a_search(self, monkeypatch):
+        from app.services import web_research
+        from app.services.web_research import WebSource, research_claim
+
+        searched: list[str] = []
+
+        async def fake_search(claim, guidance, max_uses=2):
+            searched.append(claim)
+            return []
+
+        async def fake_supervise(claim, sources):
+            return {"verdict": "reject", "sources": [], "next_query": "try the archive"}
+
+        monkeypatch.setattr(web_research, "_search_round", fake_search)
+        monkeypatch.setattr(web_research, "_supervise", fake_supervise)
+        seed = [WebSource(url="https://a.example/1", title="A", excerpt="unrelated")]
+        result = await research_claim("Some claim.", seed=seed)
+        assert not result.succeeded
+        assert len(searched) == web_research.MAX_ROUNDS - 1

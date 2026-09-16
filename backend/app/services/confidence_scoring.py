@@ -167,6 +167,7 @@ VERACITY_TIER_LABELS: dict[str, str] = {
     "gray_area": "Unverifiable (Gray Area)",
     "distorted": "Appears distorted / misinformed",
     "fabricated": "Appears fabricated / malicious",
+    "unsupported": "Not verified - no source found to check against",
     "opinion": "Stated as Clardentity AI's opinion",
 }
 
@@ -289,10 +290,17 @@ def compute_claim_score(
     if opinion:
         return 0.0, "opinion"
 
+    # No evidence at all is its own tier, not the bottom of the scale. The
+    # 0-20 "fabricated" band is for a claim that was checked and found to have
+    # no grounding; a claim nobody managed to check against anything - the
+    # search found nothing on point, or ran out of time - has simply not been
+    # verified, and labelling it "appears fabricated / malicious" made a
+    # textbook account of a historical event read as an invention. Score stays
+    # 0 so the message band still says "Needs Verification", which is true.
     if not evidence:
-        score = 0.0
-    else:
-        score = score_of(max(evidence, key=_weight))
+        return 0.0, "unsupported"
+
+    score = score_of(max(evidence, key=_weight))
 
     if distorted:
         score = min(score, _DISTORTION_CAP)

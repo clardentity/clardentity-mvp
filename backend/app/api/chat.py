@@ -104,11 +104,13 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 _TITLE_MAX_CHARS = 38
 _TITLE_MAX_WORDS = 6
 
-# Unsupported claims are researched concurrently, one agent each, but each
-# agent still runs up to three search+judge rounds. Capping keeps a
-# ten-unsupported-claim answer from making thirty search calls; the first
-# couple are the informative ones anyway.
-_MAX_RESEARCHED_CLAIMS = 2
+# Unsupported claims are researched concurrently, one agent each. Was two,
+# which left the rest of a six-claim answer labelled as if nobody had looked
+# - "0 of 6 claims backed by a source" on a textbook account of Indian
+# independence. Six covers nearly every answer whole; each agent runs at most
+# two search+judge rounds (web_research.MAX_ROUNDS), and they all share the
+# deadline below, so the worst case is bounded in both calls and time.
+_MAX_RESEARCHED_CLAIMS = 6
 
 # How long the answer waits for the speculative web search that runs when
 # the workspace has nothing to say. Measured 2026-09-16: 19 of the 25 seconds
@@ -120,12 +122,15 @@ _PRE_SEARCH_BUDGET_SECONDS = 10.0
 
 # The whole per-claim research phase, however many agents are in it.
 #
-# Measured 2026-08-10: a search round is ~8s and a supervisor round ~3s, so a
-# claim that takes two rounds to settle costs ~27s on its own. Generation is
-# ~3s and validation ~3s, which leaves about this much before the 30-second
-# end-to-end budget is gone. Agents run concurrently, so this is a wall-clock
+# Measured 2026-09-16: a search round is 5-20s depending on the day and the
+# tool, a supervisor round ~3s, so a claim that takes two rounds to settle
+# costs 20-40s. This runs after the answer is on screen and the composer is
+# live - the reader sees "Checking claims" under a finished answer - so the
+# trade is a longer wait for the verdict against claims left unchecked, and
+# unchecked claims were the complaint ("0 of 6 backed by a source" on a
+# textbook history answer). Agents run concurrently, so this is a wall-clock
 # cap on the phase, not a per-claim one.
-_RESEARCH_DEADLINE_SECONDS = 20.0
+_RESEARCH_DEADLINE_SECONDS = 45.0
 
 # Openers that carry no information about the subject. Stripped so the title
 # starts on the actual topic - "Hi, what's the difference between X and Y"
@@ -1007,6 +1012,10 @@ async def send_message(
         # The wait for the web search happens here, inside the stream, so the
         # warning above reaches the client before it rather than after.
         web_sources: list[WebSource] = []
+        # A pre-search that missed its budget is not thrown away: it keeps
+        # running while the answer streams, and whatever it brings back seeds
+        # the per-claim research afterwards (see research_claim's `seed`).
+        late_search: asyncio.Task[list[WebSource]] | None = None
         if web_task is not None:
             if chunks:
                 web_task.cancel()
@@ -1016,10 +1025,13 @@ async def send_message(
                     0.0, _PRE_SEARCH_BUDGET_SECONDS - (time.monotonic() - search_started)
                 )
                 try:
-                    web_sources = await asyncio.wait_for(web_task, timeout=remaining)
+                    web_sources = await asyncio.wait_for(
+                        asyncio.shield(web_task), timeout=remaining
+                    )
                 except asyncio.TimeoutError:
                     logger.info("web pre-search over budget; answering without web context")
                     web_sources = []
+                    late_search = web_task
                 except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
                     web_sources = []
         context_block = build_context_block(chunks, web_sources)
@@ -1300,16 +1312,28 @@ async def send_message(
                 if not ev and not parsed_claims[i].is_opinion
             ][:_MAX_RESEARCHED_CLAIMS]
             if targets:
-                # A deadline, not a hope. Each agent can run three
-                # search-and-judge rounds, and three rounds against a slow
-                # search is most of the end-to-end budget on its own. Whatever
+                # The pre-answer search, if it finished late: its sources
+                # are judged against every unsupported claim first, before
+                # any new search is spent.
+                seed: list[WebSource] | None = None
+                if late_search is not None:
+                    try:
+                        seed = await asyncio.wait_for(asyncio.shield(late_search), timeout=5.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: B014
+                        seed = None
+                # A deadline, not a hope. Each agent can run two
+                # search-and-judge rounds, and rounds against a slow search
+                # are most of the end-to-end budget on their own. Whatever
                 # has come back when the clock runs out is what gets used;
                 # claims still unsupported stay unsupported, which is a true
                 # statement either way.
                 try:
                     results = await asyncio.wait_for(
                         asyncio.gather(
-                            *(research_claim(parsed_claims[i].claim_text) for i in targets),
+                            *(
+                                research_claim(parsed_claims[i].claim_text, seed=seed)
+                                for i in targets
+                            ),
                             return_exceptions=True,
                         ),
                         timeout=_RESEARCH_DEADLINE_SECONDS,
