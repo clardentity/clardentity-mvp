@@ -33,7 +33,7 @@ from collections.abc import AsyncIterator
 from typing import Literal, TypedDict
 
 import anthropic
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 from app.services import openai_client as _fallback
@@ -108,9 +108,29 @@ class _CircuitBreaker:
 
 _circuit_breaker = _CircuitBreaker()
 
+def _worth_retrying(exc: BaseException) -> bool:
+    """Retry transient failures only. A 4xx other than 429 is the API
+    telling us the request (or the account) is the problem - retrying the
+    same request twice more, with backoff, spent ~7s per call on a spend
+    cap that was not going to lift, on every call, before the fallback
+    even got a look."""
+    # Cancellation (asyncio.CancelledError is a BaseException, not an
+    # Exception) must propagate: tenacity hands every raised object to this
+    # predicate, and saying "retry" to a cancelled call would swallow the
+    # cancel and re-issue the request - which turned an 8-second budget on
+    # the pre-answer search into a 30-second wait.
+    if not isinstance(exc, Exception):
+        return False
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and 400 <= status < 500 and status != 429:
+        return False
+    return True
+
+
 _retry_model = retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception(_worth_retrying),
     reraise=True,
 )
 
@@ -159,9 +179,24 @@ def _should_fallback(exc: Exception) -> bool:
     status = getattr(exc, "status_code", None)
     if status in (401, 403, 429, 500, 502, 503, 529):
         return True
-    if status == 400 and "credit balance" in str(exc).lower():
+    if status == 400 and _is_account_exhausted(str(exc)):
         return True
     return False
+
+
+# Anthropic reports "no money / no allowance" as a 400, not a 429, in at
+# least two wordings: an empty prepaid balance, and the account's own monthly
+# spend cap ("You have reached your specified API usage limits. You will
+# regain access on ..."). Both mean the provider is unavailable to us until
+# someone acts in the console - neither is a bug in the request, and both
+# should hand over to the fallback at once. Seen for real 2026-09-16: the
+# cap wording was not matched, so every call failed and nothing fell back.
+_EXHAUSTED_MARKERS = ("credit balance", "usage limit", "spend limit", "regain access")
+
+
+def _is_account_exhausted(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _EXHAUSTED_MARKERS)
 
 
 # Public alias: chat.py needs the same "is this a provider outage, not a bug

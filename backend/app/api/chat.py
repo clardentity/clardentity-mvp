@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -107,6 +108,14 @@ _TITLE_MAX_WORDS = 6
 # ten-unsupported-claim answer from making thirty search calls; the first
 # couple are the informative ones anyway.
 _MAX_RESEARCHED_CLAIMS = 2
+
+# How long the answer waits for the speculative web search that runs when
+# the workspace has nothing to say. Measured 2026-09-16: 19 of the 25 seconds
+# a user waited before the first token were this one call. Past the budget
+# the answer goes ahead without web context; the per-claim research after
+# the answer still finds and attaches sources, so what's lost is inline
+# markers in the first draft, not the checking.
+_PRE_SEARCH_BUDGET_SECONDS = 10.0
 
 # The whole per-claim research phase, however many agents are in it.
 #
@@ -582,6 +591,59 @@ async def send_message(
     # of the old ANSWER - one level too high in the tree.
     regenerate_answer_parent_id: uuid.UUID | None = None
 
+    flags = admin_settings.get("feature_flags") or {}
+    # Rapid mode answers from what it knows and what the workspace holds -
+    # the search is the slowest thing on this path and its results would go
+    # unchecked anyway.
+    web_enabled = bool(flags.get("web_search_enabled", True))
+
+    async def _prefetch(
+        optimize_task: "asyncio.Task[str]", mode: str
+    ) -> tuple[str, list[RetrievedChunk], "asyncio.Task[list[WebSource]] | None", float]:
+        """Retrieval and the speculative web search, started the moment the
+        retrieval query exists - alongside the pre-answer gates, not after
+        them. Measured 2026-09-16: run in sequence, the gate call, the
+        query rewrite and the search stacked to 25s before the first token.
+        A gate that then stops the turn wastes the search, which is cheap
+        next to making every answer wait for it. Its own DB session: the
+        request session is busy writing the user's message meanwhile, and an
+        AsyncSession is not for concurrent use.
+
+        Documents first, always: a user's own documents are the thing they
+        trusted enough to upload, and a search result is not. But *finding
+        out* whether the documents have anything is a database round-trip,
+        and waiting for that answer before starting a search adds the whole
+        search latency on top. So both go at once and the loser is
+        discarded (by the caller)."""
+        query = await optimize_task
+        web_task = (
+            asyncio.create_task(gather_context(query))
+            if web_enabled and mode != "rapid"
+            else None
+        )
+        started = time.monotonic()
+        try:
+            async with AsyncSessionLocal() as rdb:
+                chunks: list[RetrievedChunk] = await retrieve_chunks(
+                    rdb, conversation.workspace_id, query, mode,
+                    top_k=admin_settings["retrieval_top_k"],
+                )
+        except BaseException:
+            if web_task is not None:
+                web_task.cancel()
+            raise
+        return query, chunks, web_task, started
+
+    def _abandon(prefetch: "asyncio.Task") -> None:
+        """A gate stopped the turn: nothing prefetched will be used."""
+        if prefetch.done():
+            if not prefetch.cancelled() and prefetch.exception() is None:
+                web_task = prefetch.result()[2]
+                if web_task is not None:
+                    web_task.cancel()
+        else:
+            prefetch.cancel()
+
     if payload.regenerate_of is not None:
         # An alternate answer to a question already asked and settled - never
         # a new question, so none of the pre-answer gates apply a second
@@ -612,6 +674,8 @@ async def send_message(
         # walks the path ending at the question's own parent, one level
         # further back than where the new answer itself attaches.
         history = active_path(all_messages, parent_message.parent_id)[-HISTORY_WINDOW:]
+        optimize_task = asyncio.create_task(optimize_query(history, effective_content))
+        prefetch_task = asyncio.create_task(_prefetch(optimize_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
     else:
         # FR7: mode is mandatory and there is no auto-detection fallback -
@@ -665,6 +729,12 @@ async def send_message(
                 )
             )
         )
+        # The retrieval rewrite depends on nothing the gates decide, so it
+        # runs alongside them rather than after: a couple of seconds off the
+        # wait before the first token. (Usually a no-op - see
+        # needs_rewriting - so a gate that then stops the turn wastes little.)
+        optimize_task = asyncio.create_task(optimize_query(history, effective_content))
+        prefetch_task = asyncio.create_task(_prefetch(optimize_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
 
         # The mode nudge has to happen *before* generating, not after: a
@@ -706,6 +776,7 @@ async def send_message(
             async def refined_gate() -> AsyncIterator[dict]:
                 yield {"event": "refined_question", "data": json.dumps(suggestion)}
 
+            _abandon(prefetch_task)
             return EventSourceResponse(refined_gate())
 
         # Same reasoning as the gate above, for the sibling case: the wording
@@ -728,6 +799,7 @@ async def send_message(
             async def clarifying_gate() -> AsyncIterator[dict]:
                 yield {"event": "clarifying_options", "data": json.dumps(suggestion)}
 
+            _abandon(prefetch_task)
             return EventSourceResponse(clarifying_gate())
 
         # Asking why comes before suggesting a mode, and before answering.
@@ -758,6 +830,7 @@ async def send_message(
                     "data": json.dumps({"question": guidance["context_question"]}),
                 }
 
+            _abandon(prefetch_task)
             return EventSourceResponse(context_gate())
 
         if not payload.mode_confirmed and guidance and guidance.get("suggested_mode"):
@@ -774,6 +847,7 @@ async def send_message(
             async def mode_gate() -> AsyncIterator[dict]:
                 yield {"event": "mode_suggestion", "data": json.dumps(suggestion)}
 
+            _abandon(prefetch_task)
             return EventSourceResponse(mode_gate())
 
         user_message = Message(
@@ -829,8 +903,6 @@ async def send_message(
         user_message.id if user_message is not None else regenerate_answer_parent_id
     )
 
-    flags = admin_settings.get("feature_flags") or {}
-
     # §5.2 step 3: ambiguity detection/query rewrite for retrieval only -
     # `mode` and the persisted/displayed message are untouched by this.
     # Decision classification picks a *bias domain* only, and never influences
@@ -850,31 +922,22 @@ async def send_message(
     if mode == "decision":
         decision = await decision_task
 
-    retrieval_query = await optimize_query(history, effective_content)
-
-    # Documents first, always: a user's own documents are the thing they
-    # trusted enough to upload, and a search result is not. But *finding out*
-    # whether the documents have anything is a database round-trip, and
-    # waiting for that answer before starting a search adds the whole search
-    # latency on top. So both go at once and the loser is discarded.
-    # Rapid mode answers from what it knows and what the workspace holds -
-    # the search is the slowest thing on this path and its results would go
-    # unchecked anyway.
-    web_enabled = flags.get("web_search_enabled", True) and mode != "rapid"
-    web_task = (
-        asyncio.create_task(gather_context(retrieval_query)) if web_enabled else None
-    )
-    chunks: list[RetrievedChunk] = await retrieve_chunks(
-        db, conversation.workspace_id, retrieval_query, mode, top_k=admin_settings["retrieval_top_k"]
-    )
+    # Started alongside the gates above; by now it has usually finished the
+    # retrieval and is some way into the search.
+    retrieval_query, chunks, web_task, search_started = await prefetch_task
 
     web_sources: list[WebSource] = []
     if web_task is not None:
         if chunks:
             web_task.cancel()
         else:
+            # The budget counts from when the search started, not from now.
+            remaining = max(0.0, _PRE_SEARCH_BUDGET_SECONDS - (time.monotonic() - search_started))
             try:
-                web_sources = await web_task
+                web_sources = await asyncio.wait_for(web_task, timeout=remaining)
+            except asyncio.TimeoutError:
+                logger.info("web pre-search over budget; answering without web context")
+                web_sources = []
             except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
                 web_sources = []
 

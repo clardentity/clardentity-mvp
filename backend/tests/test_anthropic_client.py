@@ -191,3 +191,36 @@ class TestFallbackToolTranslation:
     def test_other_tools_pass_through_untouched(self):
         fn_tool = {"type": "function", "name": "lookup", "parameters": {}}
         assert openai_client._translate_tool(fn_tool) is fn_tool
+
+
+class TestSpendCapFallsBack:
+    """The account's own monthly spend cap arrives as a 400 with its own
+    wording. It has to hand over to the fallback like an empty balance does,
+    and it must not be retried - a cap does not lift on the third attempt."""
+
+    def test_the_monthly_cap_wording_counts_as_unavailable(self):
+        exc = _FakeAPIError(
+            "You have reached your specified API usage limits. You will regain access "
+            "on 2026-10-01 at 00:00 UTC.",
+            status_code=400,
+        )
+        assert is_provider_unavailable_error(exc)
+
+    def test_client_errors_are_not_retried_but_transient_ones_are(self):
+        from app.services import anthropic_client, openai_client
+
+        cap = _FakeAPIError("reached your specified API usage limits", status_code=400)
+        assert not anthropic_client._worth_retrying(cap)
+        assert not openai_client._worth_retrying(cap)
+        for status in (429, 500, 529, None):
+            assert anthropic_client._worth_retrying(_FakeAPIError("x", status_code=status))
+
+    def test_cancellation_is_never_retried(self):
+        import asyncio
+
+        from app.services import anthropic_client, openai_client
+
+        # A cancelled in-flight call (the pre-answer search over its budget)
+        # must stay cancelled, not be re-issued by the retry wrapper.
+        assert not anthropic_client._worth_retrying(asyncio.CancelledError())
+        assert not openai_client._worth_retrying(asyncio.CancelledError())

@@ -167,8 +167,23 @@ class ResearchResult:
 # than to an error anyone would notice.
 _WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 
+# How many searches the model may run inside one round. Unbounded, a single
+# "find sources for this" round was measured at ~19s (2026-09-16): the model
+# searched, read, searched again. One search is enough to gather context
+# before answering - that round sits on the critical path in front of the
+# first token - and two is enough to check a claim afterwards, where the
+# supervisor decides whether another *round* is worth it anyway.
+CONTEXT_SEARCHES = 1
+RESEARCH_SEARCHES = 2
 
-async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
+
+def _search_tool(max_uses: int) -> dict:
+    return {**_WEB_SEARCH_TOOL, "max_uses": max_uses}
+
+
+async def _search_round(
+    claim: str, guidance: str | None, max_uses: int = RESEARCH_SEARCHES
+) -> list[WebSource]:
     prompt = f"CLAIM:\n{claim}"
     if guidance:
         prompt += (
@@ -181,7 +196,7 @@ async def _search_round(claim: str, guidance: str | None) -> list[WebSource]:
             input_text=prompt,
             schema=_SEARCH_SCHEMA,
             schema_name="web_sources",
-            tools=[_WEB_SEARCH_TOOL],
+            tools=[_search_tool(max_uses)],
         )
     except Exception:
         logger.exception("web search round failed")
@@ -237,7 +252,7 @@ async def gather_context(query: str) -> list[WebSource]:
     the specific thing the answer ended up asserting - happens per claim, in
     `research_claim`, once there is something to check.
     """
-    return await _search_round(query, guidance=None)
+    return await _search_round(query, guidance=None, max_uses=CONTEXT_SEARCHES)
 
 
 async def research_claim(claim: str) -> ResearchResult:

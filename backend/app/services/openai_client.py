@@ -29,7 +29,7 @@ from collections.abc import AsyncIterator
 from typing import Literal, TypedDict
 
 from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 
@@ -80,9 +80,26 @@ class _CircuitBreaker:
 _circuit_breaker = _CircuitBreaker()
 
 # Max 3 attempts, exponential backoff, per §14.
+def _worth_retrying(exc: BaseException) -> bool:
+    """Same rule as the primary client: a 4xx other than 429 will not get
+    better on the third try."""
+    # Cancellation (asyncio.CancelledError is a BaseException, not an
+    # Exception) must propagate: tenacity hands every raised object to this
+    # predicate, and saying "retry" to a cancelled call would swallow the
+    # cancel and re-issue the request - which turned an 8-second budget on
+    # the pre-answer search into a 30-second wait.
+    if not isinstance(exc, Exception):
+        return False
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and 400 <= status < 500 and status != 429:
+        return False
+    return True
+
+
 _retry_openai = retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception(_worth_retrying),
     reraise=True,
 )
 
