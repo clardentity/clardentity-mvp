@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -45,14 +46,29 @@ async def retrieve_chunks(
     Runs for every mode. Knowing mode additionally expands the query with up
     to two Wh-lensed sub-queries (§7.4) and merges/dedupes the results.
     """
+    # Nothing to search? Say so before spending anything. Most chats live in
+    # a workspace with no attachments, and each query below costs an
+    # embedding call (~0.5-1s) before the database is even asked - three of
+    # them in Knowing mode, run one after another, on an empty table.
+    has_documents = await db.scalar(
+        select(Document.id)
+        .where(Document.workspace_id == workspace_id, Document.status == "processed")
+        .limit(1)
+    )
+    if has_documents is None:
+        return []
+
     queries = [query]
     if mode == "knowing":
         queries += [f"({lens}) {query}" for lens in _select_wh_lenses(query)]
 
     best_by_chunk: dict[uuid.UUID, RetrievedChunk] = {}
 
-    for q in queries:
-        embedding = await embed_text(q)
+    # Embeddings all at once - they are independent HTTP calls - then the
+    # database queries in turn (one session, one query at a time).
+    embeddings = await asyncio.gather(*(embed_text(q) for q in queries))
+
+    for embedding in embeddings:
         distance = DocumentChunk.embedding.cosine_distance(embedding)
         rows = await db.execute(
             select(DocumentChunk, Document, distance.label("distance"))

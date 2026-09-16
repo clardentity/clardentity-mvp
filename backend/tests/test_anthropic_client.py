@@ -224,3 +224,13 @@ class TestSpendCapFallsBack:
         # must stay cancelled, not be re-issued by the retry wrapper.
         assert not anthropic_client._worth_retrying(asyncio.CancelledError())
         assert not openai_client._worth_retrying(asyncio.CancelledError())
+
+
+class TestEffortOnlyWhereSupported:
+    def test_haiku_4_5_gets_no_effort_parameter(self):
+        from app.services.anthropic_client import _supports_effort
+
+        assert not _supports_effort("claude-haiku-4-5-20251001")
+        assert _supports_effort("claude-sonnet-5")
+        assert _supports_effort("claude-opus-5")
+        assert _supports_effort("claude-fable-5-1")

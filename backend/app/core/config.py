@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     # a cost saving taken unilaterally. The streamed answer itself stays on the
     # model above.
     anthropic_fast_model: str = "claude-sonnet-5"
+    # The quick answer: a few unchecked sentences, where time to first token
+    # is the whole product. Haiku is the fastest thing in the family.
+    anthropic_rapid_model: str = "claude-haiku-4-5-20251001"
+    # Modes whose answers are generated on the fast model rather than the
+    # flagship. Measured 2026-09-16: the flagship spent ~10s writing an
+    # 11-claim Knowing answer; the fast model does it in ~4s, and Knowing's
+    # quality gate is the verification that follows, not the generator's
+    # deliberation. Reasoning-heavy modes (Thinking, Decision, Mentoring,
+    # Reflect) stay on the flagship. Comma-separated, env-overridable.
+    fast_generation_modes: str = "knowing,learning,creative"
     # Depth and spend per call. "low" preserves the latency posture the
     # previous provider was tuned to; blank leaves the model's own default.
     anthropic_effort: str = "low"

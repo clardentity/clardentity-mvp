@@ -50,9 +50,7 @@ MODE_INSTRUCTIONS: dict[str, str] = {
         "Purpose: the fastest useful answer. The user chose speed over depth, so "
         "give the bottom line and only what is needed to act on it - at most "
         "four short sentences after the crux, no lists, no options menu, no "
-        "hedging preamble. Nothing you write here is checked against sources "
-        "afterwards, so state only what you are confident of and say plainly, in "
-        "one clause, when something would need checking."
+        "hedging preamble."
     ),
     "knowing": (
         "Purpose: retrieve and state facts precisely and briefly, citing sources when "
@@ -178,7 +176,31 @@ _FORMATTING_RULES = (
     "as broken output.\n"
     "Number claims sequentially starting at 1. Other than the single leading <crux> "
     "sentence, every sentence of your response must be inside some <claim> tag - do "
-    "not leave prose outside of one."
+    "not leave prose outside of one.\n"
+    "Be concise. A typical answer is four to eight claims; go longer only when the "
+    "question genuinely needs it (a multi-part question, a walkthrough that was "
+    "asked for). Cover what was asked, not everything you know - every claim you "
+    "write is checked against sources afterwards, and the reader opens the full "
+    "answer only if the crux was not enough."
+)
+
+# The quick answer's whole format. No claim tags (nothing is scored, so the
+# markup would be output tokens spent on nothing), no citation markers, no
+# rules about panels the reader will never see: the crux, then a few plain
+# sentences. Roughly a fifth of the length of the full rulebook, which is
+# also time to first token.
+_RAPID_FORMATTING_RULES = (
+    "Answer what was asked. Do not end with questions or offers to the user. If "
+    "something unstated would change your answer, say what you assumed in one "
+    "clause and carry on.\n\n"
+    "Write in plain text: no Markdown, no HTML, no bullet characters other than a "
+    "plain hyphen. Use hyphens, never em dashes.\n"
+    "Before anything else, write one sentence giving the direct conclusion or "
+    "bottom line, wrapped as <crux>...</crux>. Then at most four short sentences "
+    "with only what is needed to act on it - no lists, no options menu, no "
+    "preamble. Do not use <claim> tags or [n] citation markers. Nothing you write "
+    "is checked against sources afterwards, so state only what you are confident "
+    "of and say plainly, in one clause, when something would need checking."
 )
 
 
@@ -256,7 +278,7 @@ def build_system_instructions(
     if bias_guidance:
         variable_parts.append(bias_guidance)
 
-    stable_parts.append(_FORMATTING_RULES)
+    stable_parts.append(_RAPID_FORMATTING_RULES if mode == "rapid" else _FORMATTING_RULES)
 
     blocks = [
         {

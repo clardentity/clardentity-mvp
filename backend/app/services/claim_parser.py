@@ -260,6 +260,10 @@ def extract_crux(full_text: str) -> tuple[str | None, str]:
     return match.group(1).strip(), full_text[match.end():]
 
 
+# A sentence: up to the first ./!/? that is followed by whitespace and a
+# capital (or by the end), so "2.5 percent" and "U.S. rules" don't cut it
+# short while "in 1947. Then" does.
+_FIRST_SENTENCE_RE = re.compile(r"^\s*(.+?[.!?])(?=\s+[A-Z\"'(\[]|\s*$)", re.DOTALL)
 _FIRST_CLAIM_RE = re.compile(
     r'^\s*<claim id="\d+"(?: opinion="true")?>(.*?)</claim>\s*', re.DOTALL
 )
@@ -274,12 +278,19 @@ def split_leading_sentence(full_text: str) -> tuple[str | None, str]:
     sentence - a one-liner is its own gist. Returns (None, full_text) when
     nothing sensible can be split."""
     match = _FIRST_CLAIM_RE.match(full_text)
-    if not match:
+    if match:
+        rest = full_text[match.end():]
+        if not rest.strip():
+            return None, full_text
+        return match.group(1).strip(), rest
+    # Untagged prose (the quick answer writes none): the first sentence.
+    sentence = _FIRST_SENTENCE_RE.match(full_text)
+    if not sentence:
         return None, full_text
-    rest = full_text[match.end():]
+    rest = full_text[sentence.end():]
     if not rest.strip():
         return None, full_text
-    return match.group(1).strip(), rest
+    return sentence.group(1).strip(), rest
 
 
 def strip_claim_tags(full_text: str) -> str:

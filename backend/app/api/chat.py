@@ -582,6 +582,31 @@ async def delete_message(
     await db.commit()
 
 
+# Work that outlives the turn's stream (a late Devil's Draft) needs a strong
+# reference or the event loop may collect the task mid-flight.
+_background: set[asyncio.Task] = set()
+
+
+def _in_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
+
+async def _store_counterfactual(message_id: uuid.UUID, pending: "asyncio.Task[str | None]") -> None:
+    try:
+        text = await pending
+    except Exception:  # noqa: BLE001 - optional, and already logged where it ran
+        return
+    if not text:
+        return
+    async with AsyncSessionLocal() as db:
+        message = await db.get(Message, message_id)
+        if message is not None and not message.counterfactual_content:
+            message.counterfactual_content = clean_output(text)
+            await db.commit()
+
+
 @router.post("/{conversation_id}/messages")
 async def send_message(
     conversation_id: uuid.UUID,
@@ -590,6 +615,14 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     await check_rate_limit(f"chat:send:{current_user.id}", max_requests=20, window_seconds=60)
+
+    # Phase timings, one line per turn at INFO - what "the response time is
+    # high" gets measured against, without a profiler on production.
+    t_start = time.monotonic()
+    marks: list[str] = []
+
+    def mark(phase: str) -> None:
+        marks.append(f"{phase}={time.monotonic() - t_start:.1f}s")
 
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
     admin_settings = await get_all_settings(db)
@@ -768,6 +801,7 @@ async def send_message(
         # the chosen mode, so it needs nothing from retrieval and runs while
         # the history and memory load.
         guidance = await guidance_task if guidance_task is not None else None
+        mark("gates")
 
         # One question back, at most, before answering. The client embeds
         # each answered gate into the message ("(Clardentity asked: ...)"),
@@ -951,6 +985,7 @@ async def send_message(
     # Started alongside the gates above; by now it has usually finished the
     # retrieval and is some way into the search.
     retrieval_query, chunks, web_task, search_started = await prefetch_task
+    mark("retrieval")
 
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
@@ -982,11 +1017,15 @@ async def send_message(
                 data = f"data:{attachment.mime_type};base64,{data}"
             input_images.append(data)
     gen_model = admin_settings.get("openai_model")
-    # The auxiliary model is the point of rapid mode: it is what makes the
-    # answer arrive in a couple of seconds rather than ten. An explicit admin
-    # model override still wins.
-    if mode == "rapid" and not gen_model:
-        gen_model = settings.anthropic_fast_model
+    # Which model writes the answer, by mode (an explicit admin override still
+    # wins): the smallest for the quick answer, the fast one for the modes
+    # whose quality gate is verification rather than deliberation, the
+    # flagship for the reasoning-heavy rest. See config for the measurements.
+    if not gen_model:
+        if mode == "rapid":
+            gen_model = settings.anthropic_rapid_model
+        elif mode in {m.strip() for m in settings.fast_generation_modes.split(",") if m.strip()}:
+            gen_model = settings.anthropic_fast_model
     gen_temperature = admin_settings.get("openai_temperature")
 
     async def event_stream() -> AsyncIterator[dict]:
@@ -1039,6 +1078,7 @@ async def send_message(
         input_text = build_conversation_input(
             context_block, memory_summary, history, effective_content
         )
+        mark("context")
 
         # Named phases, so the wait says what is being waited on. Silence for
         # eight seconds and "Weighing sources" for eight seconds are the same
@@ -1070,6 +1110,7 @@ async def send_message(
                     # streams in behind a fold. See CruxSplitter.
                     crux_now, passthrough = crux_splitter.feed(event["text"])
                     if crux_now:
+                        mark("crux")
                         yield {"event": "crux", "data": json.dumps({"text": clean_output(crux_now)})}
                     visible = stripper.feed(passthrough) if passthrough else ""
                     if visible:
@@ -1114,6 +1155,7 @@ async def send_message(
         # every downstream consumer - the draft, reflection, claim
         # extraction, the counterfactual - works from crux-free text and
         # none of them can reintroduce or duplicate it.
+        mark("generated")
         crux_text, full_text = extract_crux(full_text)
         if mode == "rapid" and crux_text is None:
             # The fast model sometimes skips the <crux> wrapper. The brief
@@ -1182,6 +1224,8 @@ async def send_message(
             async with AsyncSessionLocal() as profile_db:
                 if await should_rebuild_profile(profile_db, current_user.id):
                     rebuild_profile_task.delay(str(current_user.id))
+            mark("final")
+            logger.info("turn timing mode=%s claims=0 %s", mode, " ".join(marks))
             yield {
                 "event": "final",
                 "data": json.dumps(
@@ -1222,7 +1266,16 @@ async def send_message(
         # ------------------------------------------------------------------
         parsed_claims = extract_claims(full_text)
 
-        reflection_task = asyncio.create_task(reflect_and_revise(mode, full_text))
+        # The critique-and-rewrite pass is for reasoning: a Thinking chain
+        # or a Decision case reads better for it. A Knowing answer is a set
+        # of checked facts - the check *is* its quality gate - and the pass
+        # cost 4-6s at the end of every turn, after which the text a reader
+        # had already read swapped under them for the revised one.
+        reflection_task = (
+            asyncio.create_task(reflect_and_revise(mode, full_text))
+            if mode != "knowing"
+            else None
+        )
         # `decision_task` has been running since earlier in this function, so
         # awaiting it here is normally immediate - not a new blocking call.
         # It has to happen before review_task/thinking_task below, which need
@@ -1383,6 +1436,7 @@ async def send_message(
                             found, chunks, v.evidence, live_sources
                         )
 
+        mark("verified")
         scored_claims: list[ScoredClaim] = []
         for claim, markers, verification, evidence in zip(
             parsed_claims, claim_marker_lists, verifications, evidence_by_claim
@@ -1449,16 +1503,28 @@ async def send_message(
         # Both were launched before verification started, so by now they are
         # either done or nearly so - the await costs whatever is left, not the
         # whole call.
-        try:
-            final_text, _was_revised = await reflection_task
-        except Exception:  # noqa: BLE001 - a failed critique keeps the draft
-            final_text = full_text
+        final_text = full_text
+        if reflection_task is not None:
+            try:
+                final_text, _was_revised = await reflection_task
+            except Exception:  # noqa: BLE001 - a failed critique keeps the draft
+                final_text = full_text
+        # The Devil's Draft is not waited for. It is a whole second answer
+        # written by the fast model - as long as the verification it ran
+        # alongside, often longer - and it was the last thing the verdict
+        # waited on. If it has landed, it ships with the verdict; if not, it
+        # is written to the row when it does, and a reader who flips before
+        # then gets it on demand from the devils-advocate endpoint (which
+        # generates on a miss anyway).
         counterfactual_text: str | None = None
         if counterfactual_task is not None:
-            try:
-                counterfactual_text = await counterfactual_task
-            except Exception:  # noqa: BLE001 - the comparison is optional
-                counterfactual_text = None
+            if counterfactual_task.done():
+                try:
+                    counterfactual_text = counterfactual_task.result()
+                except Exception:  # noqa: BLE001 - the comparison is optional
+                    counterfactual_text = None
+            else:
+                _in_background(_store_counterfactual(assistant_message_id, counterfactual_task))
 
         # strip_claim_tags preserves the model's own formatting/whitespace
         # between claims exactly, matching what streaming already showed -
@@ -1487,9 +1553,8 @@ async def send_message(
             # Written now, not when someone clicks. Producing it on demand
             # meant a five-second wait behind a button whose whole appeal is
             # an instant side-by-side.
-            assistant_message.counterfactual_content = (
-                clean_output(counterfactual_text) if counterfactual_text else None
-            )
+            if counterfactual_text:
+                assistant_message.counterfactual_content = clean_output(counterfactual_text)
             assistant_message.decision_review = decision_review
             assistant_message.thinking_review = thinking_review
             await gen_db.flush()
@@ -1631,6 +1696,8 @@ async def send_message(
             "confidence": {"score": message_score.score, "band": message_score.band},
             "avatar_cue": {"expression": avatar_cue.expression, "gesture": avatar_cue.gesture},
         }
+        mark("final")
+        logger.info("turn timing mode=%s claims=%d %s", mode, len(scored_claims), " ".join(marks))
         yield {"event": "final", "data": json.dumps(final_payload)}
 
     return EventSourceResponse(event_stream())

@@ -299,11 +299,17 @@ def _base_kwargs(
         "messages": [{"role": "user", "content": _content_blocks(input_text, input_images)}],
     }
     # Effort is the depth-and-spend dial that replaced reasoning effort. Left
-    # on the model's own default when unset rather than guessed at.
+    # on the model's own default when unset rather than guessed at. Only the
+    # Claude 5 family takes it: Haiku 4.5 (the quick answer's model) rejects
+    # the parameter outright with a 400, so it is not sent there.
     resolved_effort = effort or settings.anthropic_effort
-    if resolved_effort:
+    if resolved_effort and _supports_effort(kwargs["model"]):
         kwargs["output_config"] = {"effort": resolved_effort}
     return kwargs
+
+
+def _supports_effort(model: str) -> bool:
+    return "-5" in model and "4-5" not in model
 
 
 def _drop_temperature(temperature: float | None) -> None:

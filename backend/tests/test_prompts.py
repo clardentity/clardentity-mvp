@@ -338,9 +338,15 @@ class TestRapidMode:
         assert validate_mode("rapid") == "rapid"
         brief = MODE_INSTRUCTIONS["rapid"]
         assert "four short sentences" in brief
-        # It is unchecked and must say so to the model, so it doesn't write
-        # as if a verifier were coming behind it.
-        assert "checked" in brief
+        # Its own, shorter rulebook: no claim tags (nothing is scored), and
+        # it is told it is unchecked so it doesn't write as if a verifier
+        # were coming behind it.
+        rules = _flat("rapid")
+        assert "Do not use <claim> tags" in rules
+        assert "checked against sources afterwards" in rules
+        assert 'id="n"' not in rules
+        # Everyone else keeps the tags and gets the claim budget.
+        assert "four to eight claims" in _flat("knowing")
 
     def test_smart_switching_never_suggests_rapid(self):
         from app.services.guidance import _SCHEMA

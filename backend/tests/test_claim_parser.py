@@ -224,7 +224,12 @@ class TestSplitLeadingSentence:
         text = '<claim id="1">Canberra.</claim>'
         assert split_leading_sentence(text) == (None, text)
 
-    def test_untagged_text_is_left_alone(self):
+    def test_untagged_prose_splits_at_the_first_sentence(self):
         from app.services.claim_parser import split_leading_sentence
 
-        assert split_leading_sentence("Plain prose.\nMore.") == (None, "Plain prose.\nMore.")
+        # The quick answer writes no tags; its first sentence is the gist.
+        assert split_leading_sentence("Plain prose.\nMore.") == ("Plain prose.", "\nMore.")
+        # Abbreviations and decimals don't end a sentence.
+        crux, rest = split_leading_sentence("Rates were 2.5 percent under U.S. rules. Then they rose.")
+        assert crux == "Rates were 2.5 percent under U.S. rules." and rest.strip() == "Then they rose."
+        assert split_leading_sentence("Just one sentence.") == (None, "Just one sentence.")
