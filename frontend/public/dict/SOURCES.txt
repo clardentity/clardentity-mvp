@@ -1,0 +1,1 @@
+en-common.txt: the 10,000 most common English words in rank order, from most-common-words-by-language (MIT), which takes its English list from first20hours/google-10000-english (Google Trillion Word Corpus). Used only to rank spelling suggestions.

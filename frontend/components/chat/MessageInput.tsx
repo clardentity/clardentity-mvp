@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { autocorrectSupported, fixAtBoundary, loadSpeller, type Fix, type Speller } from "@/lib/autocorrect";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { cx } from "@/components/ui/primitives";
@@ -57,10 +58,76 @@ export function MessageInput({
   const [images, setImages] = useState<PendingImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const taRef = textareaRef ?? fallbackTextareaRef;
+
+  /* Autocorrect - see lib/autocorrect. The dictionaries load the first
+     time the box is focused, so a page that never types pays nothing. The
+     last correction is kept so it can be undone: by the chip under the
+     box, or by Backspace straight after (the phone-keyboard gesture),
+     either of which also stops that word being corrected again in this
+     session. The caret has to be put back by hand after a replacement,
+     since setting a controlled textarea's value throws it to the end. */
+  const spellerRef = useRef<Speller | null>(null);
+  const ignoreRef = useRef<Set<string>>(new Set());
+  const [lastFix, setLastFix] = useState<Fix | null>(null);
+  const pendingCaretRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el || !autocorrectSupported()) return;
+    let cancelled = false;
+    function warm() {
+      void loadSpeller().then((sp) => {
+        if (!cancelled) spellerRef.current = sp;
+      });
+    }
+    el.addEventListener("focus", warm, { once: true });
+    return () => {
+      cancelled = true;
+      el.removeEventListener("focus", warm);
+    };
+  }, [taRef]);
+
+  useEffect(() => {
+    const pos = pendingCaretRef.current;
+    if (pos === null) return;
+    pendingCaretRef.current = null;
+    taRef.current?.setSelectionRange(pos, pos);
+  }, [value, taRef]);
 
   function handleChange(newValue: string) {
+    const speller = spellerRef.current;
+    const el = taRef.current;
+    if (speller && el && newValue.length > value.length) {
+      const caret = el.selectionStart ?? newValue.length;
+      const fix = fixAtBoundary(newValue, caret, speller, ignoreRef.current);
+      if (fix) {
+        pendingCaretRef.current = fix.caret;
+        setLastFix(fix);
+        onChange(fix.text);
+        onTypingChange?.(true);
+        return;
+      }
+    }
+    if (lastFix && newValue !== lastFix.text) setLastFix(null);
     onChange(newValue);
     onTypingChange?.(newValue.trim().length > 0);
+  }
+
+  function undoFix() {
+    if (!lastFix) return;
+    const { text, from, to, start, caret } = lastFix;
+    // Only if the corrected word is still there where it was put.
+    if (text.slice(start, start + to.length) !== to || value !== text) {
+      setLastFix(null);
+      return;
+    }
+    ignoreRef.current.add(from.toLowerCase());
+    const restored = text.slice(0, start) + from + text.slice(start + to.length);
+    pendingCaretRef.current = caret - (to.length - from.length);
+    setLastFix(null);
+    onChange(restored);
   }
 
   function handleSend() {
@@ -76,6 +143,16 @@ export function MessageInput({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    // Backspace right after a correction puts the original back instead
+    // of deleting the boundary character - the gesture every phone taught.
+    if (e.key === "Backspace" && lastFix && value === lastFix.text) {
+      const caret = e.currentTarget.selectionStart;
+      if (caret === lastFix.caret) {
+        e.preventDefault();
+        undoFix();
+      }
     }
   }
 
@@ -252,7 +329,7 @@ export function MessageInput({
         </div>
 
         <textarea
-          ref={textareaRef}
+          ref={taRef}
           data-tour="composer-input"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
@@ -280,10 +357,26 @@ export function MessageInput({
           three visible lines on a phone to explain a chord that phone has no
           way to type. Kept for pointer devices, where it is discoverable and
           free. */}
-      {!disabled && (
-        <p className="hidden text-[11px] text-ink-muted sm:block">
-          Enter to ask, Shift+Enter for a new line
+      {lastFix && value === lastFix.text ? (
+        <p className="flex items-center gap-2 text-[11px] text-ink-muted">
+          <span>
+            Corrected <s className="text-ink-muted/70">{lastFix.from}</s> to{" "}
+            <span className="font-medium text-ink-secondary">{lastFix.to}</span>
+          </span>
+          <button
+            type="button"
+            onClick={undoFix}
+            className="font-medium text-brand hover:underline"
+          >
+            Undo
+          </button>
         </p>
+      ) : (
+        !disabled && (
+          <p className="hidden text-[11px] text-ink-muted sm:block">
+            Enter to ask, Shift+Enter for a new line
+          </p>
+        )
       )}
     </div>
   );

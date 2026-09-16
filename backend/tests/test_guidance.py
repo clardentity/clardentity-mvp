@@ -466,3 +466,14 @@ class TestGuidanceSeesTheConversation:
         monkeypatch.setattr(guidance, "generate_structured", fake)
         await guidance.propose_guidance("what is the capital of France", "knowing")
         assert "CONVERSATION SO FAR" not in seen["input_text"]
+
+
+class TestTyposAreNotAmbiguity:
+    """The rule behind the 'it asks several questions' feedback: fast,
+    misspelled typing must be read for its obvious meaning, not queried."""
+
+    def test_the_brief_says_so(self):
+        from app.services.guidance import _INSTRUCTIONS
+
+        assert "not ambiguity" in _INSTRUCTIONS
+        assert "reasonable assumption" in _INSTRUCTIONS
