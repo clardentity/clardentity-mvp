@@ -92,7 +92,7 @@ from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
 from app.services.taxonomy import describe_bias
 from app.services.verification_agent import reconcile_gray_area, verify_claim
-from app.services.web_research import WebSource, gather_context, research_claim
+from app.services.web_research import WebSource, gather_context, research_claim, tavily_available
 from app.workers.rebuild_memory import rebuild_memory_task
 from app.workers.rebuild_profile import rebuild_profile_task
 
@@ -996,12 +996,13 @@ async def send_message(
 
         # An early warning the client acts on: this answer is going to be a
         # long one, so offer the quick way out now rather than after a fixed
-        # wait. The tell is that nothing in the workspace matched - the
-        # answer then leans on a web search up front and, worse, on
-        # per-claim research afterwards, which is where most of the time
-        # goes. Decision and Thinking add their own review call on top.
+        # wait. The tell is that nothing in the workspace matched and the
+        # only search available is the model's own tool, which takes 5-20s
+        # a round; with a search API in place the pre-search is a couple of
+        # seconds and the first token isn't far behind, so no warning (the
+        # client still shows the button on its own after a fixed wait).
         # Quick answers themselves never warn; there is nothing quicker.
-        if mode != "rapid" and (not chunks or mode in ("decision", "thinking")):
+        if mode != "rapid" and not chunks and web_task is not None and not tavily_available():
             yield {
                 "event": "status",
                 "data": json.dumps(

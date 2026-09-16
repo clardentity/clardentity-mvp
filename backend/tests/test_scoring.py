@@ -282,7 +282,8 @@ class TestUnmeasuredRelevance:
 class TestSeededResearch:
     """A pre-answer search that arrived late seeds the per-claim research:
     the seed is judged first, without a new search, and each claim works on
-    its own copies of the sources."""
+    its own copies of the sources. Runs against the model-tool path (no
+    search API) so nothing here touches the network."""
 
     async def test_seed_is_judged_before_any_search(self, monkeypatch):
         from app.services import web_research
@@ -300,6 +301,7 @@ class TestSeededResearch:
                 "sources": [{"url": s.url, "score": 0.9, "note": "on point"} for s in sources],
             }
 
+        monkeypatch.setattr(web_research, "tavily_available", lambda: False)
         monkeypatch.setattr(web_research, "_search_round", fake_search)
         monkeypatch.setattr(web_research, "_supervise", fake_supervise)
         seed = [WebSource(url="https://a.example/1", title="A", excerpt="India became independent in 1947.")]
@@ -323,9 +325,94 @@ class TestSeededResearch:
         async def fake_supervise(claim, sources):
             return {"verdict": "reject", "sources": [], "next_query": "try the archive"}
 
+        monkeypatch.setattr(web_research, "tavily_available", lambda: False)
         monkeypatch.setattr(web_research, "_search_round", fake_search)
         monkeypatch.setattr(web_research, "_supervise", fake_supervise)
         seed = [WebSource(url="https://a.example/1", title="A", excerpt="unrelated")]
         result = await research_claim("Some claim.", seed=seed)
         assert not result.succeeded
         assert len(searched) == web_research.MAX_ROUNDS - 1
+
+
+class TestTreeSearch:
+    """With a search API, a round fires several queries at once and judges
+    the merged results in one call - the branches of the search - rather
+    than search, judge, search, judge in sequence."""
+
+    def test_first_round_takes_two_angles_and_later_rounds_add_the_hint(self):
+        from app.services.web_research import _round_queries
+
+        claim = "Britain's postwar economic exhaustion made holding India untenable in 1947."
+        first = _round_queries(claim, None, first=True)
+        assert first[0] == (claim, "advanced")
+        assert len(first) == 2 and first[1][1] == "basic"
+        assert "exhaustion" in first[1][0] and "the" not in first[1][0].split()
+
+        later = _round_queries(claim, "sterling balances 1947 India debt", first=False)
+        assert later[1] == ("sterling balances 1947 India debt", "basic")
+        assert len(later) == 3
+
+    def test_merge_interleaves_dedupes_and_skips_judged(self):
+        from app.services.web_research import WebSource, _merge_sources
+
+        def src(u):
+            return WebSource(url=u, title=u, excerpt="x")
+
+        merged = _merge_sources(
+            [[src("a"), src("b")], [src("b"), src("c"), src("d")]], skip={"d"}, cap=8
+        )
+        assert [s.url for s in merged] == ["a", "b", "c"]
+
+    async def test_one_round_settles_a_claim_with_parallel_queries(self, monkeypatch):
+        from app.services import web_research
+        from app.services.web_research import WebSource, research_claim
+
+        fired: list[tuple[str, str]] = []
+
+        async def fake_tavily(query, *, depth="basic", max_results=5):
+            fired.append((query, depth))
+            return [WebSource(url=f"https://{depth}.example/{len(fired)}", title="T", excerpt="India 1947")]
+
+        async def fake_supervise(claim, sources):
+            return {
+                "verdict": "accept",
+                "sources": [{"url": s.url, "score": 0.8, "note": "ok"} for s in sources],
+            }
+
+        async def never_called(*a, **k):
+            raise AssertionError("the model's search tool must not run when the API is available")
+
+        monkeypatch.setattr(web_research, "tavily_available", lambda: True)
+        monkeypatch.setattr(web_research, "_tavily_search", fake_tavily)
+        monkeypatch.setattr(web_research, "_supervise", fake_supervise)
+        monkeypatch.setattr(web_research, "_search_round", never_called)
+        result = await research_claim("India became independent from Britain in August 1947.")
+        assert result.succeeded and result.rounds_used == 1
+        # Both angles fired in the one round, and both results were judged.
+        assert len(fired) == 2 and {d for _, d in fired} == {"advanced", "basic"}
+        assert len(result.sources) == 2
+
+    async def test_a_revise_verdict_gets_a_second_round_on_the_narrowed_claim(self, monkeypatch):
+        from app.services import web_research
+        from app.services.web_research import WebSource, research_claim
+
+        fired: list[str] = []
+        calls = {"n": 0}
+
+        async def fake_tavily(query, *, depth="basic", max_results=5):
+            fired.append(query)
+            return [WebSource(url=f"https://e.example/{len(fired)}", title="T", excerpt="x")]
+
+        async def fake_supervise(claim, sources):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"verdict": "revise", "revised_claim": "Narrower claim.", "next_query": "hint words", "sources": []}
+            return {"verdict": "accept", "sources": [{"url": s.url, "score": 0.9} for s in sources]}
+
+        monkeypatch.setattr(web_research, "tavily_available", lambda: True)
+        monkeypatch.setattr(web_research, "_tavily_search", fake_tavily)
+        monkeypatch.setattr(web_research, "_supervise", fake_supervise)
+        result = await research_claim("Broad claim about something.")
+        assert result.succeeded and result.rounds_used == 2
+        assert result.revised_claim == "Narrower claim."
+        assert "Narrower claim." in fired and "hint words" in fired

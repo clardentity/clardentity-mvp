@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # above only for embeddings, transcription, speech and the realtime call -
     # Anthropic has no equivalent of any of those.
     anthropic_api_key: str = ""
+
+    # Tavily - a search API proper, for grounding and per-claim verification.
+    # Returns ranked results with page excerpts in 1-3s, where asking a model
+    # to search through its own tool took 5-20s a round. Optional: with no
+    # key, web_research falls back to the model's search tool.
+    tavily_api_key: str | None = None
     anthropic_model: str = "claude-opus-5"
     # Auxiliary judgements (guidance, clarifier, verification, reviews) run on
     # this one. Every one of them sits between the user and something they are
