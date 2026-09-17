@@ -56,9 +56,11 @@ class Settings(BaseSettings):
     # flagship. Measured 2026-09-16: the flagship spent ~10s writing an
     # 11-claim Knowing answer; the fast model does it in ~4s, and Knowing's
     # quality gate is the verification that follows, not the generator's
-    # deliberation. Reasoning-heavy modes (Thinking, Decision, Mentoring,
-    # Reflect) stay on the flagship. Comma-separated, env-overridable.
-    fast_generation_modes: str = "knowing,learning,creative"
+    # deliberation. Decision joins them: its verdict box is a separate call,
+    # and the flagship spent 17s writing a three-operator comparison body.
+    # Thinking, Mentoring and Reflect stay on the flagship. Comma-separated,
+    # env-overridable.
+    fast_generation_modes: str = "knowing,learning,creative,decision"
     # Depth and spend per call. "low" preserves the latency posture the
     # previous provider was tuned to; blank leaves the model's own default.
     anthropic_effort: str = "low"

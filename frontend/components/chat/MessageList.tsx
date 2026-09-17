@@ -311,6 +311,105 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
   return out;
 }
 
+/* Comparison tables. The model writes a comparison as plain text - a header
+ * line and one line per thing, cells separated by " | " - which is exactly
+ * what the prompt asks for, and the one piece of structure the plain-text
+ * answer format admits. A run of two or more such lines with the same cell
+ * count is rendered as a table; everything else goes through the ordinary
+ * text renderer, citation markers included (inside cells too). A
+ * separator row of dashes, if the model adds one, is dropped. */
+type BodyBlock = { kind: "text"; text: string } | { kind: "table"; rows: string[][] };
+
+const SEPARATOR_ROW = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
+
+function splitCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((c) => c.trim());
+}
+
+function isTableLine(line: string): boolean {
+  return line.includes("|") && splitCells(line).length >= 2 && !SEPARATOR_ROW.test(line);
+}
+
+function splitBodyBlocks(text: string): BodyBlock[] {
+  const lines = text.split("\n");
+  const blocks: BodyBlock[] = [];
+  let buffer: string[] = [];
+  let i = 0;
+  const flushText = () => {
+    if (buffer.length) blocks.push({ kind: "text", text: buffer.join("\n") });
+    buffer = [];
+  };
+  while (i < lines.length) {
+    if (isTableLine(lines[i])) {
+      const width = splitCells(lines[i]).length;
+      let j = i;
+      const rows: string[][] = [];
+      while (j < lines.length) {
+        if (SEPARATOR_ROW.test(lines[j])) {
+          j++;
+          continue;
+        }
+        if (!isTableLine(lines[j])) break;
+        const cells = splitCells(lines[j]);
+        if (Math.abs(cells.length - width) > 1) break;
+        rows.push(cells);
+        j++;
+      }
+      if (rows.length >= 2) {
+        flushText();
+        blocks.push({ kind: "table", rows });
+        i = j;
+        continue;
+      }
+    }
+    buffer.push(lines[i]);
+    i++;
+  }
+  flushText();
+  return blocks;
+}
+
+function renderBody(text: string, claims: Claim[]): ReactNode {
+  const blocks = splitBodyBlocks(text);
+  if (blocks.length === 1 && blocks[0].kind === "text") {
+    return renderTextWithCitations(text, claims);
+  }
+  return blocks.map((block, n) =>
+    block.kind === "text" ? (
+      <span key={`b${n}`}>{renderTextWithCitations(block.text, claims)}</span>
+    ) : (
+      <span key={`b${n}`} className="my-2 block overflow-x-auto whitespace-normal">
+        <table className="w-full border-collapse text-left text-[13px]">
+          <thead>
+            <tr>
+              {block.rows[0].map((cell, c) => (
+                <th
+                  key={c}
+                  className="border-b border-hairline-strong px-2 py-1.5 align-bottom font-semibold text-ink"
+                >
+                  {renderCitations(cleanMessageText(cell), claims, `h${n}-${c}`)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.slice(1).map((row, r) => (
+              <tr key={r} className="border-b border-hairline last:border-b-0">
+                {row.map((cell, c) => (
+                  <td key={c} className="px-2 py-1.5 align-top text-ink-secondary">
+                    {renderCitations(cleanMessageText(cell), claims, `c${n}-${r}-${c}`)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </span>
+    ),
+  );
+}
+
 /* A user message can carry one or more pre-answer exchanges inside it: the
  * composer embeds each gate Clardentity raised (a context question, a
  * "did you mean", a clarifying choice) as
@@ -697,9 +796,9 @@ function MessageBubble({
             loading={devil.loading}
             error={devil.error}
             front={
-              <p className="whitespace-pre-wrap leading-relaxed">
-                {renderTextWithCitations(content, claims)}
-              </p>
+              // div, not p: a comparison renders as a real <table>, which
+              // cannot live inside a paragraph element.
+              <div className="whitespace-pre-wrap leading-relaxed">{renderBody(content, claims)}</div>
             }
           />
         )}

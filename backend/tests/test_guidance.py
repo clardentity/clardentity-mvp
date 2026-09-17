@@ -477,3 +477,47 @@ class TestTyposAreNotAmbiguity:
 
         assert "not ambiguity" in _INSTRUCTIONS
         assert "reasonable assumption" in _INSTRUCTIONS
+
+
+class TestSearchPlanner:
+    """Which questions the quick answer searches for, and what a plan looks
+    like when the model can't be reached."""
+
+    def test_live_data_questions_are_recognised(self):
+        from app.services.search_planner import needs_live_data
+
+        for q in (
+            "Will it rain tomorrow in Payyannur",
+            "what is the price of the Kuari Pass trek with Indiahikes",
+            "latest news on the Kerala budget",
+            "who is the current chief minister of Kerala",
+            "is the Kochi metro open now",
+        ):
+            assert needs_live_data(q), q
+        for q in ("Why did India get independence?", "explain compound interest", "should I quit my job"):
+            assert not needs_live_data(q), q
+
+    async def test_a_failed_plan_is_the_question_itself(self, monkeypatch):
+        from app.services import search_planner
+
+        async def boom(**_):
+            raise RuntimeError("no model")
+
+        monkeypatch.setattr(search_planner, "generate_structured", boom)
+        plan = await search_planner.plan_searches([], "Will it rain tomorrow in Payyannur")
+        assert plan.retrieval_query == "Will it rain tomorrow in Payyannur"
+        assert plan.queries == ["Will it rain tomorrow in Payyannur"]
+
+    async def test_plan_is_deduplicated_and_capped(self, monkeypatch):
+        from app.services import search_planner
+
+        async def fake(**_):
+            return {
+                "retrieval_query": "Kuari Pass trek operators and prices",
+                "queries": ['"Indiahikes Kuari Pass fee"', "indiahikes kuari pass fee", "MadTrek Kuari Pass price", "Uttara Hikes Kuari Pass price", "Trek The Himalayas Kuari Pass price", "one too many"],
+            }
+
+        monkeypatch.setattr(search_planner, "generate_structured", fake)
+        plan = await search_planner.plan_searches([], "compare Kuari Pass trek prices")
+        assert plan.queries[0] == "Indiahikes Kuari Pass fee"
+        assert len(plan.queries) == search_planner.MAX_QUERIES

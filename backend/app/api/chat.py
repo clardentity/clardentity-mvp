@@ -87,6 +87,7 @@ from app.services.profile_service import (
     should_rebuild as should_rebuild_profile,
 )
 from app.services.query_optimizer import optimize_query
+from app.services.search_planner import SearchPlan, needs_live_data, plan_searches
 from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
@@ -653,8 +654,22 @@ async def send_message(
     # unchecked anyway.
     web_enabled = bool(flags.get("web_search_enabled", True))
 
+    async def _plan(history: list[Message], message: str, mode: str) -> SearchPlan:
+        """Which searches to run, and what to ask the document store. The
+        planner is a fast model call; where the web is not going to be
+        searched at all (search off, or a quick answer to something that
+        isn't time-sensitive) the cheaper retrieval rewrite is enough."""
+        if web_enabled and mode != "rapid":
+            return await plan_searches(history, message)
+        if web_enabled and needs_live_data(message):
+            # The quick answer gets one search, for the question as typed -
+            # no planner call in front of it; a weather or price question
+            # already is its own search query.
+            return SearchPlan(retrieval_query=message, queries=[message])
+        return SearchPlan(retrieval_query=await optimize_query(history, message), queries=[])
+
     async def _prefetch(
-        optimize_task: "asyncio.Task[str]", mode: str
+        plan_task: "asyncio.Task[SearchPlan]", mode: str
     ) -> tuple[str, list[RetrievedChunk], "asyncio.Task[list[WebSource]] | None", float]:
         """Retrieval and the speculative web search, started the moment the
         retrieval query exists - alongside the pre-answer gates, not after
@@ -671,10 +686,11 @@ async def send_message(
         and waiting for that answer before starting a search adds the whole
         search latency on top. So both go at once and the loser is
         discarded (by the caller)."""
-        query = await optimize_task
+        plan = await plan_task
+        query = plan.retrieval_query
         web_task = (
-            asyncio.create_task(gather_context(query))
-            if web_enabled and mode != "rapid"
+            asyncio.create_task(gather_context(plan.queries))
+            if web_enabled and plan.queries
             else None
         )
         started = time.monotonic()
@@ -730,8 +746,8 @@ async def send_message(
         # walks the path ending at the question's own parent, one level
         # further back than where the new answer itself attaches.
         history = active_path(all_messages, parent_message.parent_id)[-HISTORY_WINDOW:]
-        optimize_task = asyncio.create_task(optimize_query(history, effective_content))
-        prefetch_task = asyncio.create_task(_prefetch(optimize_task, mode))
+        plan_task = asyncio.create_task(_plan(history, effective_content, mode))
+        prefetch_task = asyncio.create_task(_prefetch(plan_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
     else:
         # FR7: mode is mandatory and there is no auto-detection fallback -
@@ -785,12 +801,11 @@ async def send_message(
                 )
             )
         )
-        # The retrieval rewrite depends on nothing the gates decide, so it
-        # runs alongside them rather than after: a couple of seconds off the
-        # wait before the first token. (Usually a no-op - see
-        # needs_rewriting - so a gate that then stops the turn wastes little.)
-        optimize_task = asyncio.create_task(optimize_query(history, effective_content))
-        prefetch_task = asyncio.create_task(_prefetch(optimize_task, mode))
+        # The search plan depends on nothing the gates decide, so it runs
+        # alongside them rather than after, and the searches it names start
+        # the moment it lands.
+        plan_task = asyncio.create_task(_plan(history, effective_content, mode))
+        prefetch_task = asyncio.create_task(_prefetch(plan_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
 
         # The mode nudge has to happen *before* generating, not after: a

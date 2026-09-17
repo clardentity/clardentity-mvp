@@ -216,7 +216,7 @@ _EXCLUDED_DOMAINS = [
     "instagram.com",
     "alternatehistory.com",
 ]
-_EXCERPT_CHARS = 1200
+_EXCERPT_CHARS = 1800
 
 
 def tavily_available() -> bool:
@@ -241,6 +241,10 @@ async def _tavily_search(
         "include_raw_content": False,
         "exclude_domains": _EXCLUDED_DOMAINS,
     }
+    if depth == "advanced":
+        # Several passages per page rather than one: the line with the
+        # price or the forecast is rarely the first relevant paragraph.
+        body["chunks_per_source"] = 3
     try:
         async with httpx.AsyncClient(timeout=_TAVILY_TIMEOUT_SECONDS) as client:
             res = await client.post(
@@ -410,7 +414,7 @@ async def _supervise(claim: str, sources: list[WebSource]) -> dict:
         return {}
 
 
-async def gather_context(query: str) -> list[WebSource]:
+async def gather_context(queries: list[str], depth: str = "basic") -> list[WebSource]:
     """One search round, scored, for use as *context* before generating.
 
     Runs speculatively, alongside document retrieval, and is thrown away if
@@ -425,9 +429,21 @@ async def gather_context(query: str) -> list[WebSource]:
     the specific thing the answer ended up asserting - happens per claim, in
     `research_claim`, once there is something to check.
     """
+    if not queries:
+        return []
     if tavily_available():
-        return await _tavily_search(query, depth="basic", max_results=5)
-    return await _search_round(query, guidance=None, max_uses=CONTEXT_SEARCHES)
+        # Every planned query at once, results interleaved so each gets a
+        # fair share of the cap. Basic depth, by measurement: four queries
+        # in parallel come back in ~2.7s at basic and ~6s at advanced, and
+        # this wait sits in front of the first token. The per-claim research
+        # afterwards uses advanced depth for whatever the draft could not
+        # cite.
+        batches = await asyncio.gather(
+            *(_tavily_search(q, depth=depth, max_results=5) for q in queries[:4]),
+            return_exceptions=True,
+        )
+        return _merge_sources([b for b in batches if isinstance(b, list)], set(), cap=8)
+    return await _search_round(queries[0], guidance=None, max_uses=CONTEXT_SEARCHES)
 
 
 async def research_claim(
