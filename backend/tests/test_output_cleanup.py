@@ -33,9 +33,17 @@ class TestDashes:
 
 
 class TestMarkup:
-    def test_strips_markdown_emphasis_and_headings(self):
-        assert "**" not in strip_markup("**bold**")
-        assert "#" not in strip_markup("# Heading")
+    def test_keeps_the_rendered_set_and_normalises_the_rest(self):
+        # Bold, italic, code, bullets and tables render in the bubble; they
+        # are kept, in one canonical syntax each.
+        assert strip_markup("**bold**") == "**bold**"
+        assert strip_markup("__bold__ and _it_ and `x`") == "**bold** and *it* and `x`"
+        assert strip_markup("* one\n+ two\n• three") == "- one\n- two\n- three"
+        assert strip_markup("A | B\n---|---\n1 | 2") == "A | B\n---|---\n1 | 2"
+
+    def test_headings_become_bold_lines_and_rules_go(self):
+        assert strip_markup("# Heading\ntext") == "**Heading**\ntext"
+        assert "---" not in strip_markup("above\n---\nbelow")
 
     def test_strips_html_tags(self):
         assert strip_markup("<strong>hi</strong>") == "hi"

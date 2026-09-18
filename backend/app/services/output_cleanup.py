@@ -1,46 +1,44 @@
 """Making the model's output look like what the UI actually renders.
 
-The chat bubble is plain text in a `whitespace-pre-wrap` element. It does not
-interpret Markdown and it does not interpret HTML, so anything the model emits
-in either lands on screen as literal `<strong>` and `**`. Telling the model not
-to do it is necessary but not sufficient - models reach for emphasis by habit,
-and every one that slips through is visible.
-
-So the prompt asks for plain prose and this strips whatever arrives anyway.
-Stripping rather than rendering is deliberate: converting a subset to real
-formatting means deciding what to do with the subset you didn't convert, and
-an HTML renderer over model output is a surface nobody needs.
+The chat bubble renders a small, fixed set of formatting: **bold**,
+*italic*, `code`, hyphen bullets and numbered lists, and pipe tables for
+comparisons. Anything else the model emits - HTML, headings, rules, block
+quotes, fences, strikethrough, link syntax - is not rendered, so it would
+land on screen as literal characters. The prompt asks for only the rendered
+set; this pass normalises whatever arrives to exactly that set, so the text
+stored is the text shown, and the client's own cleaner (lib/text.ts) applies
+the same rules to messages written before any of this existed.
 """
 
 import re
 
-# Fenced blocks first, so their contents survive the inline passes below.
+# Fenced blocks first, so their contents survive the passes below.
 _FENCE = re.compile(r"```[a-zA-Z0-9_-]*\n?")
 
 # Any tag at all, not an allow-list. The bubble renders none of them, so the
 # only question is whether the reader sees the tag or the text inside it.
 _HTML_TAG = re.compile(r"</?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*?)?/?>")
 
-# Bold/italic/strikethrough. Bold runs first so **x** doesn't leave a stray *.
+# Emphasis is normalised to one syntax each: ***x*** and __x__ become **x**,
+# _x_ becomes *x*, strikethrough is dropped, inline code keeps its backticks,
+# link syntax becomes "text (url)" - a bare link is more use than the syntax.
 _MARKDOWN_SPANS = (
-    (re.compile(r"\*\*\*(.+?)\*\*\*", re.S), r"\1"),
-    (re.compile(r"\*\*(.+?)\*\*", re.S), r"\1"),
-    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", re.S), r"\1"),
-    (re.compile(r"(?<![\w_])__(.+?)__(?![\w_])", re.S), r"\1"),
-    (re.compile(r"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", re.S), r"\1"),
+    (re.compile(r"\*\*\*(.+?)\*\*\*", re.S), r"**\1**"),
+    (re.compile(r"(?<![\w_])__(.+?)__(?![\w_])", re.S), r"**\1**"),
+    (re.compile(r"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", re.S), r"*\1*"),
     (re.compile(r"~~(.+?)~~", re.S), r"\1"),
-    # Inline code: keep the code, drop the backticks.
-    (re.compile(r"`([^`]+)`"), r"\1"),
-    # [text](url) -> text (url); a bare link is more use than link syntax.
     (re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)"), r"\1 (\2)"),
     (re.compile(r"\[([^\]]+)\]\([^)]*\)"), r"\1"),
 )
 
-# Leading #### on a line, and the ATX-style trailing hashes.
+# A heading becomes a bold line - the emphasis it meant, in the one form
+# that renders - and the ATX-style trailing hashes go.
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$", re.M)
-# Markdown bullets become a real bullet character rather than an asterisk.
-_BULLET = re.compile(r"^(\s*)[*+-]\s+(?=\S)", re.M)
+# Bullets are normalised to the hyphen the renderer recognises (and that the
+# prompt asks for); the "•" older messages were stored with counts too.
+_BULLET = re.compile(r"^(\s*)[*+•]\s+(?=\S)", re.M)
 # A row of --- or *** on its own line is a rule; it has no rendering here.
+# (A table's separator row has pipes in it and is left for the renderer.)
 _RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$", re.M)
 # > quoted lines lose the marker, keep the text.
 _BLOCKQUOTE = re.compile(r"^\s{0,3}>\s?", re.M)
@@ -71,18 +69,18 @@ def replace_dashes(text: str) -> str:
 
 
 def strip_markup(text: str) -> str:
-    """Markdown and HTML out, the words they wrapped left behind."""
+    """HTML and unrendered Markdown out; the rendered set normalised."""
     if not text:
         return text
 
     cleaned = _FENCE.sub("", text)
     cleaned = _HTML_TAG.sub("", cleaned)
-    cleaned = _HEADING.sub(r"\1", cleaned)
+    cleaned = _HEADING.sub(r"**\1**", cleaned)
     cleaned = _RULE.sub("", cleaned)
     cleaned = _BLOCKQUOTE.sub("", cleaned)
     for pattern, replacement in _MARKDOWN_SPANS:
         cleaned = pattern.sub(replacement, cleaned)
-    cleaned = _BULLET.sub(r"\1• ", cleaned)
+    cleaned = _BULLET.sub(r"\1- ", cleaned)
 
     # &amp; and friends, only the handful that actually show up.
     for entity, char in (

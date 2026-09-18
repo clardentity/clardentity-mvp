@@ -370,6 +370,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const toggleCollapsed = () => setSidebarCollapsed(!collapsed);
 
+
   // The coachmark tour points at things in this sidebar. On a phone that's
   // a closed drawer and on a desktop it may be collapsed; either way the
   // overlay can't find its target and asks here, rather than knowing how the
@@ -468,6 +469,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [recentsKey, setRecentsKey] = useState(0);
   const close = () => setMobileOpen(false);
 
+  // A chat names itself after its first answer (see ChatView's final
+  // handler): refresh the recents list and, if it's the one in view, the
+  // breadcrumb - without a round trip for the latter.
+  useEffect(() => {
+    function onRenamed(e: Event) {
+      const { id, title } = (e as CustomEvent<{ id: string; title: string }>).detail;
+      setRecentsKey((k) => k + 1);
+      setResolved((prev) => (prev && prev.id === id ? { ...prev, title } : prev));
+    }
+    window.addEventListener("clardentity:conversation-renamed", onRenamed);
+    return () => window.removeEventListener("clardentity:conversation-renamed", onRenamed);
+  }, []);
+
   async function startConversation() {
     if (starting) return;
     // No workspace in view (the profile page, the workspace list, /start
@@ -517,9 +531,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         className="mt-3 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-brand transition-colors hover:bg-surface-hover disabled:opacity-50"
       >
         <span className="flex h-4 w-4 items-center justify-center">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-            strokeLinecap="round" aria-hidden="true" className="h-4 w-4">
-            <path d="M12 5v14M5 12h14" />
+          {/* A speech bubble with a plus - the picture of "new chat" - rather
+              than a bare plus that could mean anything. */}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4">
+              <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 9 9 0 0 1-3.9-.9L3 21l1.6-4.5A8.3 8.3 0 0 1 3.5 11.5 8.5 8.5 0 0 1 12.5 3a8.5 8.5 0 0 1 8.5 8.5z" />
+              <path d="M12.5 8.5v6M9.5 11.5h6" />
           </svg>
         </span>
         {starting ? "Starting…" : "New chat"}
@@ -575,7 +592,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <span className="flex h-4 w-4 items-center justify-center text-brand">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4">
-            <path d="M12 3l2.4 5.3 5.6.6-4.2 3.9 1.2 5.7L12 15.8 6.9 18.5l1.2-5.7L4 8.9l5.6-.6z" />
+            {/* A gem: the picture of "plans and what they unlock". */}
+            <path d="M6 3h12l4 6-10 12L2 9z" />
+            <path d="M2 9h20M9 3l3 18M15 3l-3 18M6 3l3 6M18 3l-3 6" />
           </svg>
         </span>
         Upgrade
@@ -740,9 +759,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             title="New chat"
             className="ml-auto shrink-0 rounded-md p-1.5 text-brand transition-colors hover:bg-surface-hover disabled:opacity-50 lg:hidden"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-              strokeLinecap="round" aria-hidden="true" className="h-4 w-4">
-              <path d="M12 5v14M5 12h14" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4">
+              <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 9 9 0 0 1-3.9-.9L3 21l1.6-4.5A8.3 8.3 0 0 1 3.5 11.5 8.5 8.5 0 0 1 12.5 3a8.5 8.5 0 0 1 8.5 8.5z" />
+              <path d="M12.5 8.5v6M9.5 11.5h6" />
             </svg>
           </button>
           <ThemeToggle className="shrink-0 lg:ml-auto" tourId="theme-toggle" />

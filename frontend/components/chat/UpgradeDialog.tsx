@@ -29,7 +29,7 @@ type Tile = {
 const TILES: Tile[] = [
   {
     title: "Clar-Basic · Free",
-    companions: "Tailored and Thinking-trainer",
+    companions: "Finder and Thought coach",
     body: "A daily allowance of prompts, no card needed - and a bonus day's allowance when you sign up. Bring your profile over from another assistant.",
     span: "sm:col-span-3",
   },

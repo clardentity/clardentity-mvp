@@ -101,7 +101,7 @@ export const TOURS: Record<TourId, TourStep[]> = {
       id: "mode-picker",
       target: "mode-picker",
       title: "Choose how it thinks",
-      body: "You open in Tailored - every claim checked against a source. Switch here for a different kind of answer: Decision-making weighs options, Thinking-trainer shows its reasoning, Learning teaches.",
+      body: "You open in Finder - it finds the answer and checks every claim against a source. Switch here for a different kind: Decision-making weighs options, Thought coach shows its reasoning, Learning teaches.",
     },
     {
       id: "switching-toggle",

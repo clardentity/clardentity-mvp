@@ -41,6 +41,7 @@ from app.services.claim_parser import (
     strip_claim_tags,
 )
 from app.services.companion_names import name_for
+from app.services.conversation_title import name_conversation
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
 from app.services.thinking_review import review_thinking
@@ -594,6 +595,52 @@ def _in_background(coro) -> None:
     task.add_done_callback(_background.discard)
 
 
+async def _store_title(conversation_id: uuid.UUID, pending: "asyncio.Task[str]", placeholder: str) -> None:
+    try:
+        title = await pending
+    except Exception:  # noqa: BLE001 - the placeholder stays
+        return
+    if not title or title == placeholder:
+        return
+    async with AsyncSessionLocal() as db:
+        conversation = await db.get(Conversation, conversation_id)
+        # Only over the placeholder it was meant to replace - never over a
+        # name the user has since given it.
+        if conversation is not None and conversation.title == placeholder:
+            conversation.title = title
+            await db.commit()
+
+
+async def _settle_title(
+    conversation_id: uuid.UUID,
+    pending: "asyncio.Task[str] | None",
+    placeholder: str,
+    wait_seconds: float,
+) -> str | None:
+    """The new name if it lands within `wait_seconds` (written to the row
+    here, sent with the final event by the caller); otherwise it is written
+    in the background when it does, and the client learns it on reload."""
+    if pending is None:
+        return None
+    try:
+        title = await asyncio.wait_for(asyncio.shield(pending), timeout=wait_seconds)
+    except asyncio.TimeoutError:
+        _in_background(_store_title(conversation_id, pending, placeholder))
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+    if not title or title == placeholder:
+        return None
+    async with AsyncSessionLocal() as db:
+        conversation = await db.get(Conversation, conversation_id)
+        if conversation is not None and conversation.title == placeholder:
+            conversation.title = title
+            await db.commit()
+        else:
+            return None
+    return title
+
+
 async def _store_counterfactual(message_id: uuid.UUID, pending: "asyncio.Task[str | None]") -> None:
     try:
         text = await pending
@@ -647,6 +694,10 @@ async def send_message(
     # regenerated answer as a sibling of the QUESTION rather than a sibling
     # of the old ANSWER - one level too high in the tree.
     regenerate_answer_parent_id: uuid.UUID | None = None
+    # Set on a conversation's first turn: once the answer is in, the small
+    # model names the chat from the exchange, replacing the derived
+    # placeholder. Off the critical path; joins the final event when ready.
+    naming_turn = False
 
     flags = admin_settings.get("feature_flags") or {}
     # Rapid mode answers from what it knows and what the workspace holds -
@@ -660,7 +711,9 @@ async def send_message(
         searched at all (search off, or a quick answer to something that
         isn't time-sensitive) the cheaper retrieval rewrite is enough."""
         if web_enabled and mode != "rapid":
-            return await plan_searches(history, message)
+            plan = await plan_searches(history, message)
+            mark("plan")
+            return plan
         if web_enabled and needs_live_data(message):
             # The quick answer gets one search, for the question as typed -
             # no planner call in front of it; a weather or price question
@@ -687,6 +740,7 @@ async def send_message(
         search latency on top. So both go at once and the loser is
         discarded (by the caller)."""
         plan = await plan_task
+        mark("plan-ready")
         query = plan.retrieval_query
         web_task = (
             asyncio.create_task(gather_context(plan.queries))
@@ -704,6 +758,7 @@ async def send_message(
             if web_task is not None:
                 web_task.cancel()
             raise
+        mark("chunks")
         return query, chunks, web_task, started
 
     def _abandon(prefetch: "asyncio.Task") -> None:
@@ -962,6 +1017,8 @@ async def send_message(
         # all.
         if conversation.title is None and not history:
             conversation.title = _derive_title(effective_content)
+            # Placeholder: the first answer names it properly (see below).
+            naming_turn = True
 
         # The user's turn is the leaf now, independent of whether an answer
         # ever lands - a page reload mid-generation should show the question
@@ -1215,6 +1272,14 @@ async def send_message(
             "data": json.dumps({"message": answer_payload, "user_message": user_message_payload}),
         }
 
+        title_task: "asyncio.Task[str] | None" = (
+            asyncio.create_task(
+                name_conversation(effective_content, crux_text, conversation.title or "")
+            )
+            if naming_turn
+            else None
+        )
+
         if mode == "rapid":
             # That was the whole job. No reflection, no claims, no evidence,
             # no score, no counterfactual - the answer ships as drafted, with
@@ -1239,6 +1304,9 @@ async def send_message(
             async with AsyncSessionLocal() as profile_db:
                 if await should_rebuild_profile(profile_db, current_user.id):
                     rebuild_profile_task.delay(str(current_user.id))
+            new_title = await _settle_title(
+                conversation_id, title_task, conversation.title or "", wait_seconds=1.2
+            )
             mark("final")
             logger.info("turn timing mode=%s claims=0 %s", mode, " ".join(marks))
             yield {
@@ -1246,6 +1314,7 @@ async def send_message(
                 "data": json.dumps(
                     {
                         "message": _serialize_message(assistant_message, []).model_dump(mode="json"),
+                        "conversation_title": new_title,
                         "counterfactual_content": None,
                         "decision_review": None,
                         "thinking_review": None,
@@ -1697,8 +1766,13 @@ async def send_message(
             for c, text_as_shipped in zip(scored_claims, shipped_text)
         ]
 
+        new_title = await _settle_title(
+            conversation_id, title_task, conversation.title or "", wait_seconds=2.0
+        )
         final_payload = {
             "message": _serialize_message(assistant_message, claims_out).model_dump(mode="json"),
+            # Set on the first turn once the small model has named the chat.
+            "conversation_title": new_title,
             # Ships with the answer so the Devil's Draft opens instantly.
             "counterfactual_content": counterfactual_text,
             "decision_review": decision_review,

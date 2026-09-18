@@ -79,6 +79,9 @@ function ChipIcon({ className }: { className?: string }) {
   );
 }
 
+/** A gem, not a padlock: a locked model is a plan you can move to, and the
+ *  same mark sits on the Upgrade item in the sidebar, so the two read as
+ *  the same thing. A lock said "no"; this says "with a plan". */
 function LockIcon() {
   return (
     <svg
@@ -89,10 +92,10 @@ function LockIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="h-3 w-3 shrink-0"
+      className="h-3 w-3 shrink-0 text-brand"
     >
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      <path d="M6 3h12l4 6-10 12L2 9z" />
+      <path d="M2 9h20M9 3l3 18M15 3l-3 18" />
     </svg>
   );
 }

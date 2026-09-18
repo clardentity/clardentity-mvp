@@ -195,7 +195,7 @@ export default function Home() {
           <div className="rounded-3xl border border-hairline bg-canvas p-6">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                Tailored
+                Finder
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-band-high-border bg-band-high-bg px-2 py-0.5 text-[11px] font-medium text-band-high">
                 <span className="h-1.5 w-1.5 rounded-full bg-band-high" />

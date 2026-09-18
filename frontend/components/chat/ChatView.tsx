@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { initialMode, rememberMode } from "@/lib/lastMode";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
@@ -19,6 +19,7 @@ import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
 import { COMING_SOON_MODES, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
 import { setSmartSwitching, useSmartSwitching } from "@/lib/modeSwitching";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
+import { ModeSwitchToast } from "@/components/chat/ModeSwitchToast";
 import { RefinedQuestionCard } from "@/components/chat/RefinedQuestionCard";
 import { ClarifyingOptionsCard } from "@/components/chat/ClarifyingOptionsCard";
 import { cx } from "@/components/ui/primitives";
@@ -80,7 +81,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     to: CognitiveMode;
     content: string;
     images: PendingImage[];
+    // The gate flags the switched send carried, so answering in the old
+    // mode instead re-sends with them intact - without them the server
+    // asked the context question a second time, in the other mode.
+    flags: { contextAcknowledged: boolean; contextRounds: number; refinedConfirmed: boolean; clarifyingConfirmed: boolean };
   } | null>(null);
+  // The ten-second card over the composer right after an automatic switch
+  // (see ModeSwitchToast). Cleared when it runs out, when reverted, or when
+  // the answer it refers to is stopped.
+  const [switchToast, setSwitchToast] = useState(false);
+  // Stable, so the toast's countdown effect doesn't restart each render.
+  const dismissSwitchToast = useCallback(() => setSwitchToast(false), []);
   // Which locked mode (or model) opened the plans dialog, for its headline.
   const [upsell, setUpsell] = useState<string | null>(null);
   // "Quick answer" - the way out of a slow answer. Shown while an answer is
@@ -347,6 +358,14 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setValidatingId(null);
           setStreaming(null);
           setSending(false);
+          if (finalEvent.conversation_title) {
+            // The shell owns the sidebar row and the breadcrumb; tell it.
+            window.dispatchEvent(
+              new CustomEvent("clardentity:conversation-renamed", {
+                detail: { id: conversationId, title: finalEvent.conversation_title },
+              }),
+            );
+          }
           if (finalEvent.avatar_cue) {
             setAvatarCue({
               expression: finalEvent.avatar_cue.expression as AvatarExpression,
@@ -371,15 +390,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             // in the mode they chose meanwhile - closing the dialog without
             // choosing simply leaves them where they were.
             setUpsell(MODE_BY_VALUE[next]?.label ?? next);
-            void handleSend(content, images, sendMode, true);
+            void handleSend(
+              content, images, sendMode, true, contextAcknowledged, contextRounds,
+              undefined, refinedConfirmed, clarifyingConfirmed,
+            );
             return;
           }
           // Automatic: switch, say so, and answer. The banner under the mode
           // strip carries "answer in <old mode> instead" for as long as the
           // answer is being written.
           setMode(next);
-          setSwitchedFrom({ from: sendMode, to: next, content, images });
-          void handleSend(content, images, next, true);
+          const flags = { contextAcknowledged, contextRounds, refinedConfirmed, clarifyingConfirmed };
+          setSwitchedFrom({ from: sendMode, to: next, content, images, flags });
+          setSwitchToast(true);
+          void handleSend(
+            content, images, next, true, contextAcknowledged, contextRounds,
+            undefined, refinedConfirmed, clarifyingConfirmed,
+          );
         },
         onContextQuestion: (asked) => {
           // Nothing was written server-side, so the optimistic user message is
@@ -921,6 +948,29 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
         </div>
 
+        {switchToast && switchedFrom && (
+          <div className="shrink-0 pb-2">
+            <ModeSwitchToast
+              from={MODE_BY_VALUE[switchedFrom.from]?.label ?? switchedFrom.from}
+              to={MODE_BY_VALUE[switchedFrom.to]?.label ?? switchedFrom.to}
+              onDismiss={dismissSwitchToast}
+              onRevert={() => {
+                // Stop the answer being written in the suggested mode and
+                // ask the same question in the one they had chosen, telling
+                // the server the mode is settled so it doesn't suggest again.
+                handleStop();
+                const { from, content, images, flags } = switchedFrom;
+                setSwitchToast(false);
+                setSwitchedFrom(null);
+                setMode(from);
+                void handleSend(
+                  content, images, from, true, flags.contextAcknowledged, flags.contextRounds,
+                  undefined, flags.refinedConfirmed, flags.clarifyingConfirmed,
+                );
+              }}
+            />
+          </div>
+        )}
         {sending && slowHint && !streaming?.crux && (
           // Hovers above the composer, the way a chat app offers the short
           // version while the long one is being written.
@@ -992,7 +1042,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               </button>
             )}
           </div>
-          {switchedFrom && mode === switchedFrom.to && (
+          {switchedFrom && !switchToast && mode === switchedFrom.to && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-border bg-brand-soft px-3 py-1.5 text-xs text-ink-secondary">
               <span>
                 Switched to {MODE_BY_VALUE[switchedFrom.to]?.label ?? switchedFrom.to} - it
@@ -1007,9 +1057,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                     // server the mode is settled so it doesn't suggest again.
                     handleStop();
                     setMode(switchedFrom.from);
-                    const { from, content, images } = switchedFrom;
+                    const { from, content, images, flags } = switchedFrom;
                     setSwitchedFrom(null);
-                    void handleSend(content, images, from, true);
+                    void handleSend(
+                      content, images, from, true, flags.contextAcknowledged, flags.contextRounds,
+                      undefined, flags.refinedConfirmed, flags.clarifyingConfirmed,
+                    );
                   }}
                   className="font-medium text-brand hover:underline"
                 >

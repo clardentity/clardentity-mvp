@@ -100,8 +100,13 @@ class TestNoSelfLabelling:
         assert "Unsupported" in instructions  # named only to forbid it
         assert "do not write anything about the claim's own evidential" in instructions
 
-    def test_forbids_markdown(self):
-        assert "No Markdown" in _flat("knowing")
+    def test_names_exactly_the_formatting_the_bubble_renders(self):
+        rules = _flat("knowing")
+        # The rendered set is allowed and named; everything else is refused.
+        assert "**bold**" in rules and "hyphen bullets" in rules and "a table for a comparison" in rules
+        assert "No headings" in rules and "no HTML" in rules
+        # Asking to tabulate is binding, not a hint.
+        assert "A request to tabulate is not satisfied by prose" in rules
 
 
 class TestClaimTagStripper:

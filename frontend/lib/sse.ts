@@ -126,6 +126,10 @@ export type ChatFinalEvent = {
   counterfactual_content: string | null;
   /** What the search agent tried, when it came back empty-handed. */
   research_notes: string[];
+  /** Set on a conversation's first turn once it has been named from the
+   *  exchange (a few words about the subject, replacing the placeholder cut
+   *  from the question). Null when nothing changed. */
+  conversation_title?: string | null;
 };
 
 /** The server stopped before generating because a different mode suits the

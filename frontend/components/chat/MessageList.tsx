@@ -24,6 +24,7 @@ import { ThinkingReview } from "@/components/chat/ThinkingReview";
 import { FeedbackWidget } from "@/components/chat/FeedbackWidget";
 import { ExportFileMenu } from "@/components/chat/ExportFileMenu";
 import { cleanMessageText } from "@/lib/text";
+import { renderInline, splitBlocks } from "@/lib/markdown";
 import { cx, Spinner } from "@/components/ui/primitives";
 
 export type StreamingMessage = {
@@ -261,7 +262,14 @@ function findEvidenceForMarker(
   return null;
 }
 
+/** Citation markers become popovers, and the light formatting (bold,
+ *  italic, code) renders around them - the formatting is split first so a
+ *  marker inside a bold run still gets its pill. */
 function renderCitations(text: string, claims: Claim[], keyPrefix: string): ReactNode[] {
+  return renderInline(text, keyPrefix, (leaf, key) => renderMarkers(leaf, claims, key));
+}
+
+function renderMarkers(text: string, claims: Claim[], keyPrefix: string): ReactNode[] {
   const parts = text.split(/(\[\d+\])/g);
   return parts.map((part, i) => {
     const match = part.match(/^\[(\d+)\]$/);
@@ -311,74 +319,39 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
   return out;
 }
 
-/* Comparison tables. The model writes a comparison as plain text - a header
- * line and one line per thing, cells separated by " | " - which is exactly
- * what the prompt asks for, and the one piece of structure the plain-text
- * answer format admits. A run of two or more such lines with the same cell
- * count is rendered as a table; everything else goes through the ordinary
- * text renderer, citation markers included (inside cells too). A
- * separator row of dashes, if the model adds one, is dropped. */
-type BodyBlock = { kind: "text"; text: string } | { kind: "table"; rows: string[][] };
-
-const SEPARATOR_ROW = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
-
-function splitCells(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((c) => c.trim());
-}
-
-function isTableLine(line: string): boolean {
-  return line.includes("|") && splitCells(line).length >= 2 && !SEPARATOR_ROW.test(line);
-}
-
-function splitBodyBlocks(text: string): BodyBlock[] {
-  const lines = text.split("\n");
-  const blocks: BodyBlock[] = [];
-  let buffer: string[] = [];
-  let i = 0;
-  const flushText = () => {
-    if (buffer.length) blocks.push({ kind: "text", text: buffer.join("\n") });
-    buffer = [];
-  };
-  while (i < lines.length) {
-    if (isTableLine(lines[i])) {
-      const width = splitCells(lines[i]).length;
-      let j = i;
-      const rows: string[][] = [];
-      while (j < lines.length) {
-        if (SEPARATOR_ROW.test(lines[j])) {
-          j++;
-          continue;
-        }
-        if (!isTableLine(lines[j])) break;
-        const cells = splitCells(lines[j]);
-        if (Math.abs(cells.length - width) > 1) break;
-        rows.push(cells);
-        j++;
-      }
-      if (rows.length >= 2) {
-        flushText();
-        blocks.push({ kind: "table", rows });
-        i = j;
-        continue;
-      }
-    }
-    buffer.push(lines[i]);
-    i++;
-  }
-  flushText();
-  return blocks;
-}
-
+/* The body of an answer: paragraphs, lists and comparison tables (see
+ * lib/markdown for the set and the splitter), each run of text going
+ * through the citation-and-opinion renderer. A comparison the model wrote
+ * as pipe rows becomes a real table, markers inside the cells included. */
 function renderBody(text: string, claims: Claim[]): ReactNode {
-  const blocks = splitBodyBlocks(text);
+  const clean = cleanMessageText(text);
+  const blocks = splitBlocks(clean);
   if (blocks.length === 1 && blocks[0].kind === "text") {
-    return renderTextWithCitations(text, claims);
+    return renderTextWithCitations(clean, claims);
   }
-  return blocks.map((block, n) =>
-    block.kind === "text" ? (
-      <span key={`b${n}`}>{renderTextWithCitations(block.text, claims)}</span>
-    ) : (
+  return blocks.map((block, n) => {
+    if (block.kind === "text") {
+      return <span key={`b${n}`}>{renderTextWithCitations(block.text, claims)}</span>;
+    }
+    if (block.kind === "list") {
+      const Tag = block.ordered ? "ol" : "ul";
+      return (
+        <Tag
+          key={`b${n}`}
+          className={cx(
+            "my-1.5 space-y-1 pl-5 whitespace-normal",
+            block.ordered ? "list-decimal" : "list-disc",
+          )}
+        >
+          {block.items.map((item, i) => (
+            <li key={i} className="whitespace-pre-wrap">
+              {renderTextWithCitations(item, claims)}
+            </li>
+          ))}
+        </Tag>
+      );
+    }
+    return (
       <span key={`b${n}`} className="my-2 block overflow-x-auto whitespace-normal">
         <table className="w-full border-collapse text-left text-[13px]">
           <thead>
@@ -388,7 +361,7 @@ function renderBody(text: string, claims: Claim[]): ReactNode {
                   key={c}
                   className="border-b border-hairline-strong px-2 py-1.5 align-bottom font-semibold text-ink"
                 >
-                  {renderCitations(cleanMessageText(cell), claims, `h${n}-${c}`)}
+                  {renderCitations(cell, claims, `h${n}-${c}`)}
                 </th>
               ))}
             </tr>
@@ -398,7 +371,7 @@ function renderBody(text: string, claims: Claim[]): ReactNode {
               <tr key={r} className="border-b border-hairline last:border-b-0">
                 {row.map((cell, c) => (
                   <td key={c} className="px-2 py-1.5 align-top text-ink-secondary">
-                    {renderCitations(cleanMessageText(cell), claims, `c${n}-${r}-${c}`)}
+                    {renderCitations(cell, claims, `c${n}-${r}-${c}`)}
                   </td>
                 ))}
               </tr>
@@ -406,8 +379,8 @@ function renderBody(text: string, claims: Claim[]): ReactNode {
           </tbody>
         </table>
       </span>
-    ),
-  );
+    );
+  });
 }
 
 /* A user message can carry one or more pre-answer exchanges inside it: the

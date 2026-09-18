@@ -1,5 +1,8 @@
 "use client";
 
+import { renderInline } from "@/lib/markdown";
+import { cleanMessageText } from "@/lib/text";
+
 /** The model's own one-sentence bottom line - the first and, for most
  *  readers, the only thing they read of an answer. Not itself collapsible:
  *  it's the summary the fold exists to sit under, so it has to already be
@@ -26,7 +29,7 @@ export function CruxCard({ text }: { text: string }) {
             <path d="M19 15c.2 2 1.3 3.1 3.3 3.3-2 .2-3.1 1.3-3.3 3.3-.2-2-1.3-3.1-3.3-3.3 2-.2 3.1-1.3 3.3-3.3z" opacity="0.6" />
           </svg>
           <p className="text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
-            {text}
+            {renderInline(cleanMessageText(text), "crux")}
           </p>
         </div>
       </div>

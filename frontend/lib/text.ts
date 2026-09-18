@@ -1,24 +1,25 @@
-/* Cleaning markup out of text the bubble renders verbatim.
+/* Normalising the markup in text the bubble renders.
  *
- * The backend already does this for anything it writes, so new messages
- * arrive clean. This exists for the ones already in the database, written
- * before that - a stored `<strong>` would otherwise stay visible forever.
- * Same passes, deliberately: two implementations that disagree would show
+ * The bubble renders a small fixed set - **bold**, *italic*, `code`, hyphen
+ * bullets and numbered lists, pipe tables - and nothing else. The backend
+ * (output_cleanup.py) already normalises anything it writes to exactly that
+ * set; this is the same set of passes, applied on read, so messages stored
+ * before that exist (with HTML, headings, "•" bullets, stripped markup) show
+ * the same way as new ones. Two implementations that disagreed would show
  * old and new messages in different styles.
  */
 
 const HTML_TAG = /<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*?)?\/?>/g;
 
+// One canonical syntax each: ***x*** and __x__ become **x**, _x_ becomes
+// *x*, strikethrough is dropped, link syntax becomes "text (url)".
 // [\s\S] rather than the `s` flag: the flag needs an es2018 target and this
 // project's tsconfig is lower.
 const MARKDOWN_SPANS: Array<[RegExp, string]> = [
-  [/\*\*\*([\s\S]+?)\*\*\*/g, "$1"],
-  [/\*\*([\s\S]+?)\*\*/g, "$1"],
-  [/(?<![\w*])\*(?!\s)([\s\S]+?)(?<!\s)\*(?![\w*])/g, "$1"],
-  [/(?<![\w_])__([\s\S]+?)__(?![\w_])/g, "$1"],
-  [/(?<![\w_])_(?!\s)([\s\S]+?)(?<!\s)_(?![\w_])/g, "$1"],
+  [/\*\*\*([\s\S]+?)\*\*\*/g, "**$1**"],
+  [/(?<![\w_])__([\s\S]+?)__(?![\w_])/g, "**$1**"],
+  [/(?<![\w_])_(?!\s)([\s\S]+?)(?<!\s)_(?![\w_])/g, "*$1*"],
   [/~~([\s\S]+?)~~/g, "$1"],
-  [/`([^`]+)`/g, "$1"],
   [/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1 ($2)"],
 ];
 
@@ -37,9 +38,12 @@ export function cleanMessageText(text: string): string {
   let out = text
     .replace(/```[a-zA-Z0-9_-]*\n?/g, "")
     .replace(HTML_TAG, "")
-    .replace(/^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/gm, "$1")
+    // A heading becomes a bold line; rules and quote markers go; bullets
+    // of any flavour become the hyphen the renderer recognises.
+    .replace(/^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/gm, "**$1**")
     .replace(/^\s*(?:[-*_]\s*){3,}$/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "");
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^(\s*)[*+•]\s+(?=\S)/gm, "$1- ");
 
   for (const [pattern, replacement] of MARKDOWN_SPANS) {
     out = out.replace(pattern, replacement);

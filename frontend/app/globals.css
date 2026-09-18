@@ -554,3 +554,11 @@ body {
     animation: none;
   }
 }
+
+/* The smart-switch toast's ring: full to empty over the countdown. The
+   dasharray is the circle's circumference (2πr, r=9). */
+@keyframes mode-switch-countdown {
+  to {
+    stroke-dashoffset: 56.55;
+  }
+}

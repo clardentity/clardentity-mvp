@@ -14,12 +14,12 @@
 export const COGNITIVE_MODES = [
   {
     value: "knowing",
-    // "Tailored" (the client's name, over "Knowing" / "Verified Knowing"):
-    // the answer is fitted to your documents and your profile, and every
-    // claim in it is checked against a source.
-    label: "Tailored",
-    companion: "Tailored Companion",
-    hint: "Checked against your sources",
+    // "Finder" (the client's name, after "Knowing", "Verified Knowing" and
+    // "Tailored"): it goes and finds the answer - in your documents and on
+    // the web - and every claim in it is checked against a source.
+    label: "Finder",
+    companion: "Finder Companion",
+    hint: "Finds and checks the facts",
     when: "When you need an answer fitted to your documents and checked claim by claim.",
     cta: "Explore the unknown.",
     detail:
@@ -37,8 +37,9 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "thinking",
-    label: "Thinking-trainer",
-    companion: "Thinking-trainer Companion",
+    // "Thought coach", per the client (was "Thinking-trainer").
+    label: "Thought coach",
+    companion: "Thought coach Companion",
     hint: "Think correctly",
     when: "When you want to improve your thinking skills, not just the conclusion.",
     cta: "Try thinking it through.",
