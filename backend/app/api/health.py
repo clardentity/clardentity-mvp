@@ -50,4 +50,15 @@ async def health_check():
         "storage": _check_storage(),
     }
     overall: DependencyStatus = "ok" if all(v == "ok" for v in dependencies.values()) else "error"
-    return {"status": overall, "dependencies": dependencies}
+    # Which web search is in play - the one operational fact that is not
+    # visible from outside and that changes what answers look like: without
+    # a Tavily key the model's own (slow) search tool is used, weather and
+    # price questions mostly miss their budget, and answers say "I don't
+    # have live data". Reported so a deploy can be checked from a browser.
+    from app.services.web_research import tavily_available
+
+    return {
+        "status": overall,
+        "dependencies": dependencies,
+        "search": "tavily" if tavily_available() else "model-tool",
+    }
