@@ -140,10 +140,10 @@ export const TOURS: Record<TourId, TourStep[]> = {
       body: "Add a picture to ask about it - a diagram, a screenshot, a page.",
     },
     {
-      id: "polish",
-      target: "polish",
-      title: "Tidy your wording",
-      body: "Spelling is corrected as you type. For grammar and phrasing, press the wand - it tidies your message and you can undo it.",
+      id: "autocomplete",
+      target: "composer-input",
+      title: "It finishes your sentence",
+      body: "Spelling is corrected as you type, and after a pause a grey suggestion may appear ahead of your words. Press Shift to take it, or just keep typing.",
     },
     {
       id: "ask-button",

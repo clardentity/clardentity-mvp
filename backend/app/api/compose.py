@@ -1,78 +1,103 @@
-"""Help with the message before it is sent.
+"""Help with the message before it is sent: inline completion.
 
-The composer already corrects spelling as you type, in the browser, with
-no model. Grammar and phrasing are a different job - "me and him goes there
-tomorrow" is spelled perfectly - and the only thing that does that job well
-is a language model. So this is one explicit action, not a keystroke
-listener: the user presses the wand and the smallest model returns their
-draft with the grammar fixed and the phrasing tidied, meaning and length
-kept. Nothing is sent anywhere unless they press it.
+As the user types, the composer asks for the next few words and shows them
+in grey ahead of the caret; Shift takes them, typing on ignores them. The
+smallest model, a handful of tokens, a request only after a pause in
+typing - so it is cheap enough to run on every pause and fast enough to
+land before the next word would have been typed anyway. Spelling is
+handled in the browser without a model (lib/autocorrect); this is the
+part that needs one: knowing what the sentence is about to say.
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
 from app.models import User
-from app.services.anthropic_client import cached, generate_text, is_provider_unavailable_error
-from app.services.output_cleanup import replace_dashes
+from app.services.anthropic_client import cached, generate_text
 
 logger = logging.getLogger("clardentity.compose")
 
 router = APIRouter(prefix="/compose", tags=["compose"])
 
 _INSTRUCTIONS = (
-    "You tidy a message someone is about to send in a chat. Return the same "
-    "message with spelling, grammar and punctuation corrected and awkward "
-    "phrasing smoothed - the way a careful friend would fix it before sending.\n"
-    "Rules: keep the meaning, the facts, the names and the tone exactly; keep "
-    "it about the same length - never add content, never answer the message, "
-    "never turn a question into a statement; keep the person's own voice "
-    "(casual stays casual); keep any URLs, emails, numbers and code verbatim; "
-    "keep line breaks. If nothing needs changing, return the text unchanged. "
-    "Reply with the corrected message only - no quotes, no preamble, no notes."
+    "Someone is typing a message to an assistant and has paused mid-sentence. "
+    "Predict how their sentence continues, in their own voice, spelling "
+    "conventions and language.\n"
+    "Reply with the whole message as it will read: everything they have typed, "
+    "character for character (do not correct or reword any of it), followed "
+    "immediately by the next few words - at most 12 new words, finishing the "
+    "current sentence. A cut-off last word is finished, not repeated: 'we need "
+    "the docu' -> 'we need the documents for the visa'; 'what do we need to' -> "
+    "'what do we need to bring for the meeting?'.\n"
+    "You are completing their message, not answering it: never reply to them, "
+    "never explain, never add a second sentence. If the message already reads "
+    "as complete or you cannot tell what comes next, reply with nothing at all."
 )
 
-
-class PolishRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=4000)
+_MAX_COMPLETION_CHARS = 120
 
 
-class PolishOut(BaseModel):
-    text: str
-    changed: bool
+class CompleteRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
-@router.post("/polish", response_model=PolishOut)
-async def polish(
-    payload: PolishRequest,
+class CompleteOut(BaseModel):
+    completion: str
+
+
+_ENDS_SENTENCE = (".", "?", "!")
+_MAX_COMPLETION_WORDS = 14
+
+
+def _tidy(raw: str, text: str) -> str:
+    """The new part only. The model returns the whole sentence, typed part
+    included, so the continuation is whatever follows the typed text - which
+    settles on its own whether a space belongs in front ('docu' -> 'ments',
+    'to' -> ' bring'). A reply that does not begin with what was typed (the
+    model 'fixed' it, or answered instead of completing) is dropped: putting
+    someone's words back differently is not a suggestion."""
+    full = raw.replace("\r", "").split("\n")[0].strip().strip('"')
+    if not full:
+        return ""
+    typed = text.rstrip("\n")
+    if not full.lower().startswith(typed.lower().rstrip()):
+        return ""
+    rest = full[len(typed.rstrip()):]
+    if typed.endswith(" ") and rest.startswith(" "):
+        rest = rest.lstrip(" ")
+    if not rest.strip():
+        return ""
+    if len(rest.split()) > _MAX_COMPLETION_WORDS:
+        return ""
+    return rest[:_MAX_COMPLETION_CHARS]
+
+
+@router.post("/complete", response_model=CompleteOut)
+async def complete(
+    payload: CompleteRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
-) -> PolishOut:
-    await check_rate_limit(f"compose:polish:{current_user.id}", max_requests=30, window_seconds=300)
-    original = payload.text.strip()
+) -> CompleteOut:
+    """Empty completion, never an error, whenever nothing sensible can be
+    offered - the composer treats empty as 'no suggestion'."""
+    await check_rate_limit(f"compose:complete:{current_user.id}", max_requests=240, window_seconds=300)
+    text = payload.text
+    # A finished sentence needs no finishing - and asking anyway got answers.
+    if len(text.split()) < 3 or text.rstrip().endswith(_ENDS_SENTENCE):
+        return CompleteOut(completion="")
     try:
         raw = await generate_text(
             instructions=cached(_INSTRUCTIONS),
-            input_text=original,
+            input_text=text,
             model=settings.anthropic_rapid_model,
             fast=True,
         )
-    except Exception as exc:  # noqa: BLE001 - never surfaces a vendor message
-        logger.warning("polish failed", exc_info=True)
-        detail = (
-            "You've reached today's limit for responses. Please try again in a little while."
-            if is_provider_unavailable_error(exc)
-            else "Couldn't tidy that just now. Your message is unchanged."
-        )
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
-    text = replace_dashes(raw.strip().strip('"')) or original
-    # A rewrite that doubled in length or shrank to a fragment did not follow
-    # the brief; the draft is safer than the "fix".
-    if not 0.5 <= len(text) / max(len(original), 1) <= 1.8:
-        text = original
-    return PolishOut(text=text, changed=text != original)
+    except Exception:  # noqa: BLE001 - a suggestion is a nicety
+        logger.debug("completion failed", exc_info=True)
+        return CompleteOut(completion="")
+    return CompleteOut(completion=_tidy(raw, text))

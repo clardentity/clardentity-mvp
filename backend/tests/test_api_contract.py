@@ -1211,9 +1211,22 @@ class TestMoveConversation:
                     await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {t}"})
 
 
-class TestPolishRoute:
-    def test_polish_is_registered_and_shaped(self):
+class TestCompleteRoute:
+    def test_complete_is_registered_and_shaped(self):
         spec = app.openapi()
-        assert f"{API}/compose/polish" in spec["paths"]
-        out = spec["components"]["schemas"]["PolishOut"]["properties"]
-        assert "text" in out and "changed" in out
+        assert f"{API}/compose/complete" in spec["paths"]
+        assert "completion" in spec["components"]["schemas"]["CompleteOut"]["properties"]
+
+    def test_tidy_returns_only_what_follows_the_typed_text(self):
+        from app.api.compose import _tidy
+
+        # A new word after a finished one keeps its space...
+        assert _tidy("what documents do we need to bring for the meeting?", "what documents do we need to") == " bring for the meeting?"
+        # ...a cut-off word is finished without one.
+        assert _tidy("we need the documents for the visa", "we need the docu") == "ments for the visa"
+        # Case-insensitive on the typed part; typed trailing space respected.
+        assert _tidy("How does compound interest work?", "how does compound interest ") == "work?"
+        # A reply that rewrote the typed text, or answered instead, is dropped.
+        assert _tidy("what documents do we need to bring", "what documnts do we need to") == ""
+        assert _tidy("I don't have access to real-time weather data", "Will it rain in") == ""
+        assert _tidy("hello there friend\n\nSecond line", "hello there friend") == ""
