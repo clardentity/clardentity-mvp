@@ -7,8 +7,9 @@ import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
  * it happens: "Switched to Decision-making" over the composer while the new
  * answer is being written, with a ring counting ten seconds down and one
  * button to stop that answer and have the question answered in the mode you
- * had chosen instead. When the ring runs out the card goes; the way back
- * for the *next* question stays in the banner. */
+ * had chosen instead ("Stay in Finder", the client's wording). When the
+ * ring runs out the card goes; the way back for the *next* question stays
+ * in the banner. */
 
 const SECONDS = 10;
 const R = 9;
@@ -82,7 +83,7 @@ export function ModeSwitchToast({
         onClick={onRevert}
         className="shrink-0 rounded-lg border border-brand-border bg-surface px-2.5 py-1 text-xs font-medium text-brand transition-colors hover:bg-surface-hover"
       >
-        Keep {from}
+        Stay in {from}
       </button>
     </div>
   );

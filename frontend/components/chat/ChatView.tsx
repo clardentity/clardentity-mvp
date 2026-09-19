@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
-import { initialMode, rememberMode } from "@/lib/lastMode";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import {
   streamChatMessage,
@@ -16,7 +15,7 @@ import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
-import { COMING_SOON_MODES, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
+import { COMING_SOON_MODES, DEFAULT_MODE, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
 import { setSmartSwitching, useSmartSwitching } from "@/lib/modeSwitching";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
 import { ModeSwitchToast } from "@/components/chat/ModeSwitchToast";
@@ -60,12 +59,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // Distinct from "no messages". Without it, reopening a chat rendered the
   // "Start a chat" empty state for the second or two the fetch took.
   const [loadingHistory, setLoadingHistory] = useState(true);
-  // Never null in practice: a chat opens in the mode this device last used
-  // (else the default), so the box is ready to type in the moment the page
-  // is. The conversation's own remembered mode, if it has one, replaces it
-  // once history loads. The type keeps `null` only because ModeSelector and
-  // the gates below still speak it.
-  const [mode, setMode] = useState<CognitiveMode | null>(() => initialMode());
+  // Never null in practice: a new chat opens in Finder, always - not in
+  // whatever this device last used, which had a Decision-making chat
+  // reopening the composer in Decision-making and read as the wrong
+  // default. A chat's own remembered mode, if it has one, replaces it once
+  // history loads. The type keeps `null` only because ModeSelector and the
+  // gates below still speak it.
+  const [mode, setMode] = useState<CognitiveMode | null>(DEFAULT_MODE);
   // Smart switching: the companion may stop and propose a better-suited mode
   // before answering. Manual: never. See lib/modeSwitching.
   const smartSwitching = useSmartSwitching();
@@ -237,7 +237,6 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   ) {
     const sendMode = modeOverride ?? mode;
     if (!sendMode) return;
-    rememberMode(sendMode);
     setPendingContext(null);
     setPendingRefined(null);
     setPendingClarifyingOptions(null);

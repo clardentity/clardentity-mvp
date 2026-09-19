@@ -1209,3 +1209,11 @@ class TestMoveConversation:
             async with client() as c:
                 for t in tokens:
                     await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {t}"})
+
+
+class TestPolishRoute:
+    def test_polish_is_registered_and_shaped(self):
+        spec = app.openapi()
+        assert f"{API}/compose/polish" in spec["paths"]
+        out = spec["components"]["schemas"]["PolishOut"]["properties"]
+        assert "text" in out and "changed" in out

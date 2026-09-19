@@ -140,6 +140,12 @@ export const TOURS: Record<TourId, TourStep[]> = {
       body: "Add a picture to ask about it - a diagram, a screenshot, a page.",
     },
     {
+      id: "polish",
+      target: "polish",
+      title: "Tidy your wording",
+      body: "Spelling is corrected as you type. For grammar and phrasing, press the wand - it tidies your message and you can undo it.",
+    },
+    {
       id: "ask-button",
       target: "ask-button",
       title: "Ask",

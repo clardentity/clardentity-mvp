@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
 from app.api.audio import router as audio_router
+from app.api.compose import router as compose_router
 from app.api.auth import router as auth_router
 from app.api.biases import router as biases_router
 from app.api.chat import router as chat_router
@@ -46,5 +47,6 @@ app.include_router(memory_router, prefix=API_PREFIX)
 app.include_router(validation_router, prefix=API_PREFIX)
 app.include_router(admin_router, prefix=API_PREFIX)
 app.include_router(audio_router, prefix=API_PREFIX)
+app.include_router(compose_router, prefix=API_PREFIX)
 app.include_router(realtime_router, prefix=API_PREFIX)
 app.include_router(pro_router, prefix=API_PREFIX)

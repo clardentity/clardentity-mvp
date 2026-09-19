@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { autocorrectSupported, fixAtBoundary, loadSpeller, type Fix, type Speller } from "@/lib/autocorrect";
+import { apiFetch } from "@/lib/apiClient";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { cx } from "@/components/ui/primitives";
@@ -72,6 +73,49 @@ export function MessageInput({
   const ignoreRef = useRef<Set<string>>(new Set());
   const [lastFix, setLastFix] = useState<Fix | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
+  /* The wand: grammar and phrasing, on request, by the smallest model
+     (POST /compose/polish). Spelling is handled as you type without one;
+     grammar can't be, and nobody wants a model reading every keystroke, so
+     this is one press. The result replaces the draft and can be undone -
+     "Polished · Undo" in the same chip as autocorrect uses. */
+  const [polishing, setPolishing] = useState(false);
+  const [polished, setPolished] = useState<{ from: string; to: string } | null>(null);
+  const [polishNote, setPolishNote] = useState<string | null>(null);
+
+  async function handlePolish() {
+    const draft = value.trim();
+    if (!draft || polishing || disabled) return;
+    setPolishing(true);
+    setPolishNote(null);
+    try {
+      const res = await apiFetch<{ text: string; changed: boolean }>("/compose/polish", {
+        method: "POST",
+        body: { text: draft },
+      });
+      if (!res.changed) {
+        setPolishNote("Reads fine as it is.");
+        return;
+      }
+      setPolished({ from: value, to: res.text });
+      setLastFix(null);
+      pendingCaretRef.current = res.text.length;
+      onChange(res.text);
+    } catch {
+      setPolishNote("Couldn't tidy that just now - your message is unchanged.");
+    } finally {
+      setPolishing(false);
+    }
+  }
+
+  function undoPolish() {
+    if (!polished || value !== polished.to) {
+      setPolished(null);
+      return;
+    }
+    pendingCaretRef.current = polished.from.length;
+    setPolished(null);
+    onChange(polished.from);
+  }
 
   useEffect(() => {
     const el = taRef.current;
@@ -111,6 +155,8 @@ export function MessageInput({
       }
     }
     if (lastFix && newValue !== lastFix.text) setLastFix(null);
+    if (polished && newValue !== polished.to) setPolished(null);
+    if (polishNote) setPolishNote(null);
     onChange(newValue);
     onTypingChange?.(newValue.trim().length > 0);
   }
@@ -293,6 +339,35 @@ export function MessageInput({
             className="hidden"
           />
 
+          <button
+            type="button"
+            data-tour="polish"
+            onClick={() => void handlePolish()}
+            disabled={disabled || polishing || value.trim().split(/\s+/).length < 3}
+            title="Tidy grammar and phrasing"
+            aria-label="Tidy grammar and phrasing"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {polishing ? (
+              <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className="h-4 w-4"
+              >
+                {/* A wand with a spark: tidy this. */}
+                <path d="M15 4V2M15 10V8M11 6H9M21 6h-2M17.5 3.5l-1 1M17.5 8.5l-1-1M12.5 3.5l1 1M12.5 8.5l1-1" />
+                <path d="M3 21 14 10" />
+              </svg>
+            )}
+          </button>
+
           {/* Pushed to the right edge of the control row on mobile; on
               desktop `sm:contents` has removed this wrapper, so the margin
               would misalign it against the textarea - hence sm:ml-0.
@@ -357,7 +432,16 @@ export function MessageInput({
           three visible lines on a phone to explain a chord that phone has no
           way to type. Kept for pointer devices, where it is discoverable and
           free. */}
-      {lastFix && value === lastFix.text ? (
+      {polished && value === polished.to ? (
+        <p className="flex items-center gap-2 text-[11px] text-ink-muted">
+          <span>Tidied grammar and phrasing.</span>
+          <button type="button" onClick={undoPolish} className="font-medium text-brand hover:underline">
+            Undo
+          </button>
+        </p>
+      ) : polishNote ? (
+        <p className="text-[11px] text-ink-muted">{polishNote}</p>
+      ) : lastFix && value === lastFix.text ? (
         <p className="flex items-center gap-2 text-[11px] text-ink-muted">
           <span>
             Corrected <s className="text-ink-muted/70">{lastFix.from}</s> to{" "}

@@ -93,7 +93,8 @@ export const COGNITIVE_MODES = [
   },
   {
     value: "legal",
-    label: "Legal Companion",
+    // "Legal", not "Legal Companion": no other pill carries the word.
+    label: "Legal",
     companion: "Legal Companion",
     hint: "Understand where you stand",
     when: "When you need a legal situation explained in plain language before you speak to a professional.",
