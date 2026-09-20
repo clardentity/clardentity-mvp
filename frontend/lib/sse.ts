@@ -168,6 +168,13 @@ export type ChatStreamHandlers = {
   /** The model's leading one-sentence bottom line, sent the moment it's
    *  complete - before any body text - so it can be shown first. */
   onCrux?: (text: string) => void;
+  /** The verdict box (Decision: the decisions judged; Thought coach: how to
+   *  think about it), sent as soon as it's ready - usually before the gist -
+   *  so it leads the bubble from the first moment. */
+  onReview?: (review: {
+    decision_review?: DecisionReviewData | null;
+    thinking_review?: ThinkingReviewData | null;
+  }) => void;
   /** The answer is written and saved, but not yet analysed. Fires well before
    *  `onFinal` - claim verification and scoring take several seconds - and is
    *  the point at which the composer should become usable again.
@@ -352,6 +359,7 @@ function handleRawEvent(raw: string, handlers: ChatStreamHandlers) {
     const parsed = JSON.parse(data);
     if (eventType === "delta") handlers.onDelta(parsed.text);
     else if (eventType === "crux") handlers.onCrux?.(parsed.text);
+    else if (eventType === "review") handlers.onReview?.(parsed);
     else if (eventType === "answer") handlers.onAnswer(parsed.message, parsed.user_message);
     else if (eventType === "status") handlers.onStatus?.(parsed);
     else if (eventType === "final") handlers.onFinal(parsed);

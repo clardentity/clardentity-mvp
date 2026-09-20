@@ -260,37 +260,73 @@ def extract_crux(full_text: str) -> tuple[str | None, str]:
     return match.group(1).strip(), full_text[match.end():]
 
 
-# A sentence: up to the first ./!/? that is followed by whitespace and a
-# capital (or by the end), so "2.5 percent" and "U.S. rules" don't cut it
-# short while "in 1947. Then" does.
-_FIRST_SENTENCE_RE = re.compile(r"^\s*(.+?[.!?])(?=\s+[A-Z\"'(\[]|\s*$)", re.DOTALL)
-_FIRST_CLAIM_RE = re.compile(
-    r'^\s*<claim id="\d+"(?: opinion="true")?>(.*?)</claim>\s*', re.DOTALL
+# A sentence: up to the first ./!/? that is followed by whitespace and the
+# start of something new - a capital, a quote, a bracket, a digit, a claim
+# tag or inline markup - or by the end, so "2.5 percent" and "U.S. rules"
+# don't cut it short while "in 1947. Then" and "cheap. <claim" do.
+_FIRST_SENTENCE_RE = re.compile(
+    r"^\s*(.+?[.!?])(?=\s+[A-Z0-9\"'(\[<*_]|\s*$)", re.DOTALL
 )
+_FIRST_CLAIM_RE = re.compile(r"^\s*<claim\b[^>]*>(.*?)</claim>\s*", re.DOTALL)
+# Decoration the model sometimes hangs on its opening line - a heading
+# marker, a list marker, a bold wrapper - none of which is part of the gist.
+_LEAD_DECORATION_RE = re.compile(r"^(?:#{1,6}\s+|[-*\u2022]\s+|\d+[.)]\s+)?(\*\*|__)?")
+_BOLD_WRAP_RE = re.compile(r"^(?:\*\*|__)(.+?)(?:\*\*|__)$", re.DOTALL)
 
 
 def split_leading_sentence(full_text: str) -> tuple[str | None, str]:
-    """Fallback for an answer that opens with no <crux> block: peel the first
-    claim off the front and hand it back as the crux, on the grounds that the
-    first sentence of an answer written to lead with its bottom line *is* the
-    bottom line. Used only where the prompt asked for exactly that shape
-    (rapid mode) and only when there is more to the answer than that one
-    sentence - a one-liner is its own gist. Returns (None, full_text) when
-    nothing sensible can be split."""
-    match = _FIRST_CLAIM_RE.match(full_text)
-    if match:
-        rest = full_text[match.end():]
-        if not rest.strip():
-            return None, full_text
-        return match.group(1).strip(), rest
-    # Untagged prose (the quick answer writes none): the first sentence.
-    sentence = _FIRST_SENTENCE_RE.match(full_text)
-    if not sentence:
+    """Fallback for an answer that opens with no <crux> block: peel the
+    opening statement off the front and hand it back as the crux, on the
+    grounds that the first sentence of an answer written to lead with its
+    bottom line *is* the bottom line.
+
+    The opening statement is the first claim tag, else the first sentence,
+    else the whole first line when the answer goes on below it - after any
+    heading marker, list marker or bold wrapper the model dressed it in.
+    Only splits when there is more to the answer than that one statement
+    (a one-liner is its own gist). Returns (None, full_text) when nothing
+    sensible can be split."""
+    body = full_text.lstrip()
+    if not body:
         return None, full_text
-    rest = full_text[sentence.end():]
-    if not rest.strip():
+    first_line, newline, later_lines = body.partition("\n")
+    decoration = _LEAD_DECORATION_RE.match(first_line)
+    line = first_line[decoration.end():]
+    if decoration.group(1):
+        # "**Take the offer.** The maths..." - the bold span is the gist.
+        close = line.find(decoration.group(1))
+        if close > 0:
+            gist, rest_of_line = line[:close], line[close + 2:]
+            return _split_result(full_text, gist, rest_of_line, newline, later_lines)
+    claim = _FIRST_CLAIM_RE.match(line)
+    if claim:
+        return _split_result(
+            full_text, claim.group(1), line[claim.end():], newline, later_lines
+        )
+    sentence = _FIRST_SENTENCE_RE.match(line)
+    if sentence:
+        return _split_result(
+            full_text, sentence.group(1), line[sentence.end():], newline, later_lines
+        )
+    if newline:
+        # No terminal punctuation on the first line, but the answer carries
+        # on beneath it: the line is a headline, and the headline is the gist.
+        return _split_result(full_text, line, "", newline, later_lines)
+    return None, full_text
+
+
+def _split_result(
+    full_text: str, gist: str, rest_of_line: str, newline: str, later_lines: str
+) -> tuple[str | None, str]:
+    gist = gist.strip()
+    wrapped = _BOLD_WRAP_RE.match(gist)
+    if wrapped:
+        gist = wrapped.group(1).strip()
+    gist = strip_claim_tags(gist).strip()
+    rest = (rest_of_line + newline + later_lines).lstrip()
+    if not gist or not rest.strip():
         return None, full_text
-    return sentence.group(1).strip(), rest
+    return gist, rest
 
 
 def strip_claim_tags(full_text: str) -> str:

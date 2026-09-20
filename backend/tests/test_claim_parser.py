@@ -228,7 +228,48 @@ class TestSplitLeadingSentence:
         from app.services.claim_parser import split_leading_sentence
 
         # The quick answer writes no tags; its first sentence is the gist.
-        assert split_leading_sentence("Plain prose.\nMore.") == ("Plain prose.", "\nMore.")
+        assert split_leading_sentence("Plain prose.\nMore.") == ("Plain prose.", "More.")
+
+    def test_a_bold_opening_line_is_the_gist_without_the_stars(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = '**Take the Bangalore option.** <claim id="1">Rent is high.</claim>'
+        assert split_leading_sentence(text) == (
+            "Take the Bangalore option.",
+            '<claim id="1">Rent is high.</claim>',
+        )
+        wrapped = '<claim id="1">**Take it.**</claim> <claim id="2">Rent is high.</claim>'
+        assert split_leading_sentence(wrapped)[0] == "Take it."
+
+    def test_a_headline_without_punctuation_is_the_gist(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = 'Stay in Bangalore for now\n\n<claim id="1">Rent is high.</claim>'
+        assert split_leading_sentence(text) == (
+            "Stay in Bangalore for now",
+            '<claim id="1">Rent is high.</claim>',
+        )
+        heading = '## Stay in Bangalore\n\n<claim id="1">Rent is high.</claim>'
+        assert split_leading_sentence(heading)[0] == "Stay in Bangalore"
+
+    def test_a_list_opener_gives_up_its_first_item(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = '- <claim id="1">Rent is high.</claim>\n- <claim id="2">Schools cost more.</claim>'
+        assert split_leading_sentence(text) == (
+            "Rent is high.",
+            '- <claim id="2">Schools cost more.</claim>',
+        )
+
+    def test_a_sentence_followed_by_a_claim_tag_or_digit_still_splits(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        assert split_leading_sentence('Take it. <claim id="1">Rent is high.</claim>')[0] == "Take it."
+        assert split_leading_sentence("Independence came in 1947. 2 years later a constitution followed.") == (
+            "Independence came in 1947.",
+            "2 years later a constitution followed.",
+        )
+        assert split_leading_sentence("A 2.5 percent rise is small. Then rent.")[0] == "A 2.5 percent rise is small."
         # Abbreviations and decimals don't end a sentence.
         crux, rest = split_leading_sentence("Rates were 2.5 percent under U.S. rules. Then they rose.")
         assert crux == "Rates were 2.5 percent under U.S. rules." and rest.strip() == "Then they rose."

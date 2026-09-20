@@ -8,6 +8,8 @@ import {
   type ChatMessage,
   type RefinedQuestionSuggestion,
   type ClarifyingOptionsSuggestion,
+  type DecisionReviewData,
+  type ThinkingReviewData,
 } from "@/lib/sse";
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
@@ -106,6 +108,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const lastSendRef = useRef<{ content: string; images: PendingImage[]; mode: CognitiveMode } | null>(
     null,
   );
+  // The verdict box that arrived during streaming, until "final" writes it
+  // onto the message itself.
+  const earlyReviewRef = useRef<{
+    decision_review?: DecisionReviewData | null;
+    thinking_review?: ThinkingReviewData | null;
+  } | null>(null);
   const [streaming, setStreaming] = useState<StreamingMessage | null>(null);
   const [sending, setSending] = useState(false);
   // The message whose claims are still being verified. It is already on
@@ -277,6 +285,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     if (userMessage) setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: sendMode, content: "" });
     lastSendRef.current = { content, images, mode: sendMode };
+    earlyReviewRef.current = null;
     setSlowHint(false);
 
     hasAnsweredRef.current = false;
@@ -310,6 +319,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // under the hood (the rabbit only ever says Thinking).
           if (status.phase === "slow" && sendMode !== "rapid") setSlowHint(true);
         },
+        onReview: (review) => {
+          // Kept aside as well: the "answer" event's message carries no
+          // review yet (it is written to the row at "final"), and swapping
+          // the streaming bubble for it made the box vanish for the length
+          // of the verification and reappear - the exact flicker the order
+          // change was meant to remove.
+          earlyReviewRef.current = review;
+          setStreaming((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  decisionReview: review.decision_review ?? prev.decisionReview ?? null,
+                  thinkingReview: review.thinking_review ?? prev.thinkingReview ?? null,
+                }
+              : prev,
+          );
+        },
         onCrux: (text) => {
           setSlowHint(false);
           setStreaming((prev) => (prev ? { ...prev, crux: text } : prev));
@@ -338,7 +364,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               userMessage && realUserMessage
                 ? prev.map((m) => (m.id === userMessage.id ? realUserMessage : m))
                 : prev;
-            return [...withRealUser, message];
+            const early = earlyReviewRef.current;
+            const carried = early
+              ? {
+                  ...message,
+                  decision_review: message.decision_review ?? early.decision_review ?? null,
+                  thinking_review: message.thinking_review ?? early.thinking_review ?? null,
+                }
+              : message;
+            return [...withRealUser, carried];
           });
           setStreaming(null);
           setSending(false);

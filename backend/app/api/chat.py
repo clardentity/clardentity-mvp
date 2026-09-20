@@ -133,6 +133,12 @@ _PRE_SEARCH_BUDGET_SECONDS = 10.0
 # textbook history answer). Agents run concurrently, so this is a wall-clock
 # cap on the phase, not a per-claim one.
 _RESEARCH_DEADLINE_SECONDS = 45.0
+# How long a finished answer waits for the verdict box (Decision-making /
+# Thought coach) before going out without it. The box normally lands well
+# before the last token; this is for the short answer that beats it, so the
+# box still fills the slot the client is holding rather than dropping in
+# above an answer already being read.
+_REVIEW_GRACE_SECONDS = 4.0
 
 # Openers that carry no information about the subject. Stripped so the title
 # starts on the actual topic - "Hi, what's the difference between X and Y"
@@ -1054,6 +1060,32 @@ async def send_message(
     if mode == "decision":
         decision = await decision_task
 
+    # The verdict box - "One decision that's correct..." in Decision mode,
+    # "How to think about this" in Thought coach - reads only the question,
+    # so it need not wait for the answer. It used to run in the post-answer
+    # fan-out and drop into the top of the bubble several seconds after the
+    # gist and journey were already on screen, which read as the wrong
+    # order. Started here, before generation, and sent the moment it lands
+    # (see the `review` event in the stream), it is the first thing shown -
+    # the client's Option 2: box, gist, journey. Thought coach pays for the
+    # classification it needs here rather than later; it has been running
+    # since before the gates and is normally done.
+    review_task: "asyncio.Task[dict | None] | None" = None
+    thinking_task: "asyncio.Task[dict | None] | None" = None
+    if mode in ("decision", "thinking"):
+        try:
+            early_decision = await decision_task
+        except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
+            early_decision = NO_DECISION
+        if mode == "decision":
+            review_task = asyncio.create_task(
+                review_decisions(effective_content, early_decision.bias_category_id)
+            )
+        else:
+            thinking_task = asyncio.create_task(
+                review_thinking(effective_content, early_decision.bias_category_id)
+            )
+
     # Started alongside the gates above; by now it has usually finished the
     # retrieval and is some way into the search.
     retrieval_query, chunks, web_task, search_started = await prefetch_task
@@ -1104,6 +1136,28 @@ async def send_message(
         full_text = ""
         stripper = ClaimTagStripper()
         crux_splitter = CruxSplitter()
+
+        # The verdict box, sent once, the first moment it is ready - checked
+        # before the first token and between tokens, so it goes out ahead
+        # of the gist when it can (it usually can: ~3s against ~5s).
+        review_sent = False
+
+        def review_event() -> dict | None:
+            nonlocal review_sent
+            if review_sent:
+                return None
+            pending = review_task or thinking_task
+            if pending is None or not pending.done():
+                return None
+            review_sent = True
+            try:
+                result = pending.result()
+            except Exception:  # noqa: BLE001 - the box is optional
+                return None
+            if not result:
+                return None
+            key = "decision_review" if review_task is not None else "thinking_review"
+            return {"event": "review", "data": json.dumps({key: result})}
 
         # An early warning the client acts on: this answer is going to be a
         # long one, so offer the quick way out now rather than after a fixed
@@ -1166,6 +1220,14 @@ async def send_message(
             ),
         }
 
+        # Sent first if it is already in hand; otherwise the client holds its
+        # slot at the top of the bubble and it fills in when it lands (the
+        # review is a ~10s judgement; the gist must not wait on it).
+        early = review_event()
+        if early:
+            mark("review")
+            yield early
+
         try:
             async for event in stream_generation(
                 instructions=instructions,
@@ -1175,6 +1237,10 @@ async def send_message(
                 input_images=input_images,
             ):
                 if event["type"] == "delta":
+                    late = review_event()
+                    if late:
+                        mark("review")
+                        yield late
                     full_text += event["text"]
                     # The leading one-sentence crux goes out as its own event
                     # the moment it closes, and never as body text - the
@@ -1229,12 +1295,15 @@ async def send_message(
         # none of them can reintroduce or duplicate it.
         mark("generated")
         crux_text, full_text = extract_crux(full_text)
-        if mode == "rapid" and crux_text is None:
-            # The fast model sometimes skips the <crux> wrapper. The brief
-            # asked for the bottom line first, so the first sentence is it -
-            # and the gist card is most of what rapid mode shows, so an
-            # answer without one would read as a wall of text.
+        if crux_text is None:
+            # The model sometimes skips the <crux> wrapper (the fast model
+            # in particular). Every brief asks for the bottom line first, so
+            # the first sentence is it - and without a gist there is no
+            # gist card and no fold, and the answer lands as a wall of text
+            # in an order nobody asked for.
             crux_text, full_text = split_leading_sentence(full_text)
+            if crux_text is None:
+                logger.warning("no gist could be derived; answer opens with: %r", full_text[:160])
         draft_display_text = clean_output(strip_claim_tags(full_text))
 
         async with AsyncSessionLocal() as answer_db:
@@ -1266,6 +1335,16 @@ async def send_message(
             await answer_db.refresh(assistant_message)
             assistant_message_id = assistant_message.id
             answer_payload = _serialize_message(assistant_message, []).model_dump(mode="json")
+
+        # A short answer can finish before the box does; give it a moment so
+        # the two arrive in the order they are shown.
+        pending_review = review_task or thinking_task
+        if pending_review is not None and not review_sent:
+            await asyncio.wait({pending_review}, timeout=_REVIEW_GRACE_SECONDS)
+            late = review_event()
+            if late:
+                mark("review")
+                yield late
 
         yield {
             "event": "answer",
@@ -1372,23 +1451,6 @@ async def send_message(
             decision_result = NO_DECISION
         bias_category_id = decision_result.bias_category_id
 
-        # Looks only at the question and the chosen mode, so it does not wait
-        # on the answer - it is in this fan-out purely so its latency lands
-        # inside the post-answer window rather than after it.
-        # Decision mode only: judging options nobody listed is a call spent to
-        # return null.
-        review_task = (
-            asyncio.create_task(review_decisions(effective_content, bias_category_id))
-            if mode == "decision"
-            else None
-        )
-        # Thinking mode's replacement for the evidence panel, on the same
-        # terms: one fast call in the fan-out, null when it has nothing.
-        thinking_task = (
-            asyncio.create_task(review_thinking(effective_content, bias_category_id))
-            if mode == "thinking"
-            else None
-        )
         counterfactual_task = (
             asyncio.create_task(generate_counterfactual(draft_display_text))
             if draft_display_text

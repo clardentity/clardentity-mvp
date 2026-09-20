@@ -33,6 +33,9 @@ export type StreamingMessage = {
   /** Arrives before any body text (its own SSE event), so the gist is the
    *  first thing on screen and the body streams in behind the fold. */
   crux?: string | null;
+  /** The verdict box, when its event has landed - normally before the gist. */
+  decisionReview?: DecisionReviewData | null;
+  thinkingReview?: ThinkingReviewData | null;
 };
 
 export function MessageList({
@@ -198,7 +201,7 @@ export function MessageList({
           wait is the rabbit; the body text that streams in meanwhile is
           accumulated (so cancelling mid-way still has it) but never shown
           token by token - the finished answer replaces this all at once. */}
-      {busy && !streaming?.crux && (
+      {busy && !streaming?.crux && !streaming?.decisionReview && !streaming?.thinkingReview && (
         <div className="flex justify-start">
           <div className="rounded-2xl rounded-bl-md border border-hairline bg-surface px-4 py-3">
             <ThinkingIndicator />
@@ -208,7 +211,7 @@ export function MessageList({
       {/* The bubble appears as soon as there is a gist to show - the gist is
           the first thing read, and the rest is still being written behind
           it (the rabbit says so, under the card). */}
-      {streaming?.crux && (
+      {(streaming?.crux || streaming?.decisionReview || streaming?.thinkingReview) && (
         <MessageBubble
           id="streaming"
           role="assistant"
@@ -218,6 +221,8 @@ export function MessageList({
           confidenceBand={null}
           claims={[]}
           crux={streaming.crux ?? null}
+          decisionReview={streaming.decisionReview ?? null}
+          thinkingReview={streaming.thinkingReview ?? null}
           isStreaming
         />
       )}
@@ -671,16 +676,30 @@ function MessageBubble({
             gist (the client's order: verdict box, then the one-line answer,
             then the journey folded beneath), with the raw paragraph text
             tucked behind a mode-named expand toggle below. */}
-        {!isUser && !isStreaming && panel === "thinking" && thinkingReview && (
+        {!isUser && panel === "thinking" && thinkingReview && (
           <ThinkingReview review={thinkingReview} />
         )}
-        {!isUser && !isStreaming && panel === "decision" && decisionReview && (
+        {!isUser && panel === "decision" && decisionReview && (
           <DecisionReview review={decisionReview} />
         )}
+        {/* The box's slot, held while it is still being written, so the
+            order box -> gist -> journey is visible from the first frame
+            rather than the box dropping in above things already read. */}
+        {!isUser &&
+          isStreaming &&
+          ((panel === "decision" && !decisionReview) || (panel === "thinking" && !thinkingReview)) && (
+            <div className="mb-2.5 rounded-xl border border-dashed border-hairline-strong px-3 py-2.5">
+              <ThinkingIndicator
+                compact
+                label={panel === "decision" ? "Weighing the decisions" : "Working out how to think about this"}
+              />
+            </div>
+          )}
         {hasCrux && <CruxCard text={crux as string} />}
-        {hasCrux && isStreaming && (
+        {isStreaming && (hasCrux || decisionReview || thinkingReview) && (
           // The rest is still being written, out of sight. No fold yet -
-          // there's nothing finished behind it to open.
+          // there's nothing finished behind it to open. (While only the
+          // box's held slot is showing, that slot carries the rabbit.)
           <ThinkingIndicator compact />
         )}
         {hasCrux && !isStreaming && (
