@@ -790,7 +790,7 @@ function MessageBubble({
             front={
               // div, not p: a comparison renders as a real <table>, which
               // cannot live inside a paragraph element.
-              <div className="whitespace-pre-wrap leading-relaxed">{renderBody(content, claims)}</div>
+              <div className="whitespace-pre-wrap break-words leading-relaxed">{renderBody(content, claims)}</div>
             }
           />
         )}

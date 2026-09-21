@@ -230,7 +230,10 @@ class CruxSplitter:
             self._trim_leading = True
             rest = self._held[match.end():]
             self._held = ""
-            return match.group(1).strip(), self._pass(rest)
+            gist, overflow = fit_gist(match.group(1))
+            if overflow:
+                rest = overflow + "\n\n" + rest
+            return gist, self._pass(rest)
         # Nothing but whitespace so far, a partial "<cru", or an opened block
         # that hasn't closed yet: keep holding.
         if not stripped or self._OPEN.startswith(stripped[: len(self._OPEN)]):
@@ -257,7 +260,33 @@ def extract_crux(full_text: str) -> tuple[str | None, str]:
     match = _CRUX_RE.match(full_text)
     if not match:
         return None, full_text
-    return match.group(1).strip(), full_text[match.end():]
+    gist, overflow = fit_gist(match.group(1))
+    rest = full_text[match.end():]
+    if overflow:
+        rest = overflow + "\n\n" + rest
+    return gist, rest
+
+
+# The gist is one sentence. The prompt says so, and the model mostly obeys,
+# but a Decision-making answer has been seen to hand back its whole opening
+# paragraph as the crux - citations and all - which the client then showed
+# in the gist card as if it were the summary. Whatever arrives as the gist
+# is cut to its first sentence here, the overflow goes back to the body, and
+# citation markers (which the gist is not allowed to carry) are dropped.
+_CITATION_MARKER_RE = re.compile(r"\s*\[\d+\]")
+
+
+def fit_gist(text: str) -> tuple[str, str]:
+    """Returns (gist, overflow): the first sentence of `text`, tag- and
+    citation-free, and whatever followed it (tag-free too, so a claim
+    that was split does not leave half a tag behind)."""
+    plain = strip_claim_tags(text).strip()
+    sentence = _FIRST_SENTENCE_RE.match(plain)
+    if sentence and plain[sentence.end():].strip():
+        gist, overflow = sentence.group(1), plain[sentence.end():]
+    else:
+        gist, overflow = plain, ""
+    return _CITATION_MARKER_RE.sub("", gist).strip(), overflow.strip()
 
 
 # A sentence: up to the first ./!/? that is followed by whitespace and the
@@ -267,7 +296,7 @@ def extract_crux(full_text: str) -> tuple[str | None, str]:
 _FIRST_SENTENCE_RE = re.compile(
     r"^\s*(.+?[.!?])(?=\s+[A-Z0-9\"'(\[<*_]|\s*$)", re.DOTALL
 )
-_FIRST_CLAIM_RE = re.compile(r"^\s*<claim\b[^>]*>(.*?)</claim>\s*", re.DOTALL)
+_FIRST_CLAIM_RE = re.compile(r"^\s*(?P<open><claim\b[^>]*>)(.*?)</claim>\s*", re.DOTALL)
 # Decoration the model sometimes hangs on its opening line - a heading
 # marker, a list marker, a bold wrapper - none of which is part of the gist.
 _LEAD_DECORATION_RE = re.compile(r"^(?:#{1,6}\s+|[-*\u2022]\s+|\d+[.)]\s+)?(\*\*|__)?")
@@ -300,9 +329,15 @@ def split_leading_sentence(full_text: str) -> tuple[str | None, str]:
             return _split_result(full_text, gist, rest_of_line, newline, later_lines)
     claim = _FIRST_CLAIM_RE.match(line)
     if claim:
-        return _split_result(
-            full_text, claim.group(1), line[claim.end():], newline, later_lines
-        )
+        # A paragraph-sized claim gives up only its first sentence; the
+        # remainder stays inside the same tag so it is still checked.
+        gist, overflow = fit_gist(claim.group(2))
+        rest_of_line = line[claim.end():]
+        if overflow:
+            rest_of_line = f"{claim.group('open')}{overflow}</claim>" + (
+                " " + rest_of_line.lstrip() if rest_of_line.strip() else ""
+            )
+        return _split_result(full_text, gist, rest_of_line, newline, later_lines)
     sentence = _FIRST_SENTENCE_RE.match(line)
     if sentence:
         return _split_result(

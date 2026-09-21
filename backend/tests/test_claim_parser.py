@@ -274,3 +274,49 @@ class TestSplitLeadingSentence:
         crux, rest = split_leading_sentence("Rates were 2.5 percent under U.S. rules. Then they rose.")
         assert crux == "Rates were 2.5 percent under U.S. rules." and rest.strip() == "Then they rose."
         assert split_leading_sentence("Just one sentence.") == (None, "Just one sentence.")
+
+
+class TestGistLength:
+    """The gist is one sentence, however much the model hands over as the crux."""
+
+    def test_a_paragraph_crux_is_cut_to_its_first_sentence(self):
+        from app.services.claim_parser import extract_crux
+
+        text = (
+            "<crux>Buy a cheap used car now [5]. Wait a year for the EV. "
+            "Charging is slow [1] [8].</crux>\n<claim id=\"1\">Rent is high.</claim>"
+        )
+        crux, rest = extract_crux(text)
+        assert crux == "Buy a cheap used car now."
+        assert rest == 'Wait a year for the EV. Charging is slow [1] [8].\n\n<claim id="1">Rent is high.</claim>'
+
+    def test_the_streaming_splitter_trims_the_same_way(self):
+        from app.services.claim_parser import CruxSplitter
+
+        splitter = CruxSplitter()
+        crux, rest = splitter.feed('<crux>Buy now. Wait later.</crux> <claim id="1">Rent.</claim>')
+        assert crux == "Buy now."
+        assert rest == 'Wait later.\n\n<claim id="1">Rent.</claim>'
+
+    def test_a_paragraph_claim_gives_up_one_sentence_and_stays_tagged(self):
+        from app.services.claim_parser import split_leading_sentence
+
+        text = (
+            '<claim id="1">Given low usage, a cheap car makes more sense than an EV [5]. '
+            "The car will mostly sit idle [1]. Waiting is better [4].</claim>\n\n"
+            '<claim id="2" opinion="true">The diesel only pays off at high mileage.</claim>'
+        )
+        crux, rest = split_leading_sentence(text)
+        assert crux == "Given low usage, a cheap car makes more sense than an EV."
+        assert rest == (
+            '<claim id="1">The car will mostly sit idle [1]. Waiting is better [4].</claim>\n\n'
+            '<claim id="2" opinion="true">The diesel only pays off at high mileage.</claim>'
+        )
+
+    def test_a_one_sentence_crux_is_left_alone(self):
+        from app.services.claim_parser import extract_crux
+
+        assert extract_crux('<crux>One clean sentence.</crux> <claim id="1">Rent.</claim>') == (
+            "One clean sentence.",
+            '<claim id="1">Rent.</claim>',
+        )

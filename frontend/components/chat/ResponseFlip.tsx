@@ -102,16 +102,20 @@ export function ResponseFlip({
     <div style={{ perspective: "1600px" }}>
       {/* Both faces occupy the same grid cell, which makes the card as tall as
           the taller of the two. Absolute positioning would collapse the
-          container to nothing and clip whichever face is showing. */}
+          container to nothing and clip whichever face is showing. The column
+          is minmax(0, 1fr), not the default minmax(auto, 1fr): with auto, one
+          wide token or table in an answer set the cell's minimum to its
+          width, the grid grew past the bubble, and every line of the text
+          then wrapped at that wider width - past the bubble's border. */}
       <div
-        className="grid transition-transform duration-500 ease-out"
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)] transition-transform duration-500 ease-out"
         style={{
           transformStyle: "preserve-3d",
           transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
         }}
       >
         <div
-          className="col-start-1 row-start-1"
+          className="col-start-1 row-start-1 min-w-0"
           style={{ backfaceVisibility: "hidden" }}
           aria-hidden={flipped}
         >
@@ -119,7 +123,7 @@ export function ResponseFlip({
         </div>
 
         <div
-          className="col-start-1 row-start-1"
+          className="col-start-1 row-start-1 min-w-0"
           style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
           aria-hidden={!flipped}
         >

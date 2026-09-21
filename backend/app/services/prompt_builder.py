@@ -63,7 +63,9 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     "decision": (
         "Purpose: compare options and recommend one. Enumerate the options and the "
         "criteria you're weighing, lay out the tradeoffs, then give a clear "
-        "recommendation with its rationale."
+        "recommendation with its rationale. The crux is the recommendation in one "
+        "short sentence; the rationale belongs in the claims beneath it, one claim "
+        "per point, not in a single paragraph-long claim."
     ),
     "learning": (
         "Purpose: teach and transform knowledge for the user. Adapt your explanation to "
@@ -146,9 +148,12 @@ _FORMATTING_RULES = (
     "In a list, the bullet or number goes outside the claim tag and the item's "
     "text inside it: '- <claim id=\"3\">...</claim>'. One claim per item.\n"
     "Use hyphens, never em dashes or en dashes.\n"
-    "Before anything else, write one sentence giving the direct conclusion "
-    'or bottom line of your answer, wrapped as <crux>...</crux>. This is '
-    "the only sentence allowed outside a <claim> tag. It must not "
+    "Before anything else, write ONE sentence - at most 30 words - giving the "
+    'direct conclusion or bottom line of your answer, wrapped as <crux>...</crux>. '
+    "The reader sees it on its own as the gist, so it must stand alone and stay "
+    "short: no second sentence, no paragraph, never the opening of the answer "
+    "restated in full. This is the only sentence allowed outside a <claim> tag. "
+    "It must not "
     "introduce any fact or judgement that isn't already established by "
     "the claims that follow - it is a plain-language synthesis of them, "
     "not a new assertion - and it must not carry a citation marker. After "
@@ -209,8 +214,9 @@ _RAPID_FORMATTING_RULES = (
     "clause and carry on.\n\n"
     "Plain short sentences. You may **bold** one key figure; no headings, lists, "
     "tables or HTML. Use hyphens, never em dashes.\n"
-    "Before anything else, write one sentence giving the direct conclusion or "
-    "bottom line, wrapped as <crux>...</crux>. Then at most four short sentences "
+    "Before anything else, write ONE sentence - at most 30 words - giving the "
+    "direct conclusion or bottom line, wrapped as <crux>...</crux>; the reader "
+    "sees it on its own as the gist. Then at most four short sentences "
     "with only what is needed to act on it - no lists, no options menu, no "
     "preamble. Do not use <claim> tags or [n] citation markers. If a CONTEXT block "
     "is provided, answer from it - it was fetched for this question - and say "
