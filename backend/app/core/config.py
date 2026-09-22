@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # and the flagship spent 17s writing a three-operator comparison body.
     # Thinking, Mentoring and Reflect stay on the flagship. Comma-separated,
     # env-overridable.
-    fast_generation_modes: str = "knowing,learning,creative,decision"
+    fast_generation_modes: str = "knowing,learning,creative,decision,legal"
     # Depth and spend per call. "low" preserves the latency posture the
     # previous provider was tuned to; blank leaves the model's own default.
     anthropic_effort: str = "low"

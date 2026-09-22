@@ -106,6 +106,20 @@ MODE_INSTRUCTIONS: dict[str, str] = {
         "sections, slides, or rows the shape actually calls for, not a wall of "
         "undifferentiated paragraphs."
     ),
+    "legal": (
+        "Purpose: help the user understand where they stand in a legal situation, "
+        "in plain language, before they speak to a professional. Identify the area "
+        "of law and the jurisdiction that seems to apply (ask in one clause if the "
+        "answer turns on it and it is not stated - India by default when nothing "
+        "points elsewhere), set out the rules and the usual process in plain words, "
+        "say which facts matter and which questions a lawyer will ask, and list what "
+        "to gather and any deadline that could be running. This is orientation, not "
+        "legal advice: say so once, plainly, at the end - not as a disclaimer before "
+        "every sentence - and point to a licensed professional for anything that "
+        "turns on the user's specific facts. Never draft threats, help evade the law, "
+        "or state a certain outcome; where the law differs by state or has changed "
+        "recently, say that it may and cite what you can."
+    ),
 }
 
 # Appendix A.2 / Section 7.5 - entirely user-driven, Thinking mode only. The

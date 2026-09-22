@@ -341,12 +341,25 @@ async def list_conversations(
 ) -> list[ConversationOut]:
     await require_workspace_member(db, workspace_id, current_user.id)
 
-    rows = await db.execute(
-        select(Conversation)
-        .where(Conversation.workspace_id == workspace_id)
-        .order_by(Conversation.created_at.desc())
+    # Ordered by last activity, not creation: the sidebar shows the newest
+    # twelve, and a chat started last week and continued today used to stay
+    # at last week's position - off the list, "vanished" as far as the
+    # person continuing it could tell. An empty chat counts from creation.
+    last_activity = (
+        select(func.max(Message.created_at))
+        .where(Message.conversation_id == Conversation.id)
+        .correlate(Conversation)
+        .scalar_subquery()
     )
-    return [ConversationOut.model_validate(c) for c in rows.scalars().all()]
+    rows = await db.execute(
+        select(Conversation, func.coalesce(last_activity, Conversation.created_at).label("last_activity"))
+        .where(Conversation.workspace_id == workspace_id)
+        .order_by(func.coalesce(last_activity, Conversation.created_at).desc())
+    )
+    return [
+        ConversationOut.model_validate(c, from_attributes=True).model_copy(update={"last_activity_at": at})
+        for c, at in rows.all()
+    ]
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationOut)

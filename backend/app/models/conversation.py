@@ -16,6 +16,7 @@ COGNITIVE_MODES = (
     "mentoring",
     "therapy",
     "creative",
+    "legal",
 )
 
 

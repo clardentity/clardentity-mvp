@@ -10,6 +10,7 @@ GESTURE_BY_MODE: dict[str, str] = {
     "mentoring": "open_hand_explaining",
     "therapy": "chin_stroke",
     "creative": "presenting",
+    "legal": "open_hand_explaining",
 }
 
 # §8.4 - base expression by confidence band.

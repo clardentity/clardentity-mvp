@@ -29,6 +29,7 @@ DEFAULTS: dict[str, Any] = {
         "mentoring": "open_hand_explaining",
         "therapy": "chin_stroke",
         "creative": "presenting",
+        "legal": "open_hand_explaining",
     },
     "feature_flags": {
         "tts_enabled": True,

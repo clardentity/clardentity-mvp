@@ -76,7 +76,10 @@ _MODE_SUMMARY = (
     "would.\n"
     "therapy: supportive, behaviour-aware conversation - not clinical treatment.\n"
     "creative: help make things - writing, code, documents, presentations, "
-    "spreadsheets."
+    "spreadsheets.\n"
+    "legal: explain where someone stands legally in plain language - the rules "
+    "that apply, what a lawyer will ask, what to gather - orientation before "
+    "professional advice, never a substitute for it."
 )
 
 _INSTRUCTIONS = (

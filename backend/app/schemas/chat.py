@@ -23,6 +23,7 @@ class ConversationCreate(BaseModel):
             "mentoring",
             "therapy",
             "creative",
+            "legal",
         ]
         | None
     ) = None
@@ -43,6 +44,9 @@ class ConversationOut(BaseModel):
     title: str | None
     default_mode: str | None
     created_at: datetime
+    # When something last happened in it (the newest message, else creation).
+    # Lists sort by this; a chat continued today is at the top today.
+    last_activity_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

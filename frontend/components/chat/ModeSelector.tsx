@@ -129,7 +129,7 @@ export function ModeSelector({
               aria-disabled={comingSoon || undefined}
               disabled={disabled || (comingSoon && !onLocked)}
               onClick={() => (comingSoon ? onLocked?.(mode.value) : onChange(mode.value))}
-              title={comingSoon ? `${mode.when} (coming soon)` : mode.when}
+              title={comingSoon ? `${mode.when} (included in a paid plan)` : mode.when}
               className={cx(
                 "shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:px-3",
                 comingSoon && "opacity-60",

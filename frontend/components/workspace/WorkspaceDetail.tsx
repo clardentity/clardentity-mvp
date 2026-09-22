@@ -19,6 +19,7 @@ type Workspace = {
   name: string;
   role: string;
   created_at: string;
+  last_activity_at?: string | null;
 };
 
 /** "14 Aug, 08:17" rather than "14/08/2026, 08:17:19".
@@ -38,6 +39,7 @@ type Conversation = {
   title: string | null;
   default_mode: string | null;
   created_at: string;
+  last_activity_at?: string | null;
 };
 
 export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
@@ -217,9 +219,9 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                     </span>
                     <span
                       className="block truncate text-xs text-ink-muted"
-                      title={new Date(conv.created_at).toLocaleString()}
+                      title={new Date(conv.last_activity_at ?? conv.created_at).toLocaleString()}
                     >
-                      {shortDate(conv.created_at)}
+                      {shortDate(conv.last_activity_at ?? conv.created_at)}
                     </span>
                   </span>
                   {/* Capped rather than hidden. The title has min-w-0 and

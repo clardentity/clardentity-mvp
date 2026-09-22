@@ -51,9 +51,10 @@ export function StartChat() {
         const conversations = await apiFetch<Conversation[]>(
           `/chat/conversations?workspace_id=${workspace.id}`,
         );
-        // Newest first from the server; a null title means nothing has been
-        // asked in it yet (the title is derived from the first question).
-        const empty = conversations[0]?.title === null ? conversations[0] : null;
+        // Most recently active first from the server; a null title means
+        // nothing has been asked in it yet (the title is derived from the
+        // first question), wherever it sits in the list.
+        const empty = conversations.find((c) => c.title === null) ?? null;
         const target =
           empty ??
           (await apiFetch<Conversation>("/chat/conversations", {
