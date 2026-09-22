@@ -39,11 +39,18 @@ export function ModeSelector({
   //
   // Its own scrollLeft rather than scrollIntoView: the latter also scrolls
   // every scrollable ancestor, which jerks the conversation on mount.
+  //
+  // Measured with bounding rects, not offsetLeft: the strip is not
+  // positioned, so offsetLeft was relative to the page, and on a desktop
+  // layout - strip hundreds of pixels from the left edge - that put even
+  // the first pill "far to the right" and opened every chat scrolled to
+  // Legal with Finder, the selected mode, out of view.
   useEffect(() => {
     const strip = stripRef.current;
     const pill = selectedRef.current;
     if (!strip || !pill) return;
-    strip.scrollLeft = Math.max(0, pill.offsetLeft - (strip.clientWidth - pill.offsetWidth) / 2);
+    const offset = pill.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft;
+    strip.scrollLeft = Math.max(0, offset - (strip.clientWidth - pill.offsetWidth) / 2);
   }, [value]);
 
   if (value === null) {
