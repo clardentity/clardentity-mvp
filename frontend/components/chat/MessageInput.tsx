@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/apiClient";
 import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { cx } from "@/components/ui/primitives";
+import { useTouchKeyboard } from "@/lib/useTouchKeyboard";
 
 /** Something the next message carries. An image goes to the model as
  *  vision context; a document is read on the server and its text put in
@@ -94,6 +95,7 @@ export function MessageInput({
   isGenerating?: boolean;
   onStop?: () => void;
 }) {
+  const touchKeyboard = useTouchKeyboard();
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -240,7 +242,11 @@ export function MessageInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // On a phone or tablet Enter is the new-line key it is everywhere else,
+    // and Ask is the only way to send: there is no Shift to hold, and
+    // sending on Enter meant half-written questions went out and a second
+    // paragraph could not be typed at all.
+    if (e.key === "Enter" && !e.shiftKey && !touchKeyboard) {
       e.preventDefault();
       handleSend();
       return;
@@ -534,8 +540,10 @@ export function MessageInput({
         </p>
       ) : (
         !disabled && (
-          <p className="hidden text-[11px] text-ink-muted sm:block">
-            Enter to ask, Shift+Enter for a new line
+          <p className={cx("text-[11px] text-ink-muted", touchKeyboard ? "block" : "hidden sm:block")}>
+            {touchKeyboard
+              ? "Enter starts a new line - tap Ask to send"
+              : "Enter to ask, Shift+Enter for a new line"}
           </p>
         )
       )}

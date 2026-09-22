@@ -45,6 +45,13 @@ class User(Base):
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Set when the user opened the paid-tier companions for testing from the
+    # plans dialog ("Skip for now"). Not a subscription: it only lifts the
+    # picker's locks, and usage is capped per day (services/preview_access).
+    # Nulling the column closes them again for that account.
+    preview_unlocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")

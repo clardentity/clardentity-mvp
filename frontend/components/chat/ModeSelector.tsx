@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from "react";
 
-import { COGNITIVE_MODES, COMING_SOON_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { COGNITIVE_MODES, MODE_BY_VALUE, type CognitiveMode } from "@/lib/modes";
+import { useLockedModes } from "@/lib/previewAccess";
 import { companionLabel, useCompanionNames } from "@/lib/companionNames";
 import { cx } from "@/components/ui/primitives";
 
@@ -30,6 +31,9 @@ export function ModeSelector({
   onLocked?: (mode: CognitiveMode) => void;
 }) {
   const names = useCompanionNames();
+  // Which companions are locked is an account fact, not a constant: "Skip
+  // for now" in the plans dialog opens them for testing.
+  const lockedModes = useLockedModes();
   const stripRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
 
@@ -66,7 +70,7 @@ export function ModeSelector({
           className="grid gap-2 sm:grid-cols-2"
         >
           {COGNITIVE_MODES.map((mode) => {
-            const comingSoon = COMING_SOON_MODES.includes(mode.value);
+            const comingSoon = lockedModes.includes(mode.value);
             return (
               <button
                 key={mode.value}
@@ -118,7 +122,7 @@ export function ModeSelector({
       >
         {COGNITIVE_MODES.map((mode) => {
           const selected = value === mode.value;
-          const comingSoon = COMING_SOON_MODES.includes(mode.value);
+          const comingSoon = lockedModes.includes(mode.value);
           return (
             <button
               key={mode.value}

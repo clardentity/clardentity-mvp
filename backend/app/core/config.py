@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     # Thinking, Mentoring and Reflect stay on the flagship. Comma-separated,
     # env-overridable.
     fast_generation_modes: str = "knowing,learning,creative,decision,legal"
+    # The companions a paid tier would open. Locked in the picker; a signed-in
+    # user can open them for testing from the plans dialog, capped per day.
+    preview_modes: str = "mentoring,therapy,creative,legal"
+    preview_daily_messages: int = 25
     # Depth and spend per call. "low" preserves the latency posture the
     # previous provider was tuned to; blank leaves the model's own default.
     anthropic_effort: str = "low"

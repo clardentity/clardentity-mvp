@@ -10,6 +10,7 @@ at is a form that exists to look like a form.
 """
 
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.dialects.postgresql import insert
@@ -18,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import ProInterest, User
-from app.schemas.pro import ProInterestRequest
+from app.schemas.pro import PreviewStatus, ProInterestRequest
+from app.services.preview_access import daily_limit, preview_modes, used_today
 
 logger = logging.getLogger(__name__)
 
@@ -51,3 +53,55 @@ async def register_interest(
     await db.commit()
 
     return {"status": "registered", "email": current_user.email}
+
+
+async def _preview_status(user: User) -> PreviewStatus:
+    unlocked = user.preview_unlocked_at is not None
+    used = await used_today(user.id) if unlocked else 0
+    limit = daily_limit()
+    return PreviewStatus(
+        unlocked=unlocked,
+        modes=sorted(preview_modes()),
+        daily_limit=limit,
+        used_today=used,
+        remaining_today=max(0, limit - used),
+    )
+
+
+@router.get("/preview", response_model=PreviewStatus)
+async def preview_status(
+    current_user: User = Depends(get_current_user),
+) -> PreviewStatus:
+    """Whether this account has the paid-tier companions open, and what is
+    left of today's allowance."""
+    return await _preview_status(current_user)
+
+
+@router.post("/preview", response_model=PreviewStatus)
+async def open_preview(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PreviewStatus:
+    """"Skip for now" in the plans dialog: open the locked companions for
+    this account. Idempotent - a second click keeps the original date, so the
+    grant cannot be refreshed by reopening the dialog."""
+    if current_user.preview_unlocked_at is None:
+        current_user.preview_unlocked_at = datetime.now(UTC)
+        db.add(current_user)
+        await db.commit()
+        await db.refresh(current_user)
+    return await _preview_status(current_user)
+
+
+@router.delete("/preview", response_model=PreviewStatus)
+async def close_preview(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PreviewStatus:
+    """Hand the locks back - so a tester can see what a free account sees."""
+    if current_user.preview_unlocked_at is not None:
+        current_user.preview_unlocked_at = None
+        db.add(current_user)
+        await db.commit()
+        await db.refresh(current_user)
+    return await _preview_status(current_user)

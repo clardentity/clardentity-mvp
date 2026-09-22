@@ -92,6 +92,7 @@ from app.services.profile_service import (
 from app.services.query_optimizer import optimize_query
 from app.services.search_planner import SearchPlan, needs_live_data, plan_searches
 from app.services.reflection_agent import reflect_and_revise
+from app.services.preview_access import daily_limit, is_preview_mode, spend, used_today
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
 from app.services.storage import upload_file
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
@@ -923,6 +924,26 @@ async def send_message(
         if not payload.content.strip():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="content required")
 
+        # The paid-tier companions, opened for testing from the plans dialog.
+        # Checked here rather than left to the picker: the lock is the only
+        # thing between an unbilled account and the expensive modes, and a
+        # lock that lives only in the client is not a lock.
+        if is_preview_mode(mode):
+            if current_user.preview_unlocked_at is None:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail="This companion is part of a paid plan. Open it for testing from Upgrade.",
+                )
+            limit = daily_limit()
+            if await used_today(current_user.id) >= limit:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail=(
+                        f"You've used today's {limit} messages in the preview companions. "
+                        "They reopen tomorrow - the other companions are unaffected."
+                    ),
+                )
+
         effective_content = payload.content
         # Where this message attaches. Normally "wherever the conversation
         # currently is" - but editing resends with an explicit parent_id (the
@@ -1083,6 +1104,12 @@ async def send_message(
 
             _abandon(prefetch_task)
             return EventSourceResponse(mode_gate())
+
+        # Past the gates, so a question stopped by one and re-sent does not
+        # spend a second message from the preview allowance - a clarifying
+        # question is the companion's turn, not the user's.
+        if is_preview_mode(mode):
+            await spend(current_user.id)
 
         # Past the gates, so a question that gets stopped and re-sent with the
         # same files does not ingest them twice. Named in the turn, so the

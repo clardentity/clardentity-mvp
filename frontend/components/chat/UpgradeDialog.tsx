@@ -3,6 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 import { cx } from "@/components/ui/primitives";
+import {
+  closePreviewAccess,
+  loadPreviewAccess,
+  openPreviewAccess,
+  usePreviewAccess,
+} from "@/lib/previewAccess";
 
 /* The upgrade prompt, as a bento grid.
  *
@@ -67,6 +73,28 @@ export function UpgradeDialog({
   const closeRef = useRef<HTMLButtonElement>(null);
   const [registered, setRegistered] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Billing does not exist yet, so the locks are the only thing keeping
+  // testers out of the modes we most need feedback on. "Skip for now" opens
+  // them for this account against a daily allowance the server counts.
+  const preview = usePreviewAccess();
+  const [opening, setOpening] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  async function togglePreview(open: boolean) {
+    setOpening(true);
+    setPreviewError(null);
+    try {
+      if (open) {
+        await openPreviewAccess();
+      } else {
+        await closePreviewAccess();
+      }
+    } catch {
+      setPreviewError("Couldn't reach the server - try again in a moment.");
+    } finally {
+      setOpening(false);
+    }
+  }
 
   async function notifyMe() {
     setBusy(true);
@@ -85,6 +113,12 @@ export function UpgradeDialog({
       setBusy(false);
     }
   }
+
+  // Re-read on open: the allowance is spent by sending messages, which
+  // happens while this dialog is closed.
+  useEffect(() => {
+    if (open) void loadPreviewAccess(true);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -176,6 +210,51 @@ export function UpgradeDialog({
               <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{tile.body}</p>
             </div>
           ))}
+        </div>
+
+        {/* The testing door. Stated plainly rather than dressed as an offer:
+            these are paid-tier companions, and this is a way to try them
+            while there is nothing to pay with. */}
+        <div className="mt-4 rounded-xl border border-hairline bg-surface-muted p-3.5">
+          {preview.unlocked ? (
+            <>
+              <p className="text-sm font-medium text-ink">
+                The paid companions are open on this account.
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                {preview.remainingToday} of {preview.dailyLimit} messages left today
+                in Mentoring, Reflect &amp; Relieve, Co-Creative and Legal. The
+                allowance resets daily and doesn&apos;t touch the other companions.
+              </p>
+              <button
+                type="button"
+                onClick={() => void togglePreview(false)}
+                disabled={opening}
+                className="mt-2.5 rounded-full border border-hairline px-3 py-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-60"
+              >
+                {opening ? "Closing…" : "Lock them again"}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-ink">
+                Want to try them while Pro is being built?
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                Open every companion on this account with a daily message allowance -
+                no card, nothing to cancel.
+              </p>
+              <button
+                type="button"
+                onClick={() => void togglePreview(true)}
+                disabled={opening}
+                className="mt-2.5 rounded-full border border-brand-border bg-brand-soft px-3.5 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand hover:text-white disabled:opacity-60"
+              >
+                {opening ? "Opening…" : "Skip for now - let me use them"}
+              </button>
+            </>
+          )}
+          {previewError && <p className="mt-2 text-xs text-band-low">{previewError}</p>}
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

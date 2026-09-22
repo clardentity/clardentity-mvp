@@ -17,7 +17,8 @@ import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
 import { MessageInput, type PendingAttachment } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
-import { COMING_SOON_MODES, DEFAULT_MODE, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
+import { DEFAULT_MODE, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
+import { usePreviewAccess } from "@/lib/previewAccess";
 import { setSmartSwitching, useSmartSwitching } from "@/lib/modeSwitching";
 import { ContextQuestionCard } from "@/components/chat/ContextQuestionCard";
 import { ModeSwitchToast } from "@/components/chat/ModeSwitchToast";
@@ -55,6 +56,9 @@ const GESTURE_BY_MODE: Record<CognitiveMode, AvatarGesture> = {
   rapid: "presenting",
   legal: "open_hand_explaining",
 };
+
+/** Stable empty list, so the effect below doesn't re-run every render. */
+const EMPTY_MODES: readonly PickableMode[] = [];
 
 export function ChatView({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -96,6 +100,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const dismissSwitchToast = useCallback(() => setSwitchToast(false), []);
   // Which locked mode (or model) opened the plans dialog, for its headline.
   const [upsell, setUpsell] = useState<string | null>(null);
+  // The paid-tier companions and what is left of today's preview allowance.
+  // Read through a ref as well, so the streaming callbacks below see the
+  // current answer rather than the one captured when the send began.
+  const previewAccess = usePreviewAccess();
+  const lockedModes = previewAccess.unlocked ? EMPTY_MODES : previewAccess.modes;
+  const lockedModesRef = useRef<readonly PickableMode[]>(lockedModes);
+  useEffect(() => {
+    lockedModesRef.current = lockedModes;
+  }, [lockedModes]);
   // "Quick answer" - the way out of a slow answer. Shown while an answer is
   // being written once the server has said it will take a while (a status
   // event with phase "slow": no documents matched, so a web search and the
@@ -419,7 +432,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setStreaming(null);
           setSending(false);
           const next = suggestion.suggested_mode as PickableMode;
-          if (COMING_SOON_MODES.includes(next)) {
+          if (lockedModesRef.current.includes(next)) {
             // Outside what can be started today: show the plans, and answer
             // in the mode they chose meanwhile - closing the dialog without
             // choosing simply leaves them where they were.

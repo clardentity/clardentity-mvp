@@ -1230,3 +1230,111 @@ class TestCompleteRoute:
         assert _tidy("what documents do we need to bring", "what documnts do we need to") == ""
         assert _tidy("I don't have access to real-time weather data", "Will it rain in") == ""
         assert _tidy("hello there friend\n\nSecond line", "hello there friend") == ""
+
+
+class TestPreviewAccess:
+    """The paid-tier companions: locked until opened, capped once open."""
+
+    async def _user(self):
+        from app.core.security import hash_password
+        from app.models import User, Workspace, WorkspaceMember, Conversation
+
+        email = f"preview-{uuid.uuid4().hex[:8]}@test.com"
+        password = "Passw0rd!preview"
+        async with AsyncSessionLocal() as db:
+            user = User(email=email, password_hash=hash_password(password))
+            db.add(user)
+            await db.flush()
+            ws = Workspace(owner_id=user.id, name="t")
+            db.add(ws)
+            await db.flush()
+            db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            convo = Conversation(workspace_id=ws.id, title="t")
+            db.add(convo)
+            await db.commit()
+            return email, password, user.id, convo.id
+
+    async def test_locked_until_opened_then_counted(self, monkeypatch):
+        from app.models import Conversation as _Conversation, Message, User, Workspace, WorkspaceMember
+        from app.services import preview_access
+
+        try:
+            email, password, user_id, convo_id = await self._user()
+        except Exception as exc:  # noqa: BLE001
+            if "connect" not in str(exc).lower() and "database" not in str(exc).lower():
+                raise
+            pytest.skip("no database available")
+
+        spent: list = []
+
+        async def fake_used(uid):
+            return len(spent)
+
+        async def fake_spend(uid):
+            spent.append(uid)
+            return len(spent)
+
+        monkeypatch.setattr(preview_access, "used_today", fake_used)
+        monkeypatch.setattr(preview_access, "spend", fake_spend)
+        from app.api import chat as chat_api
+
+        monkeypatch.setattr(chat_api, "used_today", fake_used)
+        monkeypatch.setattr(chat_api, "spend", fake_spend)
+        monkeypatch.setattr(chat_api, "daily_limit", lambda: 2)
+        # The /pro routes imported the same names; both views of the counter
+        # have to be the fake one or the status and the gate disagree.
+        from app.api import pro as pro_api
+
+        monkeypatch.setattr(pro_api, "used_today", fake_used)
+        monkeypatch.setattr(pro_api, "daily_limit", lambda: 2)
+
+        try:
+            async with client() as c:
+                login = await c.post(f"{API}/auth/login", json={"email": email, "password": password})
+                if login.status_code != 200:
+                    pytest.skip("login unavailable")
+                token = login.json()["access_token"]
+                auth = {"Authorization": f"Bearer {token}"}
+
+                status_before = await c.get(f"{API}/pro/preview", headers=auth)
+                assert status_before.status_code == 200
+                assert status_before.json()["unlocked"] is False
+                assert "legal" in status_before.json()["modes"]
+
+                # Locked: a preview mode is refused before anything streams.
+                refused = await c.post(
+                    f"{API}/chat/{convo_id}/messages",
+                    json={"content": "Where do I stand?", "mode": "legal", "mode_confirmed": True},
+                    headers=auth,
+                )
+                assert refused.status_code == 402
+
+                opened = await c.post(f"{API}/pro/preview", headers=auth)
+                assert opened.status_code == 200
+                assert opened.json()["unlocked"] is True
+                assert opened.json()["remaining_today"] == opened.json()["daily_limit"]
+
+                # Open, but the allowance is spent: refused again, with the
+                # count reported rather than a silent failure.
+                spent.extend(["a", "b"])
+                capped = await c.post(
+                    f"{API}/chat/{convo_id}/messages",
+                    json={"content": "Where do I stand?", "mode": "legal", "mode_confirmed": True},
+                    headers=auth,
+                )
+                assert capped.status_code == 402
+                assert "today" in capped.json()["detail"]
+
+                status_now = await c.get(f"{API}/pro/preview", headers=auth)
+                assert status_now.json()["remaining_today"] == 0
+
+                # An unlocked mode is unaffected by the preview cap.
+                assert (await c.delete(f"{API}/pro/preview", headers=auth)).json()["unlocked"] is False
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Message).where(Message.conversation_id == convo_id))
+                await db.execute(delete(_Conversation).where(_Conversation.id == convo_id))
+                await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == user_id))
+                await db.execute(delete(Workspace).where(Workspace.owner_id == user_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()
