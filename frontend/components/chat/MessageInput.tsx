@@ -7,9 +7,47 @@ import { AudioRecorder } from "@/components/upload/AudioRecorder";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { cx } from "@/components/ui/primitives";
 
-export type PendingImage = { data: string; mimeType: string; previewUrl: string };
+/** Something the next message carries. An image goes to the model as
+ *  vision context; a document is read on the server and its text put in
+ *  front of the model (and into the workspace for later questions). */
+export type PendingAttachment = {
+  kind: "image" | "document";
+  data: string;
+  mimeType: string;
+  filename: string;
+  /** Images only. */
+  previewUrl?: string;
+};
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+/** Mirrors SUPPORTED_TYPES / LEGACY_TYPES in the backend's document_ingestion. */
+export const DOCUMENT_EXTENSIONS = [
+  "pdf", "docx", "xlsx", "xlsm", "pptx", "txt", "md", "markdown", "csv", "tsv",
+  "json", "xml", "html", "htm", "rtf", "log", "yaml", "yml",
+];
+const LEGACY_EXTENSIONS: Record<string, string> = { doc: "docx", xls: "xlsx", ppt: "pptx" };
+export const DOCUMENT_ACCEPT = DOCUMENT_EXTENSIONS.map((e) => `.${e}`).join(",");
+
+export function fileExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+/** Why a file can't be attached, or null when it can. */
+export function attachmentProblem(file: File): string | null {
+  if (file.type.startsWith("image/")) {
+    return file.size > MAX_IMAGE_BYTES ? "Images must be under 5MB" : null;
+  }
+  const ext = fileExtension(file.name);
+  if (LEGACY_EXTENSIONS[ext]) {
+    return `.${ext} is the old binary format - save it as .${LEGACY_EXTENSIONS[ext]} and attach that`;
+  }
+  if (!DOCUMENT_EXTENSIONS.includes(ext)) {
+    return "That file type isn't supported. Use PDF, Word, Excel, PowerPoint, images, or a text file";
+  }
+  return file.size > MAX_DOCUMENT_BYTES ? "Documents must be under 25MB" : null;
+}
 
 function StopIcon() {
   return (
@@ -44,7 +82,7 @@ export function MessageInput({
   disabledReason?: string;
   value: string;
   onChange: (value: string) => void;
-  onSend: (content: string, images: PendingImage[]) => void;
+  onSend: (content: string, attachments: PendingAttachment[]) => void;
   onTypingChange?: (isTyping: boolean) => void;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Owned by the conversation, not the composer: a finished call has to be
@@ -56,8 +94,8 @@ export function MessageInput({
   isGenerating?: boolean;
   onStop?: () => void;
 }) {
-  const [images, setImages] = useState<PendingImage[]>([]);
-  const [imageError, setImageError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
   const taRef = textareaRef ?? fallbackTextareaRef;
@@ -195,9 +233,9 @@ export function MessageInput({
   function handleSend() {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed, images);
+    onSend(trimmed, attachments);
     onChange("");
-    setImages([]);
+    setAttachments([]);
     onTypingChange?.(false);
   }
 
@@ -229,52 +267,68 @@ export function MessageInput({
     }
   }
 
-  async function handleImageSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
 
-    setImageError(null);
-    if (file.size > MAX_IMAGE_BYTES) {
-      setImageError("Image must be under 5MB");
-      return;
+    setAttachError(null);
+    for (const file of files) {
+      const problem = attachmentProblem(file);
+      if (problem) {
+        setAttachError(problem);
+        continue;
+      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.split(",")[1] ?? "";
+      const isImage = file.type.startsWith("image/");
+      setAttachments((prev) => [
+        ...prev,
+        isImage
+          ? { kind: "image", data: base64, mimeType: file.type, filename: file.name, previewUrl: dataUrl }
+          : { kind: "document", data: base64, mimeType: file.type || "application/octet-stream", filename: file.name },
+      ]);
     }
-
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    const base64 = dataUrl.split(",")[1] ?? "";
-    setImages((prev) => [
-      ...prev,
-      { data: base64, mimeType: file.type || "image/jpeg", previewUrl: dataUrl },
-    ]);
   }
 
-  function removeImage(index: number) {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+  function removeAttachment(index: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   }
 
   return (
     <div className="space-y-1">
-      {images.length > 0 && (
-        <div className="flex gap-2">
-          {images.map((img, i) => (
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {attachments.map((item, i) => (
             <div key={i} className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={img.previewUrl}
-                alt="Attached"
-                className="h-14 w-14 rounded-md border border-hairline-strong object-cover"
-              />
+              {item.kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={item.previewUrl}
+                  alt="Attached"
+                  className="h-14 w-14 rounded-md border border-hairline-strong object-cover"
+                />
+              ) : (
+                <div
+                  className="flex h-14 max-w-[220px] items-center gap-2 rounded-md border border-hairline-strong bg-surface-muted px-2.5 text-xs text-ink-secondary"
+                  title={item.filename}
+                >
+                  <span className="rounded bg-surface px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
+                    {fileExtension(item.filename) || "file"}
+                  </span>
+                  <span className="truncate">{item.filename}</span>
+                </div>
+              )}
               <button
                 type="button"
-                onClick={() => removeImage(i)}
+                onClick={() => removeAttachment(i)}
                 className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink text-[9px] text-surface transition-opacity hover:opacity-80"
-                aria-label="Remove image"
+                aria-label={`Remove ${item.kind === "image" ? "image" : item.filename}`}
               >
                 ✕
               </button>
@@ -283,7 +337,7 @@ export function MessageInput({
         </div>
       )}
 
-      {imageError && <p className="text-xs text-band-low">{imageError}</p>}
+      {attachError && <p className="text-xs text-band-low">{attachError}</p>}
 
       {/* No focus treatment on the composer. It is the one control on the
           page whose whole purpose is to be typed into, so ringing it in the
@@ -341,8 +395,8 @@ export function MessageInput({
           data-tour="attach-image"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          title="Attach an image"
-          aria-label="Attach an image"
+          title="Attach a file or image"
+          aria-label="Attach a file or image"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
         >
           <svg
@@ -361,8 +415,9 @@ export function MessageInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
-            onChange={handleImageSelected}
+            accept={`image/*,${DOCUMENT_ACCEPT}`}
+            multiple
+            onChange={handleFilesSelected}
             className="hidden"
           />
 

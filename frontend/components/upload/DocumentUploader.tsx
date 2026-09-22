@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiFetch } from "@/lib/apiClient";
 import { authErrorMessage, getAccessToken } from "@/lib/auth";
 import { Badge, Spinner } from "@/components/ui/primitives";
+import { DOCUMENT_ACCEPT } from "@/components/chat/MessageInput";
 
 type DocumentItem = {
   id: string;
@@ -103,7 +104,7 @@ export function DocumentUploader({ workspaceId }: { workspaceId: string }) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.txt"
+          accept={DOCUMENT_ACCEPT}
           onChange={handleFileSelected}
           disabled={uploading}
           aria-label="Upload a document"

@@ -3,9 +3,8 @@ import uuid
 
 from app.core.celery_app import celery_app
 from app.db.session import WorkerSessionLocal
-from app.models import Document, DocumentChunk
-from app.services.document_ingestion import chunk_text, extract_pages
-from app.services.openai_client import embed_texts
+from app.models import Document
+from app.services.document_ingestion import build_chunks
 from app.services.storage import download_file
 
 
@@ -22,33 +21,13 @@ async def _ingest_document(document_id: uuid.UUID) -> None:
 
         try:
             file_bytes = download_file(document.storage_path)
-            pages = extract_pages(file_bytes, document.file_type or "txt")
-
-            entries: list[tuple[int | None, str]] = [
-                (page_number, chunk)
-                for page_number, page_text in pages
-                for chunk in chunk_text(page_text)
-                if chunk.strip()
-            ]
-
-            if not entries:
+            chunks = await build_chunks(document.id, file_bytes, document.file_type or "txt")
+            if not chunks:
                 document.status = "failed"
                 await db.commit()
                 return
-
-            embeddings = await embed_texts([content for _, content in entries])
-
-            for index, ((page_number, content), embedding) in enumerate(zip(entries, embeddings)):
-                db.add(
-                    DocumentChunk(
-                        document_id=document.id,
-                        chunk_index=index,
-                        content=content,
-                        embedding=embedding,
-                        page_number=page_number,
-                    )
-                )
-
+            for chunk in chunks:
+                db.add(chunk)
             document.status = "processed"
             await db.commit()
         except Exception:

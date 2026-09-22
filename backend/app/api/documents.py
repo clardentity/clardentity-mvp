@@ -22,16 +22,14 @@ from app.schemas.document import (
     DocumentOut,
     DocumentUploadOut,
 )
+from app.services.document_ingestion import SUPPORTED_TYPES, file_type_of, unsupported_reason
 from app.services.storage import delete_file, upload_file
 from app.workers.ingest_document import ingest_document_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS: dict[str, str] = {
-    "pdf": "application/pdf",
-    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "txt": "text/plain",
-}
+# One list for uploads and chat attachments alike - see document_ingestion.
+ALLOWED_EXTENSIONS = SUPPORTED_TYPES
 
 
 _EXCERPT_RADIUS = 140
@@ -60,12 +58,9 @@ async def upload_document(
 ) -> DocumentUploadOut:
     await require_workspace_member(db, workspace_id, current_user.id)
 
-    extension = (file.filename or "").rsplit(".", 1)[-1].lower()
-    if extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file type. Allowed: pdf, docx, txt",
-        )
+    extension = file_type_of(file.filename or "")
+    if (reason := unsupported_reason(extension)) is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reason)
 
     contents = await file.read()
     max_bytes = settings.max_upload_size_mb * 1024 * 1024

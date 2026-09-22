@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -15,7 +16,7 @@ from app.api.deps import get_conversation_for_user, get_current_user, require_wo
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import AudioTranscript, Citation, Conversation, Message, MessageClaim, ClaimEvidence, User
+from app.models import AudioTranscript, Citation, Conversation, Document, Message, MessageClaim, ClaimEvidence, User
 from app.schemas.chat import (
     ActiveLeafIn,
     CallTranscript,
@@ -42,6 +43,7 @@ from app.services.claim_parser import (
 )
 from app.services.companion_names import name_for
 from app.services.conversation_title import name_conversation
+from app.services.document_ingestion import build_chunks, file_type_of, unsupported_reason
 from app.services.geolocation import location_prompt_line
 from app.services.decision_review import review_decisions
 from app.services.thinking_review import review_thinking
@@ -91,6 +93,7 @@ from app.services.query_optimizer import optimize_query
 from app.services.search_planner import SearchPlan, needs_live_data, plan_searches
 from app.services.reflection_agent import reflect_and_revise
 from app.services.retrieval import RetrievedChunk, retrieve_chunks
+from app.services.storage import upload_file
 from app.services.router import InvalidModeError, InvalidReasoningLensError, validate_mode, validate_reasoning_lens
 from app.services.taxonomy import describe_bias
 from app.services.verification_agent import reconcile_gray_area, verify_claim
@@ -139,6 +142,90 @@ _RESEARCH_DEADLINE_SECONDS = 45.0
 # box still fills the slot the client is holding rather than dropping in
 # above an answer already being read.
 _REVIEW_GRACE_SECONDS = 4.0
+# How much of an attached file goes in front of the model as-is this turn.
+# Twelve chunks is ~8k tokens - a whole short document, the opening of a
+# long one. The rest is in the workspace like any upload: retrieval finds
+# the relevant parts of it for this question and for every later one.
+_ATTACHMENT_CONTEXT_CHUNKS = 12
+
+
+async def _ingest_attachments(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    attachments: list,
+) -> list[RetrievedChunk]:
+    """A document attached to a message becomes a workspace document - stored,
+    chunked, embedded, committed - and its opening chunks are returned to go
+    in front of the model for this turn. Rows have to exist before the turn
+    starts: the answer's citations point at chunk rows by id.
+
+    Images are not documents and are left alone here. A file that cannot be
+    read is a 400 before anything streams, so the composer can say why."""
+    documents = [a for a in attachments if a.type == "document"]
+    if not documents:
+        return []
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    leading: list[RetrievedChunk] = []
+    for attachment in documents:
+        filename = attachment.filename or "attachment"
+        file_type = file_type_of(filename)
+        if (reason := unsupported_reason(file_type)) is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename}: {reason}")
+        data = attachment.data
+        if data.startswith("data:"):
+            data = data.split(",", 1)[-1]
+        try:
+            file_bytes = base64.b64decode(data, validate=False)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} could not be read") from exc
+        if len(file_bytes) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{filename} exceeds the {settings.max_upload_size_mb}MB limit",
+            )
+        document = Document(
+            workspace_id=workspace_id,
+            filename=filename,
+            file_type=file_type,
+            status="processing",
+            uploaded_by=user_id,
+        )
+        db.add(document)
+        await db.flush()
+        try:
+            chunks = await build_chunks(document.id, file_bytes, file_type)
+        except Exception as exc:  # noqa: BLE001 - a corrupt file is the user's to fix
+            logger.warning("attachment %s could not be parsed: %s", filename, exc)
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{filename} could not be read - is the file intact?",
+            ) from exc
+        if not chunks:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{filename} has no readable text",
+            )
+        # Kept in storage like an upload, so it can be opened and deleted
+        # from the workspace later. Storage being down is not a reason to
+        # refuse the question: the text is already in hand.
+        try:
+            storage_key = f"{workspace_id}/{document.id}/{filename}"
+            await asyncio.to_thread(upload_file, storage_key, file_bytes, attachment.mime_type)
+            document.storage_path = storage_key
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("attachment %s not stored: %s", filename, exc)
+        for chunk in chunks:
+            db.add(chunk)
+        document.status = "processed"
+        await db.commit()
+        leading.extend(
+            RetrievedChunk(chunk=chunk, document=document, score=1.0)
+            for chunk in chunks[:_ATTACHMENT_CONTEXT_CHUNKS]
+        )
+    return leading
 
 # Openers that carry no information about the subject. Stripped so the title
 # starts on the actual topic - "Hi, what's the difference between X and Y"
@@ -801,6 +888,7 @@ async def send_message(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         reasoning_lens = parent_message.reasoning_lens
         effective_content = parent_message.content or ""
+        attached_chunks: list[RetrievedChunk] = []
         regenerate_answer_parent_id = parent_message.id
         # `history` is everything BEFORE the question being re-answered - the
         # same context the original answer was generated against - so this
@@ -983,6 +1071,16 @@ async def send_message(
             _abandon(prefetch_task)
             return EventSourceResponse(mode_gate())
 
+        # Past the gates, so a question that gets stopped and re-sent with the
+        # same files does not ingest them twice. Named in the turn, so the
+        # thread shows what was sent and the model knows what it was given.
+        attached_chunks = await _ingest_attachments(
+            db, conversation.workspace_id, current_user.id, payload.attachments
+        )
+        if attached_chunks:
+            names = ", ".join(dict.fromkeys(rc.document.filename for rc in attached_chunks))
+            effective_content = f"{effective_content}\n\n(Attached: {names})"
+
         user_message = Message(
             conversation_id=conversation_id,
             role="user",
@@ -1089,6 +1187,11 @@ async def send_message(
     # Started alongside the gates above; by now it has usually finished the
     # retrieval and is some way into the search.
     retrieval_query, chunks, web_task, search_started = await prefetch_task
+    if attached_chunks:
+        # The attachment's opening leads the context; retrieval may add
+        # later parts of the same file, deduplicated by chunk.
+        seen = {rc.chunk.id for rc in attached_chunks}
+        chunks = attached_chunks + [rc for rc in chunks if rc.chunk.id not in seen]
     mark("retrieval")
 
     # The proactive watch-list is Decision mode's job; other modes still get
@@ -1116,6 +1219,8 @@ async def send_message(
     input_images: list[str] = []
     if flags.get("image_input_enabled", True):
         for attachment in payload.attachments:
+            if attachment.type != "image":
+                continue
             data = attachment.data
             if not data.startswith("data:"):
                 data = f"data:{attachment.mime_type};base64,{data}"

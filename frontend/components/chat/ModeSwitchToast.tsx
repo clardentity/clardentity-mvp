@@ -5,13 +5,15 @@ import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
 
 /* Smart switching told you after the fact, in a banner. This tells you as
  * it happens: "Switched to Decision-making" over the composer while the new
- * answer is being written, with a ring counting ten seconds down and one
+ * answer is being written, with a ring counting four seconds down and one
  * button to stop that answer and have the question answered in the mode you
  * had chosen instead ("Stay in Finder", the client's wording). When the
  * ring runs out the card goes; the way back for the *next* question stays
- * in the banner. */
+ * in the banner. Four seconds, not ten: the switch has already happened,
+ * and a long countdown made it feel like it was still happening - it is a
+ * moment to say no, not a wait. */
 
-const SECONDS = 10;
+const SECONDS = 4;
 const R = 9;
 const CIRCUMFERENCE = 2 * Math.PI * R;
 
@@ -62,7 +64,7 @@ export function ModeSwitchToast({
             strokeWidth="2"
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}
-            // The ring empties over the ten seconds. Under reduced motion it
+            // The ring empties over the four seconds. Under reduced motion it
             // steps once a second with the number instead of sweeping.
             strokeDashoffset={reducedMotion ? CIRCUMFERENCE * (1 - left / SECONDS) : 0}
             style={

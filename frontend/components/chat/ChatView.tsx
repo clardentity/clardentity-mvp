@@ -14,7 +14,7 @@ import {
 import { ModeSelector, type CognitiveMode } from "@/components/chat/ModeSelector";
 import { MessageList, type StreamingMessage } from "@/components/chat/MessageList";
 import { ModeCarousel, groupByMode } from "@/components/chat/ModeCarousel";
-import { MessageInput, type PendingImage } from "@/components/chat/MessageInput";
+import { MessageInput, type PendingAttachment } from "@/components/chat/MessageInput";
 import { LiveCallOverlay } from "@/components/chat/LiveCallOverlay";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
 import { COMING_SOON_MODES, DEFAULT_MODE, MODE_BY_VALUE, type PickableMode } from "@/lib/modes";
@@ -82,7 +82,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     from: CognitiveMode;
     to: CognitiveMode;
     content: string;
-    images: PendingImage[];
+    attachments: PendingAttachment[];
     // The gate flags the switched send carried, so answering in the old
     // mode instead re-sends with them intact - without them the server
     // asked the context question a second time, in the other mode.
@@ -105,7 +105,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // search, no checking, the gist in a few seconds. Not a mode anyone picks
   // - the composer stays in whatever they were in.
   const [slowHint, setSlowHint] = useState(false);
-  const lastSendRef = useRef<{ content: string; images: PendingImage[]; mode: CognitiveMode } | null>(
+  const lastSendRef = useRef<{ content: string; attachments: PendingAttachment[]; mode: CognitiveMode } | null>(
     null,
   );
   // The verdict box that arrived during streaming, until "final" writes it
@@ -139,7 +139,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [pendingContext, setPendingContext] = useState<{
     question: string;
     content: string;
-    images: PendingImage[];
+    attachments: PendingAttachment[];
     mode: CognitiveMode;
     rounds: number;
   } | null>(null);
@@ -149,7 +149,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [pendingRefined, setPendingRefined] = useState<{
     suggestion: RefinedQuestionSuggestion;
     content: string;
-    images: PendingImage[];
+    attachments: PendingAttachment[];
     mode: CognitiveMode;
   } | null>(null);
   // The server asked "which did you mean" before answering, with tappable
@@ -158,7 +158,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   const [pendingClarifyingOptions, setPendingClarifyingOptions] = useState<{
     suggestion: ClarifyingOptionsSuggestion;
     content: string;
-    images: PendingImage[];
+    attachments: PendingAttachment[];
     mode: CognitiveMode;
   } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -210,7 +210,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
   async function handleSend(
     content: string,
-    images: PendingImage[],
+    attachments: PendingAttachment[],
     // Regenerating re-sends in the mode the original turn used. `mode` state
     // may not have caught up yet - setMode in the same tick doesn't apply
     // until the next render - so the caller passes it explicitly.
@@ -284,7 +284,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
         };
     if (userMessage) setMessages((prev) => [...prev, userMessage]);
     setStreaming({ mode_used: sendMode, content: "" });
-    lastSendRef.current = { content, images, mode: sendMode };
+    lastSendRef.current = { content, attachments, mode: sendMode };
     earlyReviewRef.current = null;
     setSlowHint(false);
 
@@ -298,10 +298,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       {
         content,
         mode: sendMode,
-        attachments: images.map((img) => ({
-          type: "image",
-          data: img.data,
-          mime_type: img.mimeType,
+        attachments: attachments.map((item) => ({
+          type: item.kind,
+          data: item.data,
+          mime_type: item.mimeType,
+          filename: item.filename,
         })),
         // Manual switching means the server never gets to ask.
         mode_confirmed: modeConfirmed || !smartSwitching,
@@ -424,7 +425,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             // choosing simply leaves them where they were.
             setUpsell(MODE_BY_VALUE[next]?.label ?? next);
             void handleSend(
-              content, images, sendMode, true, contextAcknowledged, contextRounds,
+              content, attachments, sendMode, true, contextAcknowledged, contextRounds,
               undefined, refinedConfirmed, clarifyingConfirmed,
             );
             return;
@@ -434,10 +435,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // answer is being written.
           setMode(next);
           const flags = { contextAcknowledged, contextRounds, refinedConfirmed, clarifyingConfirmed };
-          setSwitchedFrom({ from: sendMode, to: next, content, images, flags });
+          setSwitchedFrom({ from: sendMode, to: next, content, attachments, flags });
           setSwitchToast(true);
           void handleSend(
-            content, images, next, true, contextAcknowledged, contextRounds,
+            content, attachments, next, true, contextAcknowledged, contextRounds,
             undefined, refinedConfirmed, clarifyingConfirmed,
           );
         },
@@ -450,7 +451,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           setPendingContext({
             question: asked.question,
             content,
-            images,
+            attachments,
             mode: sendMode,
             rounds: contextRounds,
           });
@@ -463,7 +464,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // (Regenerating never reaches this - it sends refinedConfirmed=true
           // - so there's no optimistic message to roll back in that case.)
           if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-          setPendingRefined({ suggestion, content, images, mode: sendMode });
+          setPendingRefined({ suggestion, content, attachments, mode: sendMode });
           setStreaming(null);
           setSending(false);
         },
@@ -474,7 +475,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
           // clarifyingConfirmed=true - so there's no optimistic message to
           // roll back in that case.)
           if (userMessage) setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-          setPendingClarifyingOptions({ suggestion, content, images, mode: sendMode });
+          setPendingClarifyingOptions({ suggestion, content, attachments, mode: sendMode });
           setStreaming(null);
           setSending(false);
         },
@@ -515,7 +516,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
     const last = lastSendRef.current;
     if (!last) return;
     handleStop();
-    void handleSend(last.content, last.images, "rapid", true);
+    void handleSend(last.content, last.attachments, "rapid", true);
   }
 
   // The fallback timer behind the slow hint: a stream with nothing to show
@@ -882,7 +883,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // caps that, on the server.
               void handleSend(
                 `${pendingContext.content}\n\n(Clardentity asked: "${pendingContext.question}")\n${context}`,
-                pendingContext.images,
+                pendingContext.attachments,
                 pendingContext.mode,
                 false,
                 false,
@@ -894,7 +895,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // the gate off before it decides to stop on its own.
               void handleSend(
                 pendingContext.content,
-                pendingContext.images,
+                pendingContext.attachments,
                 pendingContext.mode,
                 false,
                 true,
@@ -917,7 +918,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // and the reason why should stay visible.
               void handleSend(
                 `${pendingRefined.content}\n\n(Clardentity asked: "Did you mean: ${pendingRefined.suggestion.refined_question}")\n${pendingRefined.suggestion.refined_question}`,
-                pendingRefined.images,
+                pendingRefined.attachments,
                 pendingRefined.mode,
                 false,
                 false,
@@ -929,7 +930,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onKeepOriginal={() =>
               void handleSend(
                 pendingRefined.content,
-                pendingRefined.images,
+                pendingRefined.attachments,
                 pendingRefined.mode,
                 false,
                 false,
@@ -953,7 +954,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
               // silently answering a question that isn't there.
               void handleSend(
                 `${pendingClarifyingOptions.content}\n\n(Clardentity asked: "${pendingClarifyingOptions.suggestion.question}")\n${answer}`,
-                pendingClarifyingOptions.images,
+                pendingClarifyingOptions.attachments,
                 pendingClarifyingOptions.mode,
                 false,
                 false,
@@ -966,7 +967,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             onSkip={() =>
               void handleSend(
                 pendingClarifyingOptions.content,
-                pendingClarifyingOptions.images,
+                pendingClarifyingOptions.attachments,
                 pendingClarifyingOptions.mode,
                 false,
                 false,
@@ -992,12 +993,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                 // ask the same question in the one they had chosen, telling
                 // the server the mode is settled so it doesn't suggest again.
                 handleStop();
-                const { from, content, images, flags } = switchedFrom;
+                const { from, content, attachments, flags } = switchedFrom;
                 setSwitchToast(false);
                 setSwitchedFrom(null);
                 setMode(from);
                 void handleSend(
-                  content, images, from, true, flags.contextAcknowledged, flags.contextRounds,
+                  content, attachments, from, true, flags.contextAcknowledged, flags.contextRounds,
                   undefined, flags.refinedConfirmed, flags.clarifyingConfirmed,
                 );
               }}
@@ -1090,10 +1091,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                     // server the mode is settled so it doesn't suggest again.
                     handleStop();
                     setMode(switchedFrom.from);
-                    const { from, content, images, flags } = switchedFrom;
+                    const { from, content, attachments, flags } = switchedFrom;
                     setSwitchedFrom(null);
                     void handleSend(
-                      content, images, from, true, flags.contextAcknowledged, flags.contextRounds,
+                      content, attachments, from, true, flags.contextAcknowledged, flags.contextRounds,
                       undefined, flags.refinedConfirmed, flags.clarifyingConfirmed,
                     );
                   }}

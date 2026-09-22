@@ -207,9 +207,10 @@ export type ChatStreamHandlers = {
 };
 
 export type SendMessageAttachment = {
-  type: "image";
+  type: "image" | "document";
   data: string;
   mime_type: string;
+  filename?: string;
 };
 
 export type SendMessageBody = {

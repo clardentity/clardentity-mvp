@@ -136,8 +136,8 @@ export const TOURS: Record<TourId, TourStep[]> = {
     {
       id: "attach-image",
       target: "attach-image",
-      title: "Attach an image",
-      body: "Add a picture to ask about it - a diagram, a screenshot, a page.",
+      title: "Attach a file",
+      body: "Add a picture, a PDF, a spreadsheet, a deck or a document to ask about it. Files are read, cited, and kept in the workspace for later questions.",
     },
     {
       id: "autocomplete",

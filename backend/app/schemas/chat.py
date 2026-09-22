@@ -51,9 +51,15 @@ class MessageAttachment(BaseModel):
     # §12.2: images ride along in the same turn as direct vision context -
     # not chunked/embedded for RAG in MVP. `data` is base64 (no data-URI
     # prefix required; added server-side if missing).
-    type: Literal["image"] = "image"
+    #
+    # A document (PDF, Word, Excel, PowerPoint, text) is different: it is
+    # ingested into the workspace like an upload - stored, chunked, embedded
+    # - and its opening chunks are put in front of the model for this turn,
+    # so the answer can cite it and later turns can retrieve it.
+    type: Literal["image", "document"] = "image"
     data: str
     mime_type: str = "image/jpeg"
+    filename: str | None = None
 
 
 class MessageCreate(BaseModel):
