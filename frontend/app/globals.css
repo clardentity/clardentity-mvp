@@ -210,6 +210,19 @@ body {
   border-radius: 4px;
 }
 
+/* ...except the composer, which is exempt. A focus ring says "this is where
+   typing will go" - true of every other control on the page and redundant of
+   the one whose entire purpose is to be typed into. On a phone it fired on
+   every single tap into the box (a text field always counts as focus-visible
+   there, keyboard or not), drawing a blue rectangle around the question you
+   were in the middle of writing. The caret is the indicator; the box already
+   carries its own border. Tailwind's focus:outline-none on the element does
+   not cover this - it matches :focus, and equal specificity here meant the
+   later rule above won. */
+textarea[data-tour="composer-input"]:focus-visible {
+  outline: none;
+}
+
 /* Each rotating "thinking" verb fades in rather than snapping, so a change of
    word reads as the same process continuing, not a new one starting. */
 @keyframes fade-in {
