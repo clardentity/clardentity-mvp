@@ -176,6 +176,36 @@ class TestMessageScore:
         result = compute_message_score([self._claim(0, flagged=True, cited=False)])
         assert result.score >= 0.0
 
+    def test_an_all_opinion_answer_carries_no_band(self):
+        """Nothing in it claimed to be a fact, so there is nothing to verify -
+        and "Needs Verification - 0" on a message of stated views read as a
+        failed fact check instead of the disclosure it is."""
+        opinion = ScoredClaim(
+            claim_index=1,
+            claim_text="Here is how I would approach it.",
+            claim_score=0.0,
+            entailment_label="opinion",
+            distortion_flag=None,
+            distortion_explanation=None,
+            evidence=[],
+        )
+        result = compute_message_score([opinion, opinion])
+        assert result.band is None
+        assert result.score is None
+
+    def test_one_factual_claim_among_opinions_is_still_scored(self):
+        opinion = ScoredClaim(
+            claim_index=1,
+            claim_text="I would start here.",
+            claim_score=0.0,
+            entailment_label="opinion",
+            distortion_flag=None,
+            distortion_explanation=None,
+            evidence=[],
+        )
+        result = compute_message_score([opinion, self._claim(100)])
+        assert result.band is not None
+
 
 class TestReconciliationRescoring:
     """The second-level pass rules on the first pass's *support* judgement,

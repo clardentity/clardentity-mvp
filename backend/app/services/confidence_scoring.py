@@ -68,8 +68,11 @@ class ScoredClaim:
 
 @dataclass
 class MessageScore:
-    score: float
-    band: str
+    # None when there was nothing to score - see compute_message_score. The
+    # columns behind these are nullable and the client shows no badge for a
+    # message without a band, which is the honest rendering of "not checked".
+    score: float | None
+    band: str | None
     distortion_penalty_applied: bool
 
 
@@ -317,6 +320,15 @@ def compute_message_score(
 
     if not claims:
         return MessageScore(score=0.0, band="Needs Verification", distortion_penalty_applied=False)
+
+    # An answer made entirely of stated views - what the companion thinks,
+    # what it is, how it would approach something - has nothing external to
+    # check against, and scoring it as though it did stamped "Needs
+    # Verification - 0" on answers that were never claiming to be facts.
+    # No band, like the quick answer: the reader sees the OPINION tags in the
+    # text, which is the true account.
+    if all(c.entailment_label == "opinion" for c in claims):
+        return MessageScore(score=None, band=None, distortion_penalty_applied=False)
 
     total = len(claims)
     cited = sum(1 for c in claims if c.evidence)
