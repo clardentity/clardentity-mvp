@@ -29,13 +29,19 @@ class ConversationCreate(BaseModel):
     ) = None
 
 
-class ConversationMove(BaseModel):
-    """Re-file a conversation under another workspace the caller belongs to.
-    Its messages, citations and claims travel with it untouched - they are
-    history - but from here on retrieval reads the new workspace's
-    attachments."""
+class ConversationUpdate(BaseModel):
+    """What the chat's own menu can change: which workspace it is filed
+    under, what it is called, and whether it is pinned.
 
-    workspace_id: uuid.UUID
+    Every field is optional and only the ones sent are applied, so renaming
+    does not un-pin and pinning does not re-file. Moving it to another
+    workspace requires membership of both sides; its messages, citations and
+    claims travel with it untouched - they are history - but from here on
+    retrieval reads the new workspace's attachments."""
+
+    workspace_id: uuid.UUID | None = None
+    title: str | None = None
+    pinned: bool | None = None
 
 
 class ConversationOut(BaseModel):
@@ -43,6 +49,7 @@ class ConversationOut(BaseModel):
     workspace_id: uuid.UUID
     title: str | None
     default_mode: str | None
+    pinned: bool = False
     created_at: datetime
     # When something last happened in it (the newest message, else creation).
     # Lists sort by this; a chat continued today is at the top today.

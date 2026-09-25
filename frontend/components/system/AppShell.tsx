@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -13,6 +14,7 @@ import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { UpgradeDialog } from "@/components/chat/UpgradeDialog";
+import { ChatRowMenu } from "@/components/chat/ChatRowMenu";
 import { InstallAppButton } from "@/components/system/InstallAppButton";
 import { rememberWorkspace } from "@/lib/lastWorkspace";
 import { startTour, type TourId } from "@/lib/tour";
@@ -92,7 +94,12 @@ const icons = {
 
 /* ------------------------------------------------------------- sidebar -- */
 
-type RecentConversation = { id: string; title: string | null; created_at: string };
+type RecentConversation = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  pinned?: boolean;
+};
 
 const RECENTS_SHOWN = 12;
 
@@ -103,11 +110,14 @@ const RECENTS_SHOWN = 12;
  *  than a condition threaded through the nav. */
 function RecentConversations({
   workspaceId,
+  workspaces,
   activeId,
   refreshKey,
   onNavigate,
 }: {
   workspaceId: string | null;
+  /** For the row menu's "Move to workspace". */
+  workspaces: Workspace[];
   activeId: string | null;
   refreshKey: number;
   onNavigate?: () => void;
@@ -117,7 +127,10 @@ function RecentConversations({
   // newest few - chats past the cut-off had simply "vanished" as far as
   // anyone could tell from here.
   const [total, setTotal] = useState(0);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  // Bumped by the row menu after a rename, a pin or a move, so the list
+  // re-reads (a pin changes the order, a move takes the row out of it).
+  const [localKey, setLocalKey] = useState(0);
+  const reload = useCallback(() => setLocalKey((n) => n + 1), []);
   const router = useRouter();
 
   useEffect(() => {
@@ -136,19 +149,13 @@ function RecentConversations({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, refreshKey, activeId]);
+  }, [workspaceId, refreshKey, activeId, localKey]);
 
-  async function remove(id: string) {
-    setConfirming(null);
+  /** After the row menu has deleted it: drop it from the list, and move off
+   *  it if it is what you were reading - the next render would fetch a 404. */
+  function remove(id: string) {
     setItems((prev) => prev.filter((c) => c.id !== id));
     setTotal((n) => Math.max(0, n - 1));
-    try {
-      await apiFetch(`/chat/conversations/${id}`, { method: "DELETE" });
-    } catch {
-      return;
-    }
-    // Deleting the chat you are reading has to move you somewhere that still
-    // exists, or the next render fetches a 404.
     if (id === activeId) router.push(workspaceId ? `/workspace/${workspaceId}` : "/workspace");
   }
 
@@ -175,34 +182,18 @@ function RecentConversations({
             >
               {c.title || "Untitled chat"}
             </Link>
-            {/* Both controls sit in the row rather than over it. The trash icon
-                fitted the reserved padding; "Sure?" is nearly twice as wide and
-                printed straight over the end of the title. Held in flow, the
-                title just truncates earlier - which is what truncation is for. */}
-            {confirming === c.id ? (
-              <button
-                type="button"
-                onClick={() => remove(c.id)}
-                onBlur={() => setConfirming(null)}
-                autoFocus
-                className="mr-1 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-band-low"
-              >
-                Sure?
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirming(c.id)}
-                title="Delete chat"
-                aria-label={`Delete ${c.title || "Untitled chat"}`}
-                // Always present, muted: hover-revealed controls don't exist
-                // on a touch screen, which left no way to delete a chat from
-                // here on a phone.
-                className="mr-1 shrink-0 rounded p-1 text-ink-muted/70 transition-colors hover:text-band-low"
-              >
-                <Icon path={icons.trash} className="h-3.5 w-3.5" />
-              </button>
-            )}
+            {/* In the row rather than over it, so the title truncates earlier
+                instead of the control printing across the end of it. */}
+            <ChatRowMenu
+              conversationId={c.id}
+              title={c.title}
+              pinned={Boolean(c.pinned)}
+              workspaceId={workspaceId}
+              workspaces={workspaces}
+              onChanged={reload}
+              onDeleted={() => remove(c.id)}
+              className="mr-1"
+            />
           </li>
         ))}
       </ul>
@@ -578,6 +569,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <RecentConversations
         workspaceId={activeWorkspaceId}
+        workspaces={workspaces}
         activeId={conversationId}
         refreshKey={recentsKey}
         onNavigate={close}

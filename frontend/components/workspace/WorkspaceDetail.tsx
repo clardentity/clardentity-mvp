@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
+import { ChatRowMenu } from "@/components/chat/ChatRowMenu";
 import { authErrorMessage } from "@/lib/auth";
 import { modeLabel, type CognitiveMode } from "@/lib/modes";
 import {
@@ -40,6 +41,7 @@ type Conversation = {
   default_mode: string | null;
   created_at: string;
   last_activity_at?: string | null;
+  pinned?: boolean;
 };
 
 export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
@@ -49,8 +51,9 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
   // moved to. Fetched with the rest; an empty list just hides the control.
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [moving, setMoving] = useState<string | null>(null);
+  // Bumped after a rename, pin or move so the list is re-read: a pin changes
+  // the order, a move takes the row out of this workspace entirely.
+  const [reloadKey, setReloadKey] = useState(0);
   const [confirmingWorkspace, setConfirmingWorkspace] = useState(false);
   const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,25 +82,7 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
-
-  async function handleMove(conversationId: string, targetId: string) {
-    if (moving) return;
-    setMoving(conversationId);
-    setError(null);
-    try {
-      await apiFetch(`/chat/conversations/${conversationId}`, {
-        method: "PATCH",
-        body: { workspace_id: targetId },
-      });
-      // It now lives elsewhere: out of this list, no refetch needed.
-      setConversations((prev) => (prev ? prev.filter((c) => c.id !== conversationId) : prev));
-    } catch (err) {
-      setError(authErrorMessage(err));
-    } finally {
-      setMoving(null);
-    }
-  }
+  }, [workspaceId, reloadKey]);
 
   async function handleNewConversation(mode?: CognitiveMode) {
     if (creating) return;
@@ -125,16 +110,9 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
     );
   }
 
-  async function handleDelete(id: string) {
-    setDeleting(id);
-    try {
-      await apiFetch(`/chat/conversations/${id}`, { method: "DELETE" });
-      setConversations((prev) => (prev ?? []).filter((c) => c.id !== id));
-    } catch (err) {
-      setError(authErrorMessage(err));
-    } finally {
-      setDeleting(null);
-    }
+  /** The row menu has already deleted it; drop it from the list. */
+  function forgetConversation(id: string) {
+    setConversations((prev) => (prev ?? []).filter((c) => c.id !== id));
   }
 
   async function handleDeleteWorkspace() {
@@ -214,8 +192,25 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                   className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-5"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-ink">
-                      {conv.title || "Untitled chat"}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {conv.pinned && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-label="Pinned"
+                          className="h-3.5 w-3.5 shrink-0 text-brand"
+                        >
+                          <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z" />
+                          <path d="M12 14v6" />
+                        </svg>
+                      )}
+                      <span className="block truncate text-sm font-medium text-ink">
+                        {conv.title || "Untitled chat"}
+                      </span>
                     </span>
                     <span
                       className="block truncate text-xs text-ink-muted"
@@ -235,16 +230,15 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
                     </Badge>
                   )}
                 </Link>
-                <MoveConversation
+                <ChatRowMenu
+                  conversationId={conv.id}
                   title={conv.title}
-                  busy={moving === conv.id}
-                  destinations={allWorkspaces.filter((w) => w.id !== workspaceId)}
-                  onMove={(target) => handleMove(conv.id, target)}
-                />
-                <DeleteConversation
-                  title={conv.title}
-                  busy={deleting === conv.id}
-                  onDelete={() => handleDelete(conv.id)}
+                  pinned={Boolean(conv.pinned)}
+                  workspaceId={workspaceId}
+                  workspaces={allWorkspaces}
+                  onChanged={() => setReloadKey((n) => n + 1)}
+                  onDeleted={() => forgetConversation(conv.id)}
+                  className="mr-2"
                 />
               </li>
             ))}
@@ -293,152 +287,6 @@ export function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
 /** "Move to…" - re-file a chat under another of the user's workspaces.
  *  A small menu on the row, same footprint as delete beside it; shown only
  *  when there is somewhere else to move it to. */
-function MoveConversation({
-  title,
-  busy,
-  destinations,
-  onMove,
-}: {
-  title: string | null;
-  busy: boolean;
-  destinations: Workspace[];
-  onMove: (workspaceId: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  const label = title || "Untitled chat";
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [open]);
-
-  if (destinations.length === 0) return null;
-
-  return (
-    <span ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={busy}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={`Move "${label}" to another workspace`}
-        aria-label={`Move "${label}" to another workspace`}
-        className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-50"
-      >
-        {busy ? (
-          <span className="block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        ) : (
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            className="h-4 w-4"
-          >
-            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v3" />
-            <path d="M3 7v10a2 2 0 0 0 2 2h7" />
-            <path d="M16 16h6m-3-3 3 3-3 3" />
-          </svg>
-        )}
-      </button>
-      {open && (
-        <span
-          role="menu"
-          className="absolute right-0 top-full z-20 mt-1 block w-52 rounded-lg border border-hairline bg-surface-raised p-1 shadow-lg"
-        >
-          <span className="block px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
-            Move to
-          </span>
-          {destinations.map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onMove(w.id);
-              }}
-              className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-ink transition-colors hover:bg-surface-hover"
-            >
-              {w.name}
-            </button>
-          ))}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function DeleteConversation({
-  title,
-  busy,
-  onDelete,
-}: {
-  title: string | null;
-  busy: boolean;
-  onDelete: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const label = title || "Untitled chat";
-
-  if (confirming) {
-    return (
-      <span className="flex shrink-0 items-center gap-1 pr-3">
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={busy}
-          className="rounded-md px-2 py-1 text-xs font-medium text-band-low transition-colors hover:bg-band-low-bg disabled:opacity-50"
-        >
-          {busy ? "Deleting…" : "Delete"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          disabled={busy}
-          className="rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
-        >
-          Cancel
-        </button>
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setConfirming(true)}
-      onBlur={() => setConfirming(false)}
-      title={`Delete "${label}"`}
-      aria-label={`Delete "${label}"`}
-      // Always visible, not hover-revealed: on a phone there is no hover, so
-      // a hover-only control is simply absent - "unable to delete chats from
-      // the workspace" was this, on mobile. Muted until pointed at instead.
-      className="mr-2 shrink-0 rounded-md p-1.5 sm:mr-3 text-ink-muted transition-colors hover:bg-surface-hover hover:text-band-low"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
-        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-3.5 w-3.5">
-        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-        <path d="M10 11v6M14 11v6" />
-      </svg>
-    </button>
-  );
-}
 
 

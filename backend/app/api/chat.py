@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import UTC, datetime
 from collections.abc import AsyncIterator
 from typing import Literal
 
@@ -22,7 +23,7 @@ from app.schemas.chat import (
     CallTranscript,
     ClaimOut,
     ConversationCreate,
-    ConversationMove,
+    ConversationUpdate,
     ConversationOut,
     EvidenceOut,
     ExportFileIn,
@@ -108,6 +109,9 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 _TITLE_MAX_CHARS = 38
+# A name the user typed, rather than one the model derived: longer than the
+# generated cap, short enough to be a name rather than a paragraph.
+_TITLE_MAX_LENGTH = 120
 _TITLE_MAX_WORDS = 6
 
 # Unsupported claims are researched concurrently, one agent each. Was two,
@@ -331,7 +335,18 @@ async def create_conversation(
     db.add(conversation)
     await db.commit()
     await db.refresh(conversation)
-    return ConversationOut.model_validate(conversation)
+    return _conversation_out(conversation)
+
+
+def _conversation_out(conversation: Conversation, last_activity=None) -> ConversationOut:
+    """`pinned` is the public shape of `pinned_at`: the client only ever asks
+    whether it is pinned, and the timestamp is ours, for ordering."""
+    return ConversationOut.model_validate(conversation, from_attributes=True).model_copy(
+        update={
+            "pinned": conversation.pinned_at is not None,
+            "last_activity_at": last_activity,
+        }
+    )
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -355,12 +370,14 @@ async def list_conversations(
     rows = await db.execute(
         select(Conversation, func.coalesce(last_activity, Conversation.created_at).label("last_activity"))
         .where(Conversation.workspace_id == workspace_id)
-        .order_by(func.coalesce(last_activity, Conversation.created_at).desc())
+        # Pinned first, most recently pinned at the top of those - pinning is
+        # a statement that this chat outranks whatever is merely recent.
+        .order_by(
+            Conversation.pinned_at.desc().nullslast(),
+            func.coalesce(last_activity, Conversation.created_at).desc(),
+        )
     )
-    return [
-        ConversationOut.model_validate(c, from_attributes=True).model_copy(update={"last_activity_at": at})
-        for c, at in rows.all()
-    ]
+    return [_conversation_out(c, at) for c, at in rows.all()]
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationOut)
@@ -370,24 +387,46 @@ async def get_conversation(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationOut:
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
-    return ConversationOut.model_validate(conversation)
+    return _conversation_out(conversation)
 
 
 @router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
-async def move_conversation(
+async def update_conversation(
     conversation_id: uuid.UUID,
-    payload: ConversationMove,
+    payload: ConversationUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationOut:
-    """Move a chat to another workspace. Membership of both sides is required;
-    the destination check is the same one creating a chat there would pass."""
+    """The chat menu's three edits: move, rename, pin. Only the fields sent
+    are applied - `exclude_unset`, not truthiness, so an explicit `false` or
+    an empty title is a change and an absent field is not.
+
+    Moving requires membership of the destination; the check is the same one
+    creating a chat there would pass."""
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
-    await require_workspace_member(db, payload.workspace_id, current_user.id)
-    conversation.workspace_id = payload.workspace_id
+    fields = payload.model_dump(exclude_unset=True)
+
+    if "workspace_id" in fields and fields["workspace_id"] is not None:
+        await require_workspace_member(db, fields["workspace_id"], current_user.id)
+        conversation.workspace_id = fields["workspace_id"]
+
+    if "title" in fields:
+        title = (fields["title"] or "").strip()
+        if len(title) > _TITLE_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A chat name is at most {_TITLE_MAX_LENGTH} characters",
+            )
+        # Cleared back to nothing means "you name it": the row goes back to
+        # deriving its name from the first question, as a new chat does.
+        conversation.title = title or None
+
+    if "pinned" in fields and fields["pinned"] is not None:
+        conversation.pinned_at = datetime.now(UTC) if fields["pinned"] else None
+
     await db.commit()
     await db.refresh(conversation)
-    return ConversationOut.model_validate(conversation)
+    return _conversation_out(conversation)
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -45,6 +45,11 @@ class Conversation(Base):
     active_leaf_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
+    # Set when the user pins the chat. A timestamp rather than a flag so
+    # several pinned chats keep an order of their own (most recently pinned
+    # first) instead of falling back on activity, which is the thing pinning
+    # exists to override.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     messages: Mapped[list["Message"]] = relationship(

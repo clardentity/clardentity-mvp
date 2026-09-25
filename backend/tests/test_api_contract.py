@@ -1211,6 +1211,93 @@ class TestMoveConversation:
                     await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {t}"})
 
 
+class TestRenameAndPin:
+    """The other two edits on the chat menu. Needs a database."""
+
+    async def test_rename_pin_and_ordering(self):
+        email = f"pin-{uuid.uuid4().hex[:8]}@example.com"
+        password = "pin-password-123"
+        token = None
+        try:
+            async with client() as c:
+                reg = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": email, "password": password, "display_name": "Pinner"},
+                )
+                if reg.status_code >= 500:
+                    pytest.skip("no database available")
+                assert reg.status_code == 201, reg.text
+                token = reg.json()["access_token"]
+                h = {"Authorization": f"Bearer {token}"}
+                ws = (await c.get(f"{API}/workspaces", headers=h)).json()[0]
+
+                async def new_chat():
+                    return (
+                        await c.post(
+                            f"{API}/chat/conversations",
+                            json={"workspace_id": ws["id"], "default_mode": None},
+                            headers=h,
+                        )
+                    ).json()
+
+                older = await new_chat()
+                newer = await new_chat()
+
+                named = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}",
+                    json={"title": "  Deposit dispute  "},
+                    headers=h,
+                )
+                assert named.status_code == 200, named.text
+                assert named.json()["title"] == "Deposit dispute"
+                assert named.json()["pinned"] is False
+
+                # Pinning does not rename, and renaming does not unpin.
+                pinned = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}", json={"pinned": True}, headers=h
+                )
+                assert pinned.json()["pinned"] is True
+                assert pinned.json()["title"] == "Deposit dispute"
+                renamed = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}",
+                    json={"title": "Deposit, round two"},
+                    headers=h,
+                )
+                assert renamed.json()["pinned"] is True
+
+                # Pinned first, however recent the other one is.
+                listed = (
+                    await c.get(f"{API}/chat/conversations", params={"workspace_id": ws["id"]}, headers=h)
+                ).json()
+                assert [x["id"] for x in listed] == [older["id"], newer["id"]]
+
+                unpinned = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}", json={"pinned": False}, headers=h
+                )
+                assert unpinned.json()["pinned"] is False
+                listed = (
+                    await c.get(f"{API}/chat/conversations", params={"workspace_id": ws["id"]}, headers=h)
+                ).json()
+                assert [x["id"] for x in listed] == [newer["id"], older["id"]]
+
+                # An emptied name hands it back to the model.
+                cleared = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}", json={"title": "   "}, headers=h
+                )
+                assert cleared.json()["title"] is None
+
+                too_long = await c.patch(
+                    f"{API}/chat/conversations/{older['id']}",
+                    json={"title": "x" * 200},
+                    headers=h,
+                )
+                assert too_long.status_code == 400
+        finally:
+            if token:
+                async with client() as c:
+                    await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+
 class TestCompleteRoute:
     def test_complete_is_registered_and_shaped(self):
         spec = app.openapi()
