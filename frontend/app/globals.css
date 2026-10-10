@@ -469,6 +469,25 @@
     --ui-zoom: 0.85;
     zoom: var(--ui-zoom);
   }
+  /* Touch phones draw at 92%: 85% is a desktop density, and on a phone it
+     put body text and labels at 10-12px on the glass. 92% reads clearly and
+     still fits each screen much as before. Pointer-gated with the width, so
+     a narrow desktop window keeps the desktop's 85%. */
+  @media (pointer: coarse) and (max-width: 1023.98px) {
+    :root {
+      --ui-zoom: 0.92;
+    }
+  }
+}
+
+/* The smallest labels - "Was this helpful?", times, the mode name on an
+   answer, helper lines under fields - are text-xs by design, which zoom alone
+   leaves at 11px on a phone. Held at 12.5px on the glass there. */
+@media (pointer: coarse) and (max-width: 1023.98px) {
+  .text-xs {
+    font-size: calc(12.5px / var(--ui-zoom));
+    line-height: calc(17px / var(--ui-zoom));
+  }
 }
 
 /* A finger-sized hit area on touch screens, without redrawing the control:
@@ -596,14 +615,26 @@ body {
    anything a utility hides stays hidden. Buttons that sit inside the text
    (data-inline: the opinion marker) keep their size and use tap-area. */
 @media (pointer: coarse) and (max-width: 1023.98px) {
-  [data-testid="message"] button[aria-label]:not([data-inline]),
-  [data-composer] button[aria-label] {
+  [data-testid="message"] button[aria-label]:not([data-inline]) {
     min-width: calc(44px / var(--ui-zoom));
     min-height: calc(44px / var(--ui-zoom));
   }
-  [data-testid="message"] button[aria-label]:not([data-inline]) > svg,
-  [data-composer] button[aria-label] > svg {
+  [data-testid="message"] button[aria-label]:not([data-inline]) > svg {
     margin-inline: auto;
+  }
+  /* The chat box's buttons reach 44px through an invisible hit area rather
+     than a 44px box, so its toolbar stays compact. */
+  [data-composer] button[aria-label] {
+    position: relative;
+  }
+  [data-composer] button[aria-label]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, calc(44px / var(--ui-zoom)));
+    height: max(100%, calc(44px / var(--ui-zoom)));
+    transform: translate(-50%, -50%);
   }
 }
 
@@ -841,17 +872,49 @@ textarea[data-tour="composer-input"]:focus-visible {
   display: none;
 }
 
-/* Restrained scrollbars - the sidebar and evidence panels use these a lot. */
-.scroll-slim::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Restrained scrollbars - the sidebar and evidence panels use these a lot.
+   Not on a touch phone: a styled scrollbar there is a permanent 8px bar that
+   takes width from the content, where the phone's own is a thin indicator
+   that shows while you scroll and fades. */
+@media (min-width: 1024px), (pointer: fine), (pointer: none) {
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
-.scroll-slim::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 999px;
-}
-.scroll-slim::-webkit-scrollbar-track {
-  background: transparent;
+
+/* Edge fades on phone scroll boxes: an edge with more past it fades out, so a
+   list that runs off the screen says so. The data-more-* attributes come from
+   lib/useScrollEdges; an edge with nothing past it stays sharp. */
+@media (max-width: 1023.98px) {
+  .scroll-fade-y,
+  .scroll-fade-x {
+    --fade-start: 0px;
+    --fade-end: 0px;
+  }
+  .scroll-fade-y {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+  }
+  .scroll-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+  }
+  .scroll-fade-y[data-more-start],
+  .scroll-fade-x[data-more-start] {
+    --fade-start: 28px;
+  }
+  .scroll-fade-y[data-more-end],
+  .scroll-fade-x[data-more-end] {
+    --fade-end: 28px;
+  }
 }
 
 /* ---------------------------------------------------------------------------

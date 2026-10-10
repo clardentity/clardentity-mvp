@@ -7,6 +7,7 @@ import { TourProvider } from "@/lib/tour";
 import { TourOverlay } from "@/components/tour/TourOverlay";
 import { Analytics } from "@/components/system/Analytics";
 import { ConsentBanner } from "@/components/system/ConsentBanner";
+import { ServerWakingNotice } from "@/components/system/ServerWakingNotice";
 
 /* Registered from the document rather than a client component, so it runs
    once per page load regardless of which route mounted. Failure is silent and
@@ -118,6 +119,7 @@ export default function RootLayout({
               <TourOverlay />
               <Analytics />
               <ConsentBanner />
+              <ServerWakingNotice />
             </TourProvider>
           </AuthProvider>
         </ThemeProvider>

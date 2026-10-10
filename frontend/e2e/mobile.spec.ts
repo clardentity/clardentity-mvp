@@ -434,6 +434,11 @@ test("M30 tapping Clardentity at the top of the menu goes home @M30", async ({ s
   await press(page, sel.openNav);
   const home = page.locator(sel.drawer).getByRole("link", { name: "Clardentity" });
   await expect(home).toHaveAttribute("href", "/");
+  // the five-dot mark sits before the name, as in the desktop sidebar
+  const mark = (await home.locator('[aria-hidden="true"]').first().boundingBox())!;
+  const link = (await home.boundingBox())!;
+  expect(mark.width).toBeGreaterThan(10);
+  expect(mark.x).toBeLessThan(link.x + 12);
   await home.tap();
   await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
   await expect(page.locator(sel.drawer)).toHaveCount(0);
@@ -452,29 +457,23 @@ const lightAt = (page: Page) =>
     return best;
   });
 
-test("M31 home curtain on a phone: lit without hover, sweeps or follows tilt, rests off-screen @M31", async ({ app: page, browserName }) => {
+test("M31 home curtain on a phone: lit without hover, moves as a wave, no tilt, rests off-screen @M31", async ({ app: page }) => {
   test.setTimeout(60_000);
   await page.goto("/");
   await expect(page.locator(".landing-shimmer")).toBeAttached({ timeout: 30_000 });
 
-  // lit and moving by itself - no pointer, no sensor
+  // lit by itself - no pointer, no sensor
   await expect.poll(() => lightAt(page), { timeout: 5_000 }).toBeGreaterThanOrEqual(0);
-  // The sweep is ~18s there and back and lingers at each end, so two samples
-  // a couple of seconds apart can match at a turning point: watch for a move.
+  // a travelling wave: the brightest fold moves along, and the folds sway
   const a = await lightAt(page);
-  await expect.poll(() => lightAt(page), { message: "the light sweeps on its own", timeout: 8_000 }).not.toBe(a);
+  await expect.poll(() => lightAt(page), { message: "the light travels with the wave", timeout: 8_000 }).not.toBe(a);
+  const sway = () => page.locator(".landing-shimmer > span").nth(10).evaluate((el) => (el as HTMLElement).style.transform);
+  const t0 = await sway();
+  await expect.poll(sway, { message: "the folds sway", timeout: 3_000 }).not.toBe(t0);
 
-  // tilt steers it (Chromium/Android: no permission prompt in the way)
-  if (browserName === "chromium") {
-    const tilt = (gamma: number) =>
-      page.evaluate((g) => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: 0, beta: 40, gamma: g })), gamma);
-    await tilt(0); // how it's held = centre
-    await page.waitForTimeout(1_200);
-    await tilt(-22); // full left
-    await expect.poll(() => lightAt(page), { timeout: 4_000 }).toBeLessThan(12);
-    await tilt(22); // full right
-    await expect.poll(() => lightAt(page), { timeout: 4_000 }).toBeGreaterThan(38);
-  }
+  // tilt does nothing any more: the wave keeps its own course
+  await page.evaluate(() => window.dispatchEvent(new Event("deviceorientation")));
+  await expect(page.locator(".landing-shimmer")).toBeAttached();
 
   // scrolled away: the loop stops and the light goes out
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

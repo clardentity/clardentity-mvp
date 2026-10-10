@@ -8,6 +8,7 @@ import { CurtainShimmer } from "@/components/marketing/CurtainShimmer";
 import { GuestDemo } from "@/components/marketing/GuestDemo";
 import { HeroComposer } from "@/components/marketing/HeroComposer";
 import { Reveal } from "@/components/marketing/Reveal";
+import { CardEmboss } from "@/components/marketing/CardEmboss";
 import { track } from "@/lib/analytics";
 
 /* The landing page, built from the Figma design (file mTefBk432edigQvPwag6mK,
@@ -465,6 +466,8 @@ export function LandingPage({ signedIn }: { signedIn: boolean }) {
                   // because the rule is never generated.
                   style={{ border: `1.099px solid ${HAIRLINE}` }}
                 />
+                {/* phone only: a small outlined mark in the empty middle */}
+                <CardEmboss shape={step.word} center={249} size={86} />
                 <p
                   className="absolute font-normal"
                   style={{
@@ -565,6 +568,8 @@ export function LandingPage({ signedIn }: { signedIn: boolean }) {
                   className="pointer-events-none absolute inset-0 rounded-[10.83px]"
                   style={{ border: `0.902px solid ${HAIRLINE}` }}
                 />
+                {/* phone only: a small outlined mark in the empty middle */}
+                <CardEmboss shape={mode.value} center={155} size={70} />
                 <div
                   className="absolute flex items-center justify-between"
                   style={{ left: 20.76, top: 23.47, width: 227.43 }}

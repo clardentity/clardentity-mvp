@@ -17,7 +17,8 @@
  * Anything that measures and then positions converts here.
  */
 
-/** What the root is zoomed to: 0.85, or 1 where the property is missing. */
+/** What the root is zoomed to: 0.85 (0.92 on touch phones), or 1 where the
+ *  property is missing. */
 export function uiZoom(): number {
   if (typeof document === "undefined") return 1;
   const raw = getComputedStyle(document.documentElement).zoom;

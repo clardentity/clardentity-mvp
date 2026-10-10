@@ -35,6 +35,7 @@ import { companionLabel, useCompanionNames } from "@/lib/companionNames";
 import { cx } from "@/components/ui/primitives";
 import { useOnline } from "@/lib/useOnline";
 import { usePhoneLayout } from "@/lib/usePhoneLayout";
+import { useScrollEdges } from "@/lib/useScrollEdges";
 import {
   AvatarPanel,
   type AvatarExpression,
@@ -188,6 +189,31 @@ export function ChatView({ conversationId }: { conversationId: string }) {
   // typed and the bubble drawn. On the phone layout the composer keeps the
   // draft and waits; desktop behaves as it always has.
   const phoneLayout = usePhoneLayout();
+  const fadePillEdges = useScrollEdges("x");
+
+  /* Touch phone, typing: the mode rail folds to a chip so the thread keeps
+   * the room above the keyboard. Tracked from focus on the chat box itself;
+   * `railOpen` is the chip tapped open, until the box loses focus. A narrow
+   * desktop window (fine pointer) never folds. */
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    if (!window.matchMedia("(pointer: coarse) and (max-width: 1023.98px)").matches) return;
+    const onIn = (e: FocusEvent) => {
+      if (e.target === composerRef.current) setComposerFocused(true);
+    };
+    const onOut = (e: FocusEvent) => {
+      if (e.target !== composerRef.current) return;
+      setComposerFocused(false);
+      setRailOpen(false);
+    };
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, []);
   useEffect(() => {
     if (!phoneLayout) return;
     try {
@@ -1028,7 +1054,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             that said what it would do but never which modes were in play. */}
         {multiMode && (
           <div className="flex shrink-0 justify-center pt-[37px] pb-4">
-            <div className="scroll-slim flex max-w-full items-center gap-1 overflow-x-auto">
+            <div ref={fadePillEdges} className="scroll-slim scroll-fade-x flex max-w-full items-center gap-1 overflow-x-auto">
               <ThreadPill
                 selected={!carousel}
                 onClick={() => setCarousel(false)}
@@ -1315,11 +1341,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             <div className="min-w-0 flex-1">
               <ModeSelector
                 value={mode}
+                folded={composerFocused && !railOpen}
+                onUnfold={() => setRailOpen(true)}
+                holdFocus={railOpen}
                 onChange={(next) => {
                   // Picking a mode by hand supersedes any accepted suggestion.
                   track("mode_picked", { mode: next });
                   setSwitchedFrom(null);
                   setMode(next);
+                  // Opened from the chip mid-message: the chat box kept its
+                  // focus, so fold again around the new mode.
+                  if (railOpen) setRailOpen(false);
                 }}
                 disabled={sending}
                 onLocked={(locked) => {

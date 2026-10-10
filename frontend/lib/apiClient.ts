@@ -1,4 +1,5 @@
 import { getAccessToken, getRefreshToken, refreshAccessToken } from "@/lib/auth";
+import { trackServerWait } from "@/lib/serverWait";
 
 export const BACKEND_ROOT_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
@@ -95,7 +96,8 @@ async function request<T>(
   void fresh;
   const accessToken = getAccessToken();
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  // reported to serverWait, which tells a cold start from a slow endpoint
+  const res = await trackServerWait(fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
@@ -103,7 +105,7 @@ async function request<T>(
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }), (r) => r.status < 500);
 
   if (res.status === 401 && !_isRetry && getRefreshToken()) {
     const newAccessToken = await refreshAccessToken();

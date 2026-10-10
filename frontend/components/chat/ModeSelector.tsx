@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { COGNITIVE_MODES, type CognitiveMode } from "@/lib/modes";
 import { useLockedModes } from "@/lib/previewAccess";
@@ -8,6 +8,7 @@ import { companionLabel, useCompanionNames } from "@/lib/companionNames";
 import { MaskIcon } from "@/components/ui/MaskIcon";
 import { rectScale } from "@/lib/uiScale";
 import { cx } from "@/components/ui/primitives";
+import { useScrollEdges } from "@/lib/useScrollEdges";
 
 export { COGNITIVE_MODES };
 export type { CognitiveMode };
@@ -24,6 +25,9 @@ export function ModeSelector({
   disabled,
   onLocked,
   lockedModes: lockedOverride,
+  folded = false,
+  onUnfold,
+  holdFocus = false,
 }: {
   value: CognitiveMode | null;
   onChange: (mode: CognitiveMode) => void;
@@ -38,6 +42,14 @@ export function ModeSelector({
    *  four of them there would refuse a companion the server is willing to
    *  be. */
   lockedModes?: readonly CognitiveMode[];
+  /** Phone, while typing: the rail folds to one chip naming the current
+   *  mode, giving the conversation back the rail's height above the
+   *  keyboard. Tapping the chip calls `onUnfold`. */
+  folded?: boolean;
+  onUnfold?: () => void;
+  /** Opened from the chip while typing: tapping a mode leaves the chat box
+   *  focused, so the keyboard stays up. */
+  holdFocus?: boolean;
 }) {
   const names = useCompanionNames();
   // Which companions are locked is an account fact, not a constant: "Skip
@@ -45,6 +57,15 @@ export function ModeSelector({
   const accountLocks = useLockedModes();
   const lockedModes = lockedOverride ?? accountLocks;
   const stripRef = useRef<HTMLDivElement>(null);
+  // on a phone the rail scrolls; its edges fade where more companions are
+  const fadeEdges = useScrollEdges("x");
+  const setStrip = useCallback(
+    (el: HTMLDivElement | null) => {
+      stripRef.current = el;
+      return fadeEdges(el);
+    },
+    [fadeEdges],
+  );
   const selectedRef = useRef<HTMLButtonElement>(null);
 
   // The row scrolls, so at 320px the fourth pill sits past the right edge -
@@ -70,7 +91,34 @@ export function ModeSelector({
       (pill.getBoundingClientRect().left - strip.getBoundingClientRect().left) / rectScale();
     const offset = gap + strip.scrollLeft;
     strip.scrollLeft = Math.max(0, offset - (strip.clientWidth - pill.offsetWidth) / 2);
-  }, [value]);
+    // folded too: unfolding mounts a fresh rail, scrolled to its start
+  }, [value, folded]);
+
+  const current = COGNITIVE_MODES.find((m) => m.value === value);
+  if (folded && current) {
+    return (
+      <div className="flex">
+        <button
+          type="button"
+          data-testid="mode-chip"
+          // mousedown, the usual way to keep a phone keyboard up: the chat
+          // box keeps its focus, so the keyboard
+          // stays up while the rail opens.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onUnfold}
+          aria-label={`Mode: ${companionLabel(names, current.value, current.label)}. Show all modes`}
+          aria-expanded={false}
+          className="tap-area inline-flex items-center gap-1.5 rounded-full border border-brand-border bg-brand-soft py-1 pl-2.5 pr-3 text-sm font-medium text-brand animate-[fade-in_0.15s_ease]"
+        >
+          <MaskIcon src={current.icon} className="size-4" />
+          <span className="whitespace-nowrap">{companionLabel(names, current.value, current.label)}</span>
+          <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3 opacity-70">
+            <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
 
   if (value === null) {
     return (
@@ -125,7 +173,7 @@ export function ModeSelector({
     // onto its own line, or off the edge entirely.
     <div className="flex w-full min-w-0 flex-col gap-1.5">
       <div
-        ref={stripRef}
+        ref={setStrip}
         role="radiogroup"
         aria-label="Cognitive mode"
         data-tour="mode-picker"
@@ -133,7 +181,7 @@ export function ModeSelector({
         // the composer below, each a 20px mark above a 16px name. Below that
         // width it scrolls rather than wrapping into a ragged second row -
         // every companion stays one tap away and the rail keeps its shape.
-        className="scroll-slim flex w-full max-w-full items-stretch justify-between gap-1 overflow-x-auto"
+        className="scroll-slim scroll-fade-x flex w-full max-w-full items-stretch justify-between gap-1 overflow-x-auto"
       >
         {COGNITIVE_MODES.map((mode) => {
           const selected = value === mode.value;
@@ -148,6 +196,7 @@ export function ModeSelector({
               aria-disabled={comingSoon || undefined}
               disabled={disabled || (comingSoon && !onLocked)}
               onClick={() => (comingSoon ? onLocked?.(mode.value) : onChange(mode.value))}
+              onMouseDown={holdFocus ? (e) => e.preventDefault() : undefined}
               title={comingSoon ? `${mode.when} (included in a paid plan)` : mode.when}
               className={cx(
                 // touch-manipulation so a tap on a phone is a tap: the rail

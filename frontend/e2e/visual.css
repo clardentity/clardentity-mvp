@@ -1,3 +1,11 @@
 /* Applied only while a visual snapshot is taken (visual.spec.ts). */
-/* Next's dev indicator: a shadow root that page masks can't reach. */
+/* Next's dev indicator: a shadow root nothing else can reach. */
 nextjs-portal { display: none !important; }
+
+/* What changes between runs, hidden in place so the layout is unchanged:
+   message times, the animated companion, the account initials. */
+time,
+[data-tour="companion"],
+[data-tour="nav-profile"] > span:first-child {
+  visibility: hidden !important;
+}

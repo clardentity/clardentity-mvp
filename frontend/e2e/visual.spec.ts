@@ -7,8 +7,8 @@
  * doesn't exist yet skips rather than failing, so a fresh clone and Windows/
  * macOS runs are quiet. Runs only with E2E_VISUAL=1 (see playwright.config).
  *
- * Masked: timestamps, the arrival greeting, the avatar and initials; Next's
- * dev indicator is hidden (visual.css). The mock's chat stream lands in one piece, so there is no partial text to mask.
+ * Hidden (visual.css): timestamps, the companion, the account initials and
+ * Next's dev indicator; the arrival greeting is suppressed (beforeEach). The mock's chat stream lands in one piece, so there is no partial text to mask.
  * Threshold: maxDiffPixelRatio 0.01 in the config - see the note there. */
 import fs from "node:fs";
 import path from "node:path";
@@ -24,21 +24,30 @@ function needsBaseline(name: string) {
   test.skip(!updating && !fs.existsSync(file), `no baseline for ${name} yet - run the visual baselines workflow`);
 }
 
-const masks = (page: Page) => [
-  page.getByText("Welcome back", { exact: true }), // arrival greeting, fades on a timer
-  page.getByText(/\b\d{1,2}:\d{2}\s?(AM|PM)\b/),
-  page.locator('[data-tour="nav-profile"] span').first(),
-  page.locator("img[alt*='avatar' i], [data-testid='avatar']"),
-];
+// What changes between runs - timestamps, the companion, the account
+// initials - is hidden by visual.css, in place. Playwright's own `mask` option
+// was tried first: it paints its boxes from rects that ignore the app's 85%
+// root zoom, so in the first baselines every box sat up and left of its target
+// and covered the wrong things.
+test.beforeEach(async ({ page }) => {
+  // The one-off "Welcome back" greeting fades on a timer: say it has already
+  // been shown this session, so no screenshot catches it mid-fade.
+  await page.addInitScript(() => {
+    try {
+      sessionStorage.setItem("clardentity.greetedThisSession", "1");
+    } catch {
+      // storage blocked: the greeting may show, and the diff will say so
+    }
+  });
+});
 
 async function snap(page: Page, name: string) {
   needsBaseline(name);
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveScreenshot(name, {
-    mask: masks(page),
     animations: "disabled",
     caret: "hide",
-    stylePath: path.join(__dirname, "visual.css"), // hides Next's dev indicator
+    stylePath: path.join(__dirname, "visual.css"),
   });
 }
 

@@ -30,12 +30,11 @@ import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
  *
  * Nothing here runs under prefers-reduced-motion.
  *
- * A phone has no hover, so on the phone layout the light is steered without
- * one: by tilting the phone where the browser hands over the motion sensor
- * without asking (Android), and otherwise by a slow sweep of its own - iPhones
- * only release the sensor after a permission prompt, and the curtain doesn't
- * ask. A finger on the stage still takes over while it's down. The light then
- * stays on rather than waiting for a pointer to arrive, so the loop runs only
+ * A phone has no hover, so on the phone layout the curtain moves on its own:
+ * a slow wave travels across the folds, and the light rides its crests. No
+ * motion sensor - tilt steering was tried and dropped (iPhones only release
+ * the sensor behind a permission prompt, so it was never the same on both).
+ * A finger on the stage still lights it where it touches. The loop runs only
  * while the stage is on screen and the tab is visible.
  */
 
@@ -79,11 +78,9 @@ const SWAY = 0.1; // the idle drift, present whether or not anything moved
 /* The phone layout (touch, below lg). */
 const PHONE_QUERY = "(max-width: 1023.98px) and (pointer: coarse)";
 const PHONE_LIT = 0.75; // the light stays on - there is no hover to wait for
-const TILT_RANGE = 22; // degrees either side of how it was first held -> full sweep
-const TILT_DEAD = 1.5; // degrees of hand tremor ignored
-const SWEEP = 30; // % either side of centre the self-steering light travels
-const SWEEP_SPEED = 0.00035; // radians per ms - a slow pass, ~18s there and back
-const FOLLOW = 0.06; // per frame: how quickly the light catches up with the tilt
+const PHONE_WAVE_LENGTH = 34; // % of the width from one crest to the next
+const PHONE_WAVE_SPEED = 0.0007; // radians per ms - a crest crosses in ~6s
+const PHONE_WAVE_SWAY = 0.9; // how far a fold moves with the wave, % of width
 
 export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
   const hostRef = useRef<HTMLSpanElement>(null);
@@ -109,28 +106,17 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
     let frame = 0;
     let idle = 0;
 
-    // The phone: where tilt (or the sweep) wants the light, and whether a
-    // finger is currently steering it instead.
+    // The phone: the wave runs unless a finger is on the stage.
     const phone = window.matchMedia(PHONE_QUERY).matches;
     let touching = false;
-    let tiltX: number | null = null; // % across, from the sensor; null = sweep
-    let baseline: number | null = null; // the angle it was first held at
+    let wavePhase = 0;
     let onScreen = true;
     const ambient = () => phone && onScreen && document.visibilityState === "visible";
 
     const step = (now: number) => {
-      if (phone && !touching) {
-        // Steer the light towards the tilt, or along the slow sweep - eased,
-        // so sensor noise reads as a drift rather than a tremble. How fast it
-        // moves becomes a little wind, as a pointer's speed does.
-        const goal = tiltX ?? 50 + SWEEP * Math.sin(now * SWEEP_SPEED);
-        const before = pointerX;
-        pointerX += (goal - pointerX) * FOLLOW;
-        const strength = Math.min(Math.abs(pointerX - before) * GUST_FROM_SPEED * 4, GUST_MAX * 0.6);
-        if (strength > gust) {
-          gust = strength;
-          gustX = pointerX;
-        }
+      const waving = phone && !touching;
+      if (waving) {
+        wavePhase = now * PHONE_WAVE_SPEED;
         target = ambient() ? PHONE_LIT : 0;
       }
       phase = now * WAVE_SPEED;
@@ -149,10 +135,18 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
         // How much of the gust reaches this fold, and the ripple it rides.
         const falloff = Math.exp(-(toGust * toGust) / (2 * GUST_WIDTH * GUST_WIDTH));
         const ripple = Math.sin((Math.abs(toGust) / WAVE_LENGTH) * Math.PI * 2 - phase);
-        const shift = gust * falloff * ripple + idle * Math.sin(x * 0.4);
+        let shift = gust * falloff * ripple + idle * Math.sin(x * 0.4);
 
         // The light: a pool around the cursor, fading with distance.
-        const glow = Math.exp(-(toCursor * toCursor) / (2 * REACH * REACH));
+        let glow = Math.exp(-(toCursor * toCursor) / (2 * REACH * REACH));
+
+        if (waving) {
+          // The phone's wave: every fold swings with it, and the light is
+          // brightest on the crests, so bands of light travel across.
+          const angle = (x / PHONE_WAVE_LENGTH) * Math.PI * 2 - wavePhase;
+          shift += Math.sin(angle) * PHONE_WAVE_SWAY;
+          glow = 0.25 + 0.75 * (0.5 + 0.5 * Math.cos(angle));
+        }
 
         const node = pleats[i];
         // translate moves the fold; scaleX narrows it as it turns edge-on,
@@ -216,28 +210,6 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
     stage.addEventListener("pointerleave", onLeave);
     stage.addEventListener("pointercancel", onLeave);
 
-    // Tilt, where it comes without a prompt. Always listened for, never
-    // asked: iOS sends nothing until requestPermission() is granted, and the
-    // curtain never calls it, so iPhones simply keep the sweep. (Detecting
-    // iOS by that function doesn't work - current Chrome has it too, resolving
-    // at once.) Sensors only report on secure (https) pages; elsewhere no
-    // event arrives and the sweep continues.
-    const onTilt = (event: DeviceOrientationEvent) => {
-      if (event.gamma === null || event.beta === null) return;
-      // Left-right tilt is gamma held upright; turned sideways it's beta,
-      // signed by which way the phone was turned.
-      const angle = screen.orientation?.angle ?? 0;
-      const raw = angle === 90 ? event.beta : angle === 270 ? -event.beta : event.gamma;
-      // However it was being held when the page opened is "centre".
-      if (baseline === null) baseline = raw;
-      let delta = raw - baseline;
-      delta = Math.abs(delta) < TILT_DEAD ? 0 : delta - Math.sign(delta) * TILT_DEAD;
-      tiltX = Math.max(8, Math.min(92, 50 + (delta / TILT_RANGE) * 42));
-      wake();
-    };
-    const onTurn = () => {
-      baseline = null; // the axis just changed; re-centre on the new hold
-    };
     const onVisibility = () => {
       if (ambient()) wake();
     };
@@ -247,8 +219,6 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
     });
 
     if (phone) {
-      window.addEventListener("deviceorientation", onTilt);
-      screen.orientation?.addEventListener("change", onTurn);
       document.addEventListener("visibilitychange", onVisibility);
       sight.observe(stage);
       wake();
@@ -256,8 +226,6 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
 
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener("deviceorientation", onTilt);
-      screen.orientation?.removeEventListener("change", onTurn);
       document.removeEventListener("visibilitychange", onVisibility);
       sight.disconnect();
       stage.removeEventListener("pointerenter", onEnter);

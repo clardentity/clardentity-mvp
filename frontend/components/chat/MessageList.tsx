@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "@/components/system/ErrorBoundaries";
+import { usePhoneLayout } from "@/lib/usePhoneLayout";
 import type {
   Claim,
   ChatMessage,
@@ -121,10 +122,39 @@ export function MessageList({
   // below the fold with nothing scrolling after it.
   const autoScrolling = useRef(false);
 
+  /* Phone only: a "jump to latest" button once you are more than a screen
+   * up, and your place in each chat kept for the session - leave a chat
+   * halfway through and come back, and it opens where you were rather than
+   * at the bottom. Per chat, in sessionStorage, dropped once you're back at
+   * the bottom. */
+  const phone = usePhoneLayout();
+  const [showJump, setShowJump] = useState(false);
+  const placeKey = `clardentity-place:${conversationId}`;
+  const savePlace = useRef(0);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = fromBottom < 80;
+    if (phone) {
+      setShowJump(fromBottom > el.clientHeight);
+      if (!savePlace.current) {
+        savePlace.current = requestAnimationFrame(() => {
+          savePlace.current = 0;
+          const box = scrollRef.current;
+          if (!box) return;
+          try {
+            if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) sessionStorage.removeItem(placeKey);
+            // unrounded: under the root zoom a rounded value snaps a pixel
+            // further on restore, and the place crept on every visit
+            else sessionStorage.setItem(placeKey, box.scrollTop.toFixed(2));
+          } catch {
+            // storage blocked: the chat simply opens at the bottom
+          }
+        });
+      }
+    }
     if (autoScrolling.current) {
       if (atBottom) autoScrolling.current = false;
       return;
@@ -135,6 +165,41 @@ export function MessageList({
   }
 
   const lastMessageId = messages.at(-1)?.id ?? null;
+
+  // Back to where you were in this chat - once, as the thread first renders,
+  // and before the effects below would carry it to the bottom.
+  const placeRestored = useRef(false);
+  const hasMessages = messages.length > 0;
+  useLayoutEffect(() => {
+    const el = scrollRef.current; // absent while the history is loading
+    if (placeRestored.current || !phone || !hasMessages || !el) return;
+    placeRestored.current = true;
+    let saved: number | null = null;
+    try {
+      const raw = sessionStorage.getItem(placeKey);
+      saved = raw === null ? null : Number(raw);
+    } catch {
+      saved = null;
+    }
+    if (saved === null || !Number.isFinite(saved)) return;
+    stickToBottom.current = false;
+    el.scrollTop = saved;
+    // WebKit floors scroll positions to whole device pixels under the root
+    // zoom: a restore can land a pixel short, and a pixel shorter each visit.
+    if (saved - el.scrollTop >= 0.5) el.scrollTop = saved + 1;
+  }, [phone, hasMessages, placeKey, loading]);
+
+  useEffect(() => () => cancelAnimationFrame(savePlace.current), []);
+
+  function jumpToLatest() {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottom.current = true;
+    autoScrolling.current = true;
+    setShowJump(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setTimeout(() => (autoScrolling.current = false), 800);
+  }
 
   // A new message - yours or its answer - is the moment you want to be at the
   // bottom, so this one is smooth and deliberate.
@@ -170,11 +235,18 @@ export function MessageList({
 
   // Streaming text arrives many times a second; smooth scrolling that would
   // queue an animation per token and visibly lag the text.
+  // Coalesced to one jump per frame: tokens can land several to a frame, and
+  // a layout read + write for each made the follow judder on slower phones.
+  const followFrame = useRef(0);
   useEffect(() => {
-    if (!stickToBottom.current) return;
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!stickToBottom.current || followFrame.current) return;
+    followFrame.current = requestAnimationFrame(() => {
+      followFrame.current = 0;
+      const el = scrollRef.current;
+      if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+    });
   }, [streaming?.content]);
+  useEffect(() => () => cancelAnimationFrame(followFrame.current), []);
 
   if (loading) {
     return (
@@ -206,8 +278,11 @@ export function MessageList({
   }
 
   return (
-    // min-h-0 is required for overflow-y-auto to engage: a flex item defaults
-    // to min-height:auto, which sizes it to its content and defeats scrolling.
+    // The wrapper holds the jump button over the thread; it takes the flex
+    // slot the thread used to, so the layout is the same.
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    {/* min-h-0 is required for overflow-y-auto to engage: a flex item defaults
+        to min-height:auto, which sizes it to its content and defeats scrolling. */}
     <div
       ref={scrollRef}
       data-testid="message-list"
@@ -304,6 +379,19 @@ export function MessageList({
         />
         </ErrorBoundary>
       )}
+    </div>
+    {phone && showJump && (
+      <button
+        type="button"
+        onClick={jumpToLatest}
+        aria-label="Jump to the latest message"
+        className="tap-area absolute bottom-3 left-1/2 z-10 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border border-hairline bg-surface-raised text-ink shadow-lg animate-[fade-in_0.2s_ease] lg:hidden"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="size-5">
+          <path d="M12 5v14M6 13l6 6 6-6" />
+        </svg>
+      </button>
+    )}
     </div>
   );
 }

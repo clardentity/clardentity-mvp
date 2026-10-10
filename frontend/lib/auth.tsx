@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { API_BASE_URL, ApiError, apiFetch } from "@/lib/apiClient";
+import { trackServerWait } from "@/lib/serverWait";
 
 const ACCESS_TOKEN_KEY = "clardentity_access_token";
 const REFRESH_TOKEN_KEY = "clardentity_refresh_token";
@@ -74,6 +75,13 @@ function isCredentialRejection(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
+/** No answer at all, or the platform's "not up yet" (502/503/504): worth
+ *  waiting on. Anything else is an answer, and retrying won't change it. */
+function isServerNotReady(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === 502 || error.status === 503 || error.status === 504;
+  return error instanceof TypeError;
+}
+
 let inFlightRefresh: Promise<string | null> | null = null;
 
 export async function refreshAccessToken(): Promise<string | null> {
@@ -83,11 +91,14 @@ export async function refreshAccessToken(): Promise<string | null> {
   if (!inFlightRefresh) {
     inFlightRefresh = (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
+        const res = await trackServerWait(
+          fetch(`${API_BASE_URL}/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          }),
+          (r) => r.status < 500,
+        );
         if (!res.ok) {
           // A 502 from a container still booting is not a rejected token.
           if (res.status === 401 || res.status === 403) clearTokens();
@@ -158,14 +169,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
+      // Phone layout: a server still waking gets a minute before the app
+      // gives up on it. Going straight to the login form after one failed
+      // request made a cold start look like being signed out; the waking
+      // notice explains the wait meanwhile. Desktop keeps the single try.
+      const phone = window.matchMedia("(max-width: 1023.98px)").matches;
+      const deadline = Date.now() + 60_000;
       try {
-        const me = await apiFetch<User>("/auth/me");
-        if (!cancelled) setUser(me);
-      } catch (error) {
-        // Keep the tokens when the backend simply could not be reached: the
-        // next load, once it is awake, restores the session instead of
-        // presenting a login form to someone who never logged out.
-        if (isCredentialRejection(error)) clearTokens();
+        for (let attempt = 0; ; attempt++) {
+          try {
+            // a retry must reach the server, not the short GET cache
+            const me = await apiFetch<User>("/auth/me", { fresh: attempt > 0 });
+            if (!cancelled) setUser(me);
+            return;
+          } catch (error) {
+            // Keep the tokens when the backend simply could not be reached: the
+            // next load, once it is awake, restores the session instead of
+            // presenting a login form to someone who never logged out.
+            if (isCredentialRejection(error)) {
+              clearTokens();
+              return;
+            }
+            if (!phone || !isServerNotReady(error) || cancelled || Date.now() > deadline) return;
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

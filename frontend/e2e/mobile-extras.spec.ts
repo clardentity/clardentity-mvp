@@ -211,8 +211,10 @@ test.describe("checklist items", () => {
     for (const name of ["Attach a file or image", "Record a voice message", "Regenerate this answer", "Mark this answer helpful", "Mark this answer not helpful"]) {
       const el = page.getByRole("button", { name }).first();
       if (!(await el.count())) continue;
-      const b = (await el.boundingBox())!;
-      if (Math.round(b.width) < 44 || Math.round(b.height) < 44) small.push(`${name} ${Math.round(b.width)}x${Math.round(b.height)}`);
+      // what a finger can hit: the chat box's icons stay small and reach 44px
+      // through an invisible hit area; the answer's icons are 44px boxes
+      const a = await tapArea(el);
+      if (a.w < 44 || a.h < 44) small.push(`${name} ${a.w}x${a.h}`);
     }
     expect(small, small.join("\n")).toEqual([]);
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
@@ -294,4 +296,197 @@ test.describe("routes the graph found untested", () => {
     await expect(page.locator(sel.email)).toBeVisible({ timeout: 30_000 });
     await expect(banner).toHaveCount(0);
   });
+});
+
+test.describe("scrolling", () => {
+  const fromBottom = (page: Page) =>
+    page.locator(sel.messageList).first().evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  // the thread opens with a smooth scroll of its own: let it land before
+  // scrolling by script (WebKit doesn't cancel a smooth scroll for a jump)
+  async function settled(page: Page) {
+    const list = page.locator(sel.messageList).first();
+    let last = -1;
+    await expect.poll(async () => {
+      const now = await list.evaluate((el) => el.scrollTop);
+      const same = now === last;
+      last = now;
+      return same;
+    }, { intervals: [250] }).toBe(true);
+    return list;
+  }
+
+  test("M48 chat: a jump-to-latest button once you've scrolled up @M48", async ({ page }) => {
+    await signIn(page, { messages: thread(8) });
+    await openChat(page);
+    const jump = page.getByRole("button", { name: "Jump to the latest message" });
+    await expect.poll(() => fromBottom(page)).toBeLessThan(80);
+    await expect(jump).toHaveCount(0);
+    const list = await settled(page);
+    await list.evaluate((el) => el.scrollTo({ top: 0, behavior: "instant" }));
+    await expect(jump).toBeVisible();
+    await expectTappable(jump, "jump to latest");
+    await jump.tap();
+    await expect.poll(() => fromBottom(page)).toBeLessThan(80);
+    await expect(jump).toHaveCount(0);
+  });
+
+  test("M49 chat: your place is kept when you come back to it @M49", async ({ page }) => {
+    await signIn(page, { messages: thread(8) });
+    await openChat(page);
+    const list = await settled(page);
+    await list.evaluate((el) => el.scrollTo({ top: 120, behavior: "instant" }));
+    await expect.poll(() => page.evaluate(() => Math.abs(Number(sessionStorage.getItem("clardentity-place:c1") ?? -99) - 120) <= 1)).toBe(true);
+    await page.reload();
+    await expect(page.locator(sel.composer)).toBeEditable({ timeout: 30_000 });
+    // within a pixel: under the root zoom, scroll positions snap to device pixels
+    await expect.poll(() => page.locator(sel.messageList).first().evaluate((el) => Math.abs(el.scrollTop - 120) <= 1)).toBe(true);
+    await expect(page.getByRole("button", { name: "Jump to the latest message" })).toBeVisible();
+    // back at the bottom, the saved place is dropped: the next visit opens at the latest
+    await page.getByRole("button", { name: "Jump to the latest message" }).tap();
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("clardentity-place:c1"))).toBeNull();
+  });
+
+  test("M50 lists fade at an edge with more past it; no desktop scrollbars on a phone @M50", async ({ page, browserName }) => {
+    const recents = Array.from({ length: 24 }, (_, i) => ({ id: `r${i}`, title: `Chat number ${i + 1}`, created_at: "2026-10-01T10:00:00Z", pinned: false }));
+    await signIn(page, { messages: thread(2), handlers: { "GET /chat/conversations": () => ({ body: recents }) } });
+    await page.goto("/workspace/w1");
+    await press(page, sel.openNav);
+    const list = page.locator(sel.drawer).locator("ul.scroll-fade-y");
+    await expect(list.locator('a[href^="/chat/r"]')).toHaveCount(12, { timeout: 30_000 }) // the list shows 12 at a time;
+    await expect(list).toHaveAttribute("data-more-end", "");
+    await expect(list).not.toHaveAttribute("data-more-start", "");
+    expect(await list.evaluate((el) => getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage)).toContain("gradient");
+    await list.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: "instant" }));
+    await expect(list).toHaveAttribute("data-more-start", "");
+    await expect(list).not.toHaveAttribute("data-more-end", "");
+
+    // the mode rail in a chat runs past the screen: its far edge fades
+    await page.locator(sel.closeNav).first().tap();
+    await openChat(page);
+    await expect(page.locator(sel.modeRail)).toHaveAttribute("data-more-end", "");
+    // the phone's own scrollbar (an overlay), not a styled 8px bar taking width
+    if (browserName === "chromium")
+      expect(await page.locator(sel.messageList).first().evaluate((el) => (el as HTMLElement).offsetWidth - el.clientWidth)).toBe(0);
+  });
+});
+
+test.describe("server waking from a quiet spell", () => {
+  const notice = (page: Page) => page.getByTestId("server-waking");
+  const later = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("M51 a slow first answer says the server is waking, then gets out of the way @M51", async ({ page }) => {
+    test.slow();
+    await signIn(page, { handlers: { "GET /auth/me": async () => { await later(7000); return undefined; } } });
+    await page.goto("/workspace");
+    await expect(notice(page)).toContainText("Waking the server up", { timeout: 10_000 });
+    const n = (await notice(page).boundingBox())!;
+    expect(n.x).toBeGreaterThanOrEqual(0);
+    expect(n.x + n.width).toBeLessThanOrEqual(376);
+    await expect(page.locator('a[href^="/workspace/w"]').first()).toBeVisible({ timeout: 20_000 });
+    await expect(notice(page)).toHaveCount(0);
+  });
+
+  test("M52 a server still booting doesn't sign you out: the first check is retried @M52", async ({ page }) => {
+    test.slow();
+    let calls = 0;
+    await signIn(page, {
+      handlers: { "GET /auth/me": () => (++calls <= 2 ? { status: 503, body: { detail: "starting" } } : undefined) },
+    });
+    await page.goto("/workspace");
+    await expect(page.locator('a[href^="/workspace/w"]').first()).toBeVisible({ timeout: 30_000 });
+    expect(page.url()).not.toContain("/login");
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+
+  test("M53 one slow request in an awake session isn't called a cold start @M53", async ({ page }) => {
+    test.slow();
+    await signIn(page, { handlers: { "GET /workspaces": async () => { await later(7000); return undefined; } } });
+    await page.goto("/workspace");
+    // /auth/me answered quickly, so the server is awake: no notice while /workspaces crawls
+    await later(5500);
+    await expect(notice(page)).toHaveCount(0);
+    await expect(page.locator('a[href^="/workspace/w"]').first()).toBeVisible({ timeout: 20_000 });
+  });
+});
+
+test("M54 home page cards: one embossed mark each, in the empty space only; none on desktop @M54", async ({ app: page }) => {
+  await page.goto("/");
+  const cards = page.locator("article.landing-card");
+  await expect(cards).toHaveCount(11, { timeout: 30_000 });
+  // the marks are placed once each card's text has laid out; read them then
+  await cards.last().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  await cards.first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  const report = await cards.evaluateAll((els) =>
+    els.map((card) => {
+      const marks = card.querySelectorAll('[data-testid="card-emboss"]');
+      const mark = marks[0]?.getBoundingClientRect();
+      const words = [...card.querySelectorAll("h3, p, span, img")].filter(
+        (el) => el.closest('[data-testid="card-emboss"]') === null && (el.textContent?.trim() || el.tagName === "IMG"),
+      );
+      const hits = mark
+        ? words.filter((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.left < mark.right && r.right > mark.left && r.top < mark.bottom && r.bottom > mark.top;
+          }).map((el) => el.textContent?.trim().slice(0, 20) || el.tagName)
+        : [];
+      // centred in the gap the text leaves: as much room above as below
+      let above = -Infinity, below = Infinity;
+      const box = card.getBoundingClientRect();
+      for (const el of words) {
+        const r = el.getBoundingClientRect();
+        if (r.height === 0) continue;
+        if (r.top + r.height / 2 < box.top + box.height / 2) above = Math.max(above, r.bottom);
+        else below = Math.min(below, r.top);
+      }
+      const skew = mark ? Math.abs((mark.top - above) - (below - mark.bottom)) : 0;
+      return { marks: marks.length, hits, skew };
+    }),
+  );
+  for (const [i, r] of report.entries()) {
+    expect.soft(r.marks, `card ${i}: one mark`).toBe(1);
+    expect.soft(r.hits, `card ${i}: mark overlaps text`).toEqual([]);
+    expect.soft(r.skew, `card ${i}: mark off-centre in its gap`).toBeLessThanOrEqual(3);
+  }
+  // desktop width: the cards are exactly as designed, no marks
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.locator('[data-testid="card-emboss"]').first()).toBeHidden();
+});
+
+test("M55 phone text: drawn at 92%, smallest labels held at 12.5px on the glass @M55", async ({ page }) => {
+  await signIn(page, { messages: thread(1) });
+  await openChat(page);
+  const zoom = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).zoom));
+  expect(zoom).toBeCloseTo(0.92, 2);
+  const label = page.getByText("Was this helpful?").first();
+  await expect(label).toBeVisible();
+  const px = await label.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+  expect(px * zoom, "label size on the glass").toBeGreaterThanOrEqual(12.4);
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+});
+
+test("M56 typing folds the mode row to a chip; the chip opens it without closing the keyboard @M56", async ({ page }) => {
+  await signIn(page, { messages: thread(1) });
+  await openChat(page);
+  const rail = page.locator(sel.modeRail);
+  const chip = page.getByTestId("mode-chip");
+  const composer = page.locator(sel.composer);
+  await expect(rail).toBeVisible();
+  await composer.tap();
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText("Finder");
+  await expect(rail).toHaveCount(0);
+  await expectTappable(chip, "mode chip");
+  await chip.tap();
+  await expect(rail).toBeVisible();
+  await expect(composer).toBeFocused(); // keyboard stays up
+  await rail.getByRole("radio", { name: "Thought coach" }).tap();
+  await expect(composer).toBeFocused();
+  await expect(chip).toContainText("Thought coach");
+  // keyboard away (focus leaves the box): the full row is back. Blurred
+  // directly - WebKit's emulation doesn't move focus on a tap on plain text.
+  await composer.evaluate((el) => (el as HTMLElement).blur());
+  await expect(rail).toBeVisible();
+  await expect(rail.getByRole("radio", { name: "Thought coach" })).toHaveAttribute("aria-checked", "true");
 });

@@ -422,7 +422,7 @@ export function MessageInput({
         // question on top and the controls along the foot. Not a row - the
         // text gets the full width at every size, which is what the old
         // side-by-side arrangement could not give it on a phone.
-        className="flex min-h-[124px] flex-col rounded-[20px] border border-[color:var(--border)] bg-surface-raised p-0 shadow-[0px_697px_195px_0px_rgba(0,0,0,0),0px_446px_178px_0px_rgba(0,0,0,0.01),0px_251px_150px_0px_rgba(0,0,0,0.03),0px_111px_111px_0px_rgba(0,0,0,0.04),0px_28px_61px_0px_rgba(0,0,0,0.05)]"
+        className="flex min-h-[124px] flex-col rounded-[20px] max-lg:min-h-0 border border-[color:var(--border)] bg-surface-raised p-0 shadow-[0px_697px_195px_0px_rgba(0,0,0,0),0px_446px_178px_0px_rgba(0,0,0,0.01),0px_251px_150px_0px_rgba(0,0,0,0.03),0px_111px_111px_0px_rgba(0,0,0,0.04),0px_28px_61px_0px_rgba(0,0,0,0.05)]"
       >
         {/* On a phone the five controls and the textarea competed for one
             390px row, and the textarea lost - "Ask a question..." wrapped
@@ -436,7 +436,10 @@ export function MessageInput({
             the voice controls, then the send disc. Everything in it is 32px
             tall so the whole row centres 31px above the card's bottom edge,
             which is where the design puts it. */}
-        <div className="order-2 flex items-center px-[27px] pb-[15px]">
+        {/* Phone: tighter, so the box is about two-thirds the height - the
+            buttons keep a 44px reach through tap areas (globals.css) and are
+            spaced so those areas don't overlap. */}
+        <div className="order-2 flex items-center px-[27px] pb-[15px] max-lg:pb-2 max-lg:pl-3.5 max-lg:pr-3 max-lg:pt-2.5">
           <button
             type="button"
             data-tour="attach-image"
@@ -457,7 +460,7 @@ export function MessageInput({
             className="hidden"
           />
 
-          <div className="ml-auto flex min-w-0 items-center gap-1">
+          <div className="ml-auto flex min-w-0 items-center gap-1 max-lg:gap-4">
             {mode && PICKABLE_MODES.has(mode) ? (
               gated ? (
                 // The chip, without the menu behind it. Same shape and the
@@ -556,7 +559,7 @@ export function MessageInput({
               // reader - and still becomes a stop control mid-answer.
               aria-label={isGenerating ? "Stop generating" : "Ask"}
               className={cx(
-                "-mr-[5px] flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed",
+                "-mr-[5px] flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed max-lg:size-9",
                 isGenerating
                   ? "bg-surface-sunken text-ink hover:bg-surface-hover"
                   : // Grey while there is nothing to send. It was a full
@@ -591,7 +594,7 @@ export function MessageInput({
           </div>
         </div>
 
-        <div className="relative order-1 w-full flex-1 px-[27px] pt-[26px]">
+        <div className="relative order-1 w-full flex-1 px-[27px] pt-[26px] max-lg:px-4 max-lg:pt-3.5">
           {/* The ghost layer: the typed text invisibly, so the suggestion
               lands exactly where the caret is, then the suggestion in grey.
               Same box, font and padding as the textarea; scroll kept in
@@ -600,7 +603,7 @@ export function MessageInput({
             <div
               ref={mirrorRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-[27px] pt-[26px] text-xl leading-[normal]"
+              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-[27px] pt-[26px] text-xl leading-[normal] max-lg:px-4 max-lg:pt-3.5 max-lg:text-lg"
             >
               <span className="invisible">{value}</span>
               <span className="text-ink-muted">{ghostVisible}</span>
@@ -639,7 +642,7 @@ export function MessageInput({
               ? "Enter starts a new line - tap the arrow to send"
               : "Enter to ask, Shift+Enter for a new line"
           }
-          className="relative w-full resize-none bg-transparent p-0 text-xl leading-[normal] text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
+          className="relative w-full resize-none bg-transparent p-0 text-xl leading-[normal] max-lg:text-lg text-ink placeholder:text-ink-muted focus:outline-none disabled:cursor-not-allowed"
         />
         </div>
       </div>
