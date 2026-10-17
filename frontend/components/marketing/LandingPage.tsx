@@ -336,7 +336,7 @@ export function LandingPage({ signedIn }: { signedIn: boolean }) {
           <div className="mt-[14.44px] w-full overflow-hidden rounded-[14.44px]">
             <div
               ref={stageRef}
-              className="relative w-full"
+              className="landing-stage relative w-full"
               // aspect-ratio and containerType in a style object: see the
               // note on the crop below for why fractional values do not go
               // through Tailwind's arbitrary-value syntax on this page.
@@ -357,7 +357,7 @@ export function LandingPage({ signedIn }: { signedIn: boolean }) {
                 placeholder="blur"
                 blurDataURL={CURTAIN_BLUR}
                 sizes="(max-width: 1200px) 100vw, 1100px"
-                className="absolute"
+                className="landing-stage-art absolute"
                 // maxWidth is explicit in CURTAIN_GEOMETRY because the base
                 // stylesheet caps every img at 100% of its container, which
                 // would undo the overscan.
@@ -388,7 +388,7 @@ export function LandingPage({ signedIn }: { signedIn: boolean }) {
                   composer shrinks together rather than the eight mode pills
                   overflowing a box that got narrower while they did not. */}
               <div
-                className="absolute left-1/2"
+                className="landing-stage-composer absolute left-1/2"
                 style={{
                   width: 834.813,
                   top: "calc(50% + 19.332%)",

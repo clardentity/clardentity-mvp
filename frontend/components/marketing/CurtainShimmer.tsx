@@ -252,7 +252,7 @@ export function CurtainShimmer({ style }: { style: React.CSSProperties }) {
     <span
       ref={hostRef}
       aria-hidden="true"
-      className="landing-shimmer pointer-events-none absolute overflow-hidden"
+      className="landing-shimmer landing-stage-art pointer-events-none absolute overflow-hidden"
       style={{
         ...style,
         maskImage: LIGHT_FIELD,

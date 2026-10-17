@@ -670,6 +670,84 @@ body {
   }
 }
 
+/* The banner on a phone (under 640px). Everywhere else the composer is
+   drawn at the design's size and scaled with the stage, which keeps it
+   pixel-exact on desktop - but on a phone that scale is about a third, and
+   the typing demo and mode names came out around 7px. Here the stage grows
+   to fit a composer drawn at a readable size: the curtain (and the shimmer,
+   which must stay on its folds) is cropped to cover the taller stage rather
+   than stretched, the question wraps instead of running off, and the eight
+   modes are one row that scrolls sideways. Unlayered with !important to
+   beat the inline design geometry. */
+@media (max-width: 639.98px) {
+  .landing-stage {
+    aspect-ratio: auto !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 150px 12px 12px;
+  }
+  .landing-stage-art {
+    left: 50% !important;
+    top: 0 !important;
+    height: 100% !important;
+    width: auto !important;
+    max-width: none !important;
+    aspect-ratio: 1909 / 824;
+    transform: translateX(-50%);
+  }
+  .landing-stage-composer {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    transform: none !important;
+  }
+  .hero-composer {
+    gap: 10px !important;
+  }
+  .hero-box {
+    height: auto !important;
+    min-height: 92px;
+  }
+  .hero-text {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    display: block;
+    padding: 13px 54px 14px 14px;
+    font-size: 16px !important;
+    line-height: 1.35;
+    white-space: normal !important;
+  }
+  .hero-send {
+    width: 32px !important;
+    height: 32px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+  }
+  .hero-pills {
+    justify-content: flex-start !important;
+    gap: 6px !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hero-pills::-webkit-scrollbar {
+    display: none;
+  }
+  .hero-pill {
+    padding: 5px 11px !important;
+    gap: 3px !important;
+  }
+  .hero-pill-label {
+    font-size: 13px !important;
+  }
+  .hero-pill-icon {
+    width: 17px !important;
+    height: 17px !important;
+  }
+}
+
 /* A phone held sideways: the hero's desktop spacing (it is wider than sm)
    put 250px of empty space above the headline and the banner below the
    bottom of a 390px-tall screen. Unlayered, so it beats the utilities. */
