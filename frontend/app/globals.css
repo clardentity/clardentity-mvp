@@ -776,7 +776,12 @@ body {
 /* Lists on the phone layout (workspaces, recent chats, search results,
    attachments) rise in one after another instead of all landing at once:
    --i is the item's index, 120ms apart, capped so a long list doesn't make
-   the tenth row wait. */
+   the tenth row wait.
+
+   `backwards`, not `both`: a filled animation on opacity and transform keeps
+   every row its own stacking context after it has finished, so a row's "..."
+   menu was painted under the rows that follow it. `backwards` still holds the
+   row hidden through its delay, then lets go once it has risen. */
 @keyframes phone-rise {
   from {
     opacity: 0;
@@ -789,7 +794,7 @@ body {
 }
 @media (max-width: 1023.98px) and (prefers-reduced-motion: no-preference) {
   .phone-rise {
-    animation: phone-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: phone-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) backwards;
     animation-delay: calc(min(var(--i, 0), 10) * 120ms);
   }
 }
