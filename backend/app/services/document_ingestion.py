@@ -1,5 +1,7 @@
+import asyncio
 import csv
 import io
+import zipfile
 import logging
 import re
 import uuid
@@ -183,6 +185,22 @@ def _pdf_pages(file_bytes: bytes) -> list[tuple[int | None, str]]:
     return [(i + 1, pdf_page_text(page)) for i, page in enumerate(pages)]
 
 
+#: An Office file is a zip; a small one can expand to gigabytes of XML (a
+#: "zip bomb"). Checked on the zip's own directory before any parser opens it.
+MAX_UNZIPPED_BYTES = 200 * 1024 * 1024
+MAX_ZIP_ENTRIES = 10_000
+#: Text kept from one file before chunking and embedding. Past this the
+#: embedding cost grows with no benefit to the answer.
+MAX_TEXT_CHARS = 2_000_000
+
+
+def _check_zip(file_bytes: bytes) -> None:
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+        entries = archive.infolist()
+        if len(entries) > MAX_ZIP_ENTRIES or sum(e.file_size for e in entries) > MAX_UNZIPPED_BYTES:
+            raise ValueError("file expands to more than the allowed size")
+
+
 def extract_pages(file_bytes: bytes, file_type: str) -> list[tuple[int | None, str]]:
     """Returns (page_number, text) pairs. page_number is 1-indexed for PDFs
     and slide decks (so citations can point at a real page); the rest have
@@ -191,6 +209,9 @@ def extract_pages(file_bytes: bytes, file_type: str) -> list[tuple[int | None, s
     """
     if file_type == "pdf":
         return _pdf_pages(file_bytes)
+
+    if file_type in ("docx", "xlsx", "xlsm", "pptx"):
+        _check_zip(file_bytes)
 
     if file_type == "docx":
         document = docx.Document(io.BytesIO(file_bytes))
@@ -257,7 +278,17 @@ async def build_chunks(document_id: uuid.UUID, file_bytes: bytes, file_type: str
     upload worker and the chat attachment path so both read the same
     formats the same way.
     """
-    pages = extract_pages(file_bytes, file_type)
+    # Parsing is synchronous and can take seconds on a large file: off the
+    # event loop, so one upload does not stall every other request.
+    pages = await asyncio.to_thread(extract_pages, file_bytes, file_type)
+    kept: list[tuple[int | None, str]] = []
+    budget = MAX_TEXT_CHARS
+    for page_number, page_text in pages:
+        if budget <= 0:
+            break
+        kept.append((page_number, page_text[:budget]))
+        budget -= len(page_text)
+    pages = kept
     entries: list[tuple[int | None, str]] = [
         (page_number, chunk)
         for page_number, page_text in pages

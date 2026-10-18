@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
 
 /* The composer on the stage, demonstrating itself.
@@ -141,8 +141,23 @@ export function HeroComposer({
 
   const text = reducedMotion ? question : question.slice(0, length);
 
+  /* Phone: the pills are one row that scrolls sideways (globals.css,
+     .hero-pills), so the lit one is brought into view as the demo moves
+     on - by moving the row, never the page. */
+  const pillsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = pillsRef.current;
+    const pill = row?.children[active] as HTMLElement | undefined;
+    if (!row || !pill || row.scrollWidth <= row.clientWidth) return;
+    const left = pill.offsetLeft - (row.clientWidth - pill.offsetWidth) / 2;
+    row.scrollTo({ left: Math.max(0, left), behavior: reducedMotion ? "auto" : "smooth" });
+  }, [active, reducedMotion]);
+
   return (
-    <div className="flex flex-col" style={{ gap: 11.732 }}>
+    // The hero-* classes are the phone layout (globals.css): there the
+    // composer is drawn at a readable size instead of scaled down with the
+    // stage, which put its text at about 7px on a 375px screen.
+    <div className="hero-composer flex flex-col" style={{ gap: 11.732 }}>
       {/* A button, not a picture of one. The box has been typing questions
           at the visitor; the least surprising thing it can do when clicked
           is let them type their own. */}
@@ -150,7 +165,7 @@ export function HeroComposer({
         type="button"
         onClick={() => onOpen?.(modes[active])}
         aria-label={`Try Clardentity in ${modes[active]?.name ?? "Finder"} mode`}
-        className="group relative w-full cursor-text overflow-hidden rounded-[18.05px] border text-left transition-colors hover:border-white/40"
+        className="hero-box group relative w-full cursor-text overflow-hidden rounded-[18.05px] border text-left transition-colors hover:border-white/40"
         style={{
           height: 111.91,
           background: "rgba(255,255,255,0.1)",
@@ -158,7 +173,7 @@ export function HeroComposer({
         }}
       >
         <p
-          className="absolute whitespace-nowrap font-normal text-white"
+          className="hero-text absolute whitespace-nowrap font-normal text-white"
           style={{ left: 23.47, top: 22.33, fontSize: 18.05 }}
         >
           {text}
@@ -170,7 +185,7 @@ export function HeroComposer({
           )}
         </p>
         <span
-          className="absolute flex items-center justify-center rounded-[19.855px]"
+          className="hero-send absolute flex items-center justify-center rounded-[19.855px]"
           style={{
             bottom: 13.76,
             right: 19.86,
@@ -190,13 +205,13 @@ export function HeroComposer({
         </span>
       </button>
 
-      <div className="flex items-center justify-between" style={{ gap: 3.61 }}>
+      <div ref={pillsRef} className="hero-pills flex items-center justify-between" style={{ gap: 3.61 }}>
         {modes.map((mode, i) => {
           const lit = i === active;
           return (
             <span
               key={mode.name}
-              className="flex shrink-0 flex-col items-center justify-center rounded-[7.22px] border transition-[background-color,border-color,opacity] duration-300"
+              className="hero-pill flex shrink-0 flex-col items-center justify-center rounded-[7.22px] border transition-[background-color,border-color,opacity] duration-300"
               style={{
                 gap: 3.61,
                 paddingLeft: 10.83,
@@ -217,11 +232,11 @@ export function HeroComposer({
                 alt=""
                 width={18}
                 height={18}
-                className="block"
+                className="hero-pill-icon block"
                 style={{ width: 18.05, height: 18.05 }}
               />
               <span
-                className="whitespace-nowrap font-normal text-white"
+                className="hero-pill-label whitespace-nowrap font-normal text-white"
                 style={{ fontSize: 14.44 }}
               >
                 {mode.name}

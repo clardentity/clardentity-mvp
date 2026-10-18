@@ -27,7 +27,13 @@ def admin_emails() -> set[str]:
 
 
 def is_admin(user: User) -> bool:
-    return (user.email or "").lower() in admin_emails()
+    """An exact match on the stored address. Emails are stored lower-cased
+    (see auth._email_key), so a row whose address differs from its
+    lower-cased form - "ADMIN@clardentity.ai", registered before that rule -
+    is not the administrator. Comparing case-insensitively here, against
+    accounts anyone can register, let a user make themselves admin."""
+    email = user.email or ""
+    return email == email.strip().lower() and email in admin_emails()
 
 
 async def ensure_bootstrap_admin(db: AsyncSession) -> None:

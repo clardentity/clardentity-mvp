@@ -310,7 +310,54 @@ def _vet(sql: str) -> str:
     for table in re.findall(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)", lowered):
         if table not in _ALLOWED_TABLES and table not in defined:
             raise HTTPException(status_code=400, detail=f"Table {table} is not available here")
+    _vet_shape(lowered)
     return statement
+
+
+# Whole rows and system functions: the column list above is a word match, so
+# `SELECT m FROM messages m`, `SELECT u.* FROM users u` or `to_jsonb(m)` read
+# every column of a row - content and password hashes included - without
+# naming one; a quoted or comma-joined table slipped past the table list;
+# and pg_terminate_backend and friends run even in a read-only transaction.
+_REFUSED_FUNCTIONS = re.compile(
+    r"\b(to_jsonb?|row_to_json|json_agg|jsonb_agg|json_object_agg|jsonb_object_agg|"
+    r"array_agg|string_agg|row|pg_[a-z_]+|current_setting|set_config|dblink[a-z_]*|"
+    r"lo_[a-z_]+|query_to_xml|table_to_xml|txid_[a-z_]+)\s*\(",
+)
+_SOURCE = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?")
+_NOT_ALIASES = {
+    "on", "where", "join", "left", "right", "inner", "outer", "full", "cross", "group",
+    "order", "limit", "having", "union", "using", "natural", "lateral", "offset", "window",
+}
+
+
+def _vet_shape(lowered: str) -> None:
+    def refuse(why: str) -> None:
+        raise HTTPException(status_code=400, detail=why)
+
+    if '"' in lowered or "`" in lowered:
+        refuse("Quoted names are not allowed here")
+    if re.search(r"\b(pg_catalog|information_schema|pg_stat[a-z_]*)\b", lowered):
+        refuse("System tables are not available here")
+    if _REFUSED_FUNCTIONS.search(lowered):
+        refuse("That function is not available here - name the columns you need")
+    if re.search(r"\bfrom\s+[a-z_][a-z0-9_]*(?:\s+(?:as\s+)?[a-z_][a-z0-9_]*)?\s*,", lowered):
+        refuse("Use JOIN ... ON rather than a comma between tables")
+    sources = _SOURCE.findall(lowered)
+    if any(t in _ALLOWED_TABLES for t, _ in sources) and "*" in re.sub(
+        r"count\s*\(\s*\*\s*\)", "", lowered
+    ):
+        refuse("Name the columns you need rather than *")
+    # A table or alias standing on its own - not `alias.column`, and not
+    # where it is introduced - is the whole row.
+    # Only real tables and their aliases: a CTE's columns were already
+    # vetted where the CTE was written.
+    real = [(t, a) for t, a in sources if t in _ALLOWED_TABLES]
+    names = {t for t, _ in real} | {a for _, a in real if a and a not in _NOT_ALIASES}
+    scrubbed = _SOURCE.sub(" ", lowered)
+    for name in names:
+        if re.search(rf"(?<![.\w]){re.escape(name)}\b(?!\s*\.)", scrubbed):
+            refuse("Name the columns you need rather than a whole row")
 
 
 _HOGQL_TABLES = {"events", "persons", "sessions"}

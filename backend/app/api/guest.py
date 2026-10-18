@@ -79,6 +79,7 @@ from app.services.guest_demo import (
     SESSION_BUDGET,
     charge,
     exhausted,
+    reserve,
     over_global_budget,
     spent,
     trim_history,
@@ -251,6 +252,9 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
     if await exhausted(session_id, address):
         return EventSourceResponse(_limit_reached())
 
+    # Held before anything is generated; settled by the charge at the end.
+    await reserve(address, _RESERVE_TOKENS)
+
     # Read, never written: the admin dashboard's switches (web search, bias
     # screening, scoring weights, a model override) apply to the demo too,
     # or the demo would quietly be a different product again.
@@ -385,7 +389,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 elif payload.health_consent != CONSENT_VERSION:
                     plan_task.cancel()
                     used, _ = await spent(session_id, address)
-                    await charge(session_id, address, 0, usage.total_tokens)
+                    await charge(session_id, address, 0, usage.total_tokens, reserved=_RESERVE_TOKENS)
                     yield {
                         "event": "switched",
                         "data": json.dumps({"from": switched_from, "to": mode}),
@@ -403,7 +407,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             if gate is not None:
                 plan_task.cancel()
                 used, _ = await spent(session_id, address)
-                await charge(session_id, address, 0, usage.total_tokens)
+                await charge(session_id, address, 0, usage.total_tokens, reserved=_RESERVE_TOKENS)
                 yield gate
                 yield _budget_event(used)
                 return
@@ -583,6 +587,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                     address,
                     _conversation_tokens(answer_usage.output_tokens, content, turns),
                     usage.total_tokens + answer_usage.total_tokens,
+                    reserved=_RESERVE_TOKENS,
                 )
                 yield {
                     "event": "final",
@@ -660,8 +665,12 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 # demo can do.
                 _IMAGE_CHARGE_TOKENS if run.generated_image else 0
             )
-            total_tokens = usage.total_tokens + answer_usage.total_tokens
-            used = await charge(session_id, address, answer_tokens, total_tokens)
+            # A picture counts against the address and the day as well as the
+            # visitor: it was the one cost with no ceiling over it.
+            total_tokens = usage.total_tokens + answer_usage.total_tokens + (
+                _IMAGE_CHARGE_TOKENS if run.generated_image else 0
+            )
+            used = await charge(session_id, address, answer_tokens, total_tokens, reserved=_RESERVE_TOKENS)
             mark("final")
             logger.info(
                 "guest turn mode=%s claims=%d answer_tokens=%d total_tokens=%d %s",
@@ -695,6 +704,8 @@ _COUNTERFACTUAL_WAIT_SECONDS = 8.0
 #: What one generated picture counts as against a visitor's allowance. Half
 #: of it: a guest can see Co-Creative draw, and cannot run up an image bill.
 _IMAGE_CHARGE_TOKENS = 2_500
+#: Held against the address and the day before a turn runs (guest_demo.reserve).
+_RESERVE_TOKENS = 10_000
 
 
 def _conversation_tokens(output_tokens: int, message: str, turns: list[dict]) -> int:

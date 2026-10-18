@@ -1287,8 +1287,8 @@ class TestRenameAndPin:
                     ).json()
 
                 older = await new_chat()
-                newer = await new_chat()
-
+                # Named before the next "New chat": an empty untitled chat is
+                # handed back rather than duplicated (see the reuse test).
                 named = await c.patch(
                     f"{API}/chat/conversations/{older['id']}",
                     json={"title": "  Deposit dispute  "},
@@ -1297,6 +1297,8 @@ class TestRenameAndPin:
                 assert named.status_code == 200, named.text
                 assert named.json()["title"] == "Deposit dispute"
                 assert named.json()["pinned"] is False
+                newer = await new_chat()
+                assert newer["id"] != older["id"]
 
                 # Pinning does not rename, and renaming does not unpin.
                 pinned = await c.patch(
@@ -1338,6 +1340,67 @@ class TestRenameAndPin:
                     headers=h,
                 )
                 assert too_long.status_code == 400
+        finally:
+            if token:
+                async with client() as c:
+                    await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    async def test_new_chat_reuses_an_empty_one(self):
+        """Pressing New chat again hands back the empty untitled chat instead
+        of stacking another; a chat with a title, a pin or a message is never
+        reused."""
+        email = f"reuse-{uuid.uuid4().hex[:8]}@example.com"
+        password = "reuse-password-123"
+        token = None
+        try:
+            async with client() as c:
+                reg = await c.post(
+                    f"{API}/auth/register",
+                    json={"email": email, "password": password, "display_name": "Reuser", "accepted_terms": True},
+                )
+                if reg.status_code >= 500:
+                    pytest.skip("no database available")
+                assert reg.status_code == 201, reg.text
+                token = reg.json()["access_token"]
+                h = {"Authorization": f"Bearer {token}"}
+                ws = (await c.get(f"{API}/workspaces", headers=h)).json()[0]
+
+                async def new_chat(mode=None):
+                    res = await c.post(
+                        f"{API}/chat/conversations",
+                        json={"workspace_id": ws["id"], "default_mode": mode},
+                        headers=h,
+                    )
+                    assert res.status_code == 201, res.text
+                    return res.json()
+
+                first = await new_chat()
+                again = await new_chat()
+                assert again["id"] == first["id"]
+                # Opened from a mode card: the same chat, in that mode.
+                in_mode = await new_chat("decision")
+                assert in_mode["id"] == first["id"]
+                assert in_mode["default_mode"] == "decision"
+                listed = (
+                    await c.get(f"{API}/chat/conversations", params={"workspace_id": ws["id"]}, headers=h)
+                ).json()
+                assert [x["id"] for x in listed] == [first["id"]]
+
+                # Something asked in it: no longer empty, so a new one is made.
+                async with AsyncSessionLocal() as db:
+                    db.add(Message(conversation_id=uuid.UUID(first["id"]), role="user", content="hello", mode_used="knowing"))
+                    await db.commit()
+                second = await new_chat()
+                assert second["id"] != first["id"]
+
+                # Titled or pinned chats are kept as they are, even if empty.
+                await c.patch(f"{API}/chat/conversations/{second['id']}", json={"title": "Plans"}, headers=h)
+                third = await new_chat()
+                assert third["id"] not in (first["id"], second["id"])
+                await c.patch(f"{API}/chat/conversations/{third['id']}", json={"pinned": True}, headers=h)
+                fourth = await new_chat()
+                assert fourth["id"] not in (first["id"], second["id"], third["id"])
+                assert (await new_chat())["id"] == fourth["id"]
         finally:
             if token:
                 async with client() as c:

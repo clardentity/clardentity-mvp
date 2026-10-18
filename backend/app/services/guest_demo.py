@@ -93,7 +93,15 @@ async def over_global_budget() -> bool:
     one is keyed on the date, and nothing else, which is what makes the worst
     case a number rather than a question.
     """
-    return await _get(_global_key()) >= settings.guest_daily_token_budget
+    # Fails closed, unlike the other counters: when Redis can't be read
+    # there is no ceiling at all, and this is the one counter whose whole
+    # job is to make the worst case a number.
+    try:
+        value = await _redis.get(_global_key())
+    except redis.RedisError:
+        logger.warning("guest global budget unavailable; treating as spent", exc_info=True)
+        return True
+    return int(value or 0) >= settings.guest_daily_token_budget
 
 
 async def exhausted(session_id: str, address: str) -> bool:
@@ -101,8 +109,25 @@ async def exhausted(session_id: str, address: str) -> bool:
     return session_spent >= SESSION_BUDGET or address_spent >= ADDRESS_BUDGET
 
 
+async def reserve(address: str, tokens: int) -> None:
+    """Hold part of a turn's cost against the address and the day before it
+    is generated. Charging only at the end let a client hang up just before
+    the end - the generator is cancelled, nothing is counted - and let many
+    requests in parallel all pass the check before any was charged. The
+    reservation is settled by `charge(..., reserved=...)`."""
+    try:
+        pipe = _redis.pipeline()
+        pipe.incrby(_address_key(address), max(0, tokens))
+        pipe.expire(_address_key(address), _DAY)
+        pipe.incrby(_global_key(), max(0, tokens))
+        pipe.expire(_global_key(), _DAY)
+        await pipe.execute()
+    except redis.RedisError:
+        logger.warning("guest counter unavailable on reserve", exc_info=True)
+
+
 async def charge(
-    session_id: str, address: str, session_tokens: int, total_tokens: int
+    session_id: str, address: str, session_tokens: int, total_tokens: int, reserved: int = 0
 ) -> int:
     """Add one turn to the counters. Returns the session total.
 
@@ -116,6 +141,8 @@ async def charge(
     already been generated has already been paid for, and refusing to count
     it would be the one way to actually lose money here.
     """
+    # What was reserved up front has already been counted.
+    total_tokens = max(0, total_tokens - reserved)
     total = await _get(_session_key(session_id))
     if session_tokens <= 0 and total_tokens <= 0:
         return total
