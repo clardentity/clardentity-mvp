@@ -1,4 +1,4 @@
-import { routePattern } from "@/lib/analytics";
+import { routePattern, sanitize } from "@/lib/analytics";
 
 /* Crash reports from the error screens' "Report" link.
  *
@@ -47,6 +47,12 @@ export async function sendErrorReport(ref: string, where: string, error: Error):
         advanced_disable_feature_flags: true,
         disable_surveys: true,
         disable_external_dependency_loading: true,
+        // The SDK adds the page address to every event by itself - on the
+        // reset page that address carries the reset token. The same
+        // clean-up analytics uses: route patterns, never query strings. Set
+        // here too because whichever init runs first is the one PostHog
+        // keeps for the rest of the page.
+        sanitize_properties: sanitize,
       });
     }
     const frame = (error.stack ?? "").split("\n").find((l) => l.includes("/_next/") || l.includes("webpack")) ?? "";

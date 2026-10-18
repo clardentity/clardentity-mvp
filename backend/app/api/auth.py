@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import delete, func, select
+from app.services.admin_access import admin_emails
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -50,6 +51,18 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _client_ip(request: Request) -> str:
     return client_ip(request)
+
+
+def _email_key(email: str | None) -> str:
+    """How an address is stored and looked up: trimmed and lower-cased. The
+    unique index is case-sensitive, so without this "Admin@x" and "admin@x"
+    were two accounts - and is_admin, which compares lower-cased, counted
+    both as the administrator."""
+    return (email or "").strip().lower()
+
+
+def _by_email(email: str):
+    return select(User).where(func.lower(User.email) == _email_key(email))
 
 
 def _issue_tokens(user: User) -> TokenResponse:
@@ -151,12 +164,17 @@ async def register(
             detail="Please accept the Terms of Service and Privacy Policy to create an account",
         )
 
-    existing = await db.scalar(select(User).where(User.email == payload.email))
-    if existing is not None:
+    email = _email_key(payload.email)
+    # An administrator's address is never self-registered: the account comes
+    # from the bootstrap (or the operator), so registering it first - easy
+    # when no bootstrap password is set - cannot make someone admin. Same
+    # answer as a taken address, so it reveals nothing more.
+    existing = await db.scalar(_by_email(email))
+    if existing is not None or email in admin_emails():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
     user = User(
-        email=payload.email,
+        email=email,
         password_hash=hash_password(payload.password),
         display_name=payload.display_name,
         terms_accepted_at=datetime.now(UTC),
@@ -184,7 +202,13 @@ async def login(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
     )
 
-    user = await db.scalar(select(User).where(User.email == resolve_login(payload.email)))
+    # Per account as well as per address: the address is a header a client can
+    # rotate, the account it is guessing against is not.
+    await check_rate_limit(
+        f"auth:login:acct:{resolve_login(payload.email)}", max_requests=10, window_seconds=900
+    )
+
+    user = await db.scalar(_by_email(resolve_login(payload.email)))
     if user is None or user.password_hash is None:
         raise invalid_credentials
 
@@ -212,7 +236,12 @@ async def request_password_reset(
         f"auth:reset-request:{_client_ip(request)}", max_requests=5, window_seconds=900
     )
 
-    user = await db.scalar(select(User).where(User.email == payload.email))
+    # One inbox can't be flooded with reset mail by rotating addresses.
+    await check_rate_limit(
+        f"auth:reset-request:acct:{_email_key(payload.email)}", max_requests=5, window_seconds=3600
+    )
+
+    user = await db.scalar(_by_email(payload.email))
     if user is not None:
         token = create_password_reset_token(user.id, user.password_hash)
         try:
@@ -331,13 +360,35 @@ async def oauth_google(
         ) from exc
 
     oauth_subject = info["sub"]
-    email = info.get("email")
+    email = _email_key(info.get("email")) or None
 
     user = await db.scalar(
         select(User).where(User.oauth_provider == "google", User.oauth_subject == oauth_subject)
     )
     if user is None and email:
-        user = await db.scalar(select(User).where(User.email == email))
+        # Linking by address trusts Google's word that the address belongs to
+        # this person - only when Google itself has verified it. An
+        # unverified claim (or a Workspace tenant asserting any address on a
+        # domain it controls) would otherwise sign straight into whoever
+        # owns that address here.
+        if info.get("email_verified") not in (True, "true"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your Google account's email address isn't verified",
+            )
+        # The administrator signs in with a password; Google never creates or
+        # links that account.
+        if email in admin_emails():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account signs in with its password",
+            )
+        user = await db.scalar(_by_email(email))
+        if user is not None and user.oauth_provider == "google" and user.oauth_subject != oauth_subject:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This email is linked to a different Google account",
+            )
 
     is_new_user = user is None
     if user is None:

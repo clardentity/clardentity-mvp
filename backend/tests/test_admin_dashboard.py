@@ -18,7 +18,9 @@ class TestWhoIsAdmin:
 
         monkeypatch.setattr(config.settings, "admin_emails", "boss@example.com, Second@Example.com")
         assert admin_emails() == {"boss@example.com", "second@example.com"}
-        assert is_admin(_U("BOSS@example.com")) is True
+        # exact match only: stored emails are lower-cased, see tests/test_security_fixes.py
+        assert is_admin(_U("boss@example.com")) is True
+        assert is_admin(_U("BOSS@example.com")) is False
         assert is_admin(_U("someone@example.com")) is False
 
     def test_nobody_is_admin_when_unset(self, monkeypatch):

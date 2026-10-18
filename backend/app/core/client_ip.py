@@ -7,10 +7,11 @@ where any of them are. The forwarded header carries the real one. Until
 no signed-in user anywhere had a location: no local rules, no local crisis
 numbers. The demo read the header and was right all along.
 
-The header is spoofable, which is fine for what it is used for here - a
-coarse "which country's rules apply" that a VPN changes anyway, and rate
-limits that also have a global ceiling.
+Only the proxy's own entry is trusted (the last one); anything before it
+is whatever the client sent.
 """
+
+import ipaddress
 
 from fastapi import Request
 
@@ -24,7 +25,22 @@ def client_timezone(request: Request) -> str | None:
 
 
 def client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
+    """The right-most public address in X-Forwarded-For.
+
+    Render's proxy appends the address that connected to it, and internal
+    hops after that are private addresses. Anything to the left was sent by
+    the client and can say anything - taking the first entry let a script
+    put a fresh "address" on every request and walk past every per-address
+    limit (sign-in attempts, password-reset mail, the guest demo's spend).
+    Reading from the right, skipping private hops, lands on the address the
+    proxy saw."""
+    forwarded = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    for candidate in reversed(forwarded):
+        try:
+            if ipaddress.ip_address(candidate).is_global:
+                return candidate
+        except ValueError:
+            continue
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded[-1]
     return request.client.host if request.client else "unknown"

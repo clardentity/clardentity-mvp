@@ -994,7 +994,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </svg>
             </button>
           )}
-          <ThemeToggle className={cx("shrink-0", !(user && activeWorkspaceId) && "lg:ml-auto")} tourId="theme-toggle" />
+          {/* Under 360px the top bar has room for menu, title, new and temporary
+              chat; light/dark is still in Settings (Appearance). */}
+          <ThemeToggle className={cx("shrink-0 max-[359px]:hidden", !(user && activeWorkspaceId) && "lg:ml-auto")} tourId="theme-toggle" />
           {tourHere && (
             // The coachmarks, again, on request - for anyone who skipped them
             // or wants a second look. Only where a tour exists for the page

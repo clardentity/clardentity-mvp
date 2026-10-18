@@ -73,7 +73,9 @@ class MessageAttachment(BaseModel):
     # - and its opening chunks are put in front of the model for this turn,
     # so the answer can cite it and later turns can retrieve it.
     type: Literal["image", "document"] = "image"
-    data: str
+    # Base64 of at most MAX_UPLOAD_SIZE_MB (25 MB) plus slack: refused at
+    # parse time instead of decoded first and measured after.
+    data: str = Field(max_length=36_000_000)
     mime_type: str = "image/jpeg"
     filename: str | None = None
 
@@ -82,7 +84,7 @@ class MessageCreate(BaseModel):
     # Required unless `regenerate_of` is set - enforced in the router so a
     # missing/blank content on a real send is a 400 with a specific message,
     # not Pydantic's generic 422.
-    content: str = ""
+    content: str = Field(default="", max_length=100_000)
     # Intentionally not required at the Pydantic level (see FR7): the router
     # validates this explicitly so a missing/invalid mode returns exactly 400,
     # not FastAPI's default 422 for a missing field.
@@ -93,7 +95,9 @@ class MessageCreate(BaseModel):
     # in every other mode, and an unknown or unavailable id falls back to the
     # normal routing rather than failing the turn.
     model: str | None = None
-    attachments: list[MessageAttachment] = []
+    # Each attachment is parsed, embedded and sent to the model; without a
+    # count one message could carry hundreds.
+    attachments: list[MessageAttachment] = Field(default_factory=list, max_length=10)
     # §12.1: set when `content` came from /audio/transcribe, so the turn can
     # still be linked to an audio_transcripts row.
     audio_duration_seconds: float | None = None

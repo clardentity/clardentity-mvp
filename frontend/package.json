@@ -11,7 +11,7 @@
   "dependencies": {
     "dictionary-en": "^4.0.0",
     "dictionary-en-gb": "^3.0.0",
-    "next": "16.2.12",
+    "next": "16.4.2",
     "nspell": "^2.1.5",
     "posthog-js": "^1.434.15",
     "react": "19.2.4",
@@ -23,7 +23,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

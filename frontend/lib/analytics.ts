@@ -187,7 +187,7 @@ export function routePattern(value: string): string {
 const SENSITIVE_MODES = new Set(["guidance", "healthcare"]);
 const MODE_KEYS = /^(mode|from|to|suggested)$/;
 
-function sanitize(properties: Record<string, unknown>): Record<string, unknown> {
+export function sanitize(properties: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (typeof value === "string" && MODE_KEYS.test(key) && SENSITIVE_MODES.has(value)) {
