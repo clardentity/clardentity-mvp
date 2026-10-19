@@ -45,6 +45,10 @@ _MAX_QUESTION_CHARS = 220
 # stopped being the question a person would ask and started being a form.
 _MAX_CONTEXT_QUESTION_CHARS = 140
 _MAX_CLARIFYING_QUESTION_CHARS = 140
+# "A few plain words that show you heard their last answer" in front of a
+# follow-up ("That makes sense.", "Got it."). Anything longer is commentary,
+# not an acknowledgement, and is cut so the card shows the question alone.
+_MAX_ACKNOWLEDGEMENT_CHARS = 40
 # "Each under 6 words" in the instruction; this is the hard backstop for a
 # model that doesn't hold to that - a button too long to read at a glance has
 # already failed the point of offering one.
@@ -64,7 +68,9 @@ _MAX_OPTION_CHARS = 40
 # enough, and "Answer without this" ends it at any round.
 MAX_CONTEXT_ROUNDS = 3
 
-_CONJUNCTION = re.compile(r"\s+(?:and|or)\s+|;")
+# Where one clause may end and another begin; captured, so a question
+# cut to its first clause can be rebuilt from the pieces before the cut.
+_CONJUNCTION = re.compile(r"(\s+(?:and|or)\s+|;)")
 _INTERROGATIVE = re.compile(
     r"(?:why|what|how|when|where|who|which|do|did|does|have|has|are|is|was|were"
     r"|can|could|would|should|will)\b"
@@ -336,12 +342,33 @@ def _validate_context_question(text: str | None) -> str | None:
     # model that makes this judgement stacks a second clause often enough that
     # discarding those cost most of the real hits - and the first clause is
     # reliably the question worth asking, because the model leads with it.
-    parts = _CONJUNCTION.split(text)
-    if len(parts) > 1 and sum(1 for c in parts if _INTERROGATIVE.match(c.strip().lower())) > 1:
-        head = parts[0].strip().rstrip(" ,;:-")
+    #
+    # A follow-up may open with a short acknowledgement ("Got it."), and the
+    # one-question rule applies to the question after it - checked on the
+    # whole text, "Got it. What countries are you considering, and what's
+    # tying you here?" did not start with a question word and went through
+    # stacked (seen on production, 2026-10-19). An acknowledgement longer
+    # than a few words is not one, and is dropped.
+    lead, core = "", text
+    stop = max(text.rfind(". ", 0, text.index("?")), text.rfind("! ", 0, text.index("?")))
+    if stop != -1:
+        lead, core = text[: stop + 2], text[stop + 2 :]
+        if len(lead) > _MAX_ACKNOWLEDGEMENT_CHARS:
+            lead = ""
+    # Cut where the second question begins, not at the first "and"/"or":
+    # "What countries or regions are you considering, and what's tying you
+    # here?" keeps "What countries or regions are you considering?" - cutting
+    # at the first "or" left "What countries", too short, and lost it all.
+    pieces = _CONJUNCTION.split(core)
+    clauses, joins = pieces[0::2], pieces[1::2]
+    starts = [i for i, c in enumerate(clauses) if _INTERROGATIVE.match(c.strip().lower())]
+    if len(starts) > 1:
+        head = clauses[0] + "".join(joins[i - 1] + clauses[i] for i in range(1, starts[1]))
+        head = head.strip().rstrip(" ,;:-")
         if len(head) < 15 or not _INTERROGATIVE.match(head.lower()):
             return None
-        text = f"{head}?"
+        core = f"{head}?"
+    text = lead + core
     if "[" in text or "{" in text:
         return None
     lowered = text.lower()

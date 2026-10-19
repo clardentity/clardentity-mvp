@@ -203,6 +203,35 @@ class TestContextQuestionGuards:
         assert result is not None
         assert result["context_question"] == "What has been going on between you two?"
 
+    def test_a_follow_up_keeps_its_acknowledgement(self):
+        from app.services.guidance import _validate_context_question
+
+        assert (
+            _validate_context_question("Got it. What would a good outcome look like for you?")
+            == "Got it. What would a good outcome look like for you?"
+        )
+
+    def test_an_acknowledgement_does_not_hide_a_stacked_question(self):
+        """Seen on production (2026-10-19): the guard checked the whole text,
+        which started with "Got it." rather than a question word, so two
+        questions went out as one."""
+        from app.services.guidance import _validate_context_question
+
+        stacked = (
+            "Got it. What countries or regions are you considering, "
+            "and what's tying you to where you are now?"
+        )
+        assert _validate_context_question(stacked) == "Got it. What countries or regions are you considering?"
+
+    def test_a_long_preamble_is_not_an_acknowledgement(self):
+        from app.services.guidance import _validate_context_question
+
+        text = (
+            "That is a really big decision and it is worth taking slowly. "
+            "What is making you think about it now?"
+        )
+        assert _validate_context_question(text) == "What is making you think about it now?"
+
     def test_a_question_already_asked_is_recognised(self):
         from app.services.guidance import _already_asked
 
