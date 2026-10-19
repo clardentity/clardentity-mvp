@@ -199,10 +199,13 @@ def check_security(api: str, app: str) -> None:
         f"csp_missing={missing} xfo={h.get('x-frame-options')} pp={'yes' if h.get('permissions-policy') else 'no'}",
     )
 
-    chunks = sorted(set(re.findall(r"/_next/static/chunks/[A-Za-z0-9_.-]+\.js", html)))
+    # Next 16.4 serves them under /_next/static/immutable/chunks/; before
+    # that, /_next/static/chunks/. Finding none is a failure, not a skip: on
+    # 2026-10-19 the upgrade moved them and both checks quietly skipped.
+    chunks = sorted(set(re.findall(r"/_next/static/(?:immutable/)?chunks/[A-Za-z0-9_.-]+\.js", html)))
     if not chunks:
-        record("SEC-SOURCEMAPS", None, "no chunks found on the page")
-        record("SEC-BUNDLE-SECRETS", None, "no chunks found on the page")
+        record("SEC-SOURCEMAPS", False, "no chunks found on the page - has the script path changed?")
+        record("SEC-BUNDLE-SECRETS", False, "no chunks found on the page - has the script path changed?")
         return
     map_status, _, _ = curl([f"{app}{chunks[0]}.map"], 60)
     record("SEC-SOURCEMAPS", map_status in (403, 404), f"{chunks[0]}.map -> {map_status}")
