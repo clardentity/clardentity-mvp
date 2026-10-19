@@ -30,6 +30,11 @@ async def _clear_rate_limits():
     """
     try:
         keys = [k async for k in _redis.scan_iter("ratelimit:*")]
+        # And the landing demo's per-address and daily counters, for the same
+        # reason: every test comes from 127.0.0.1, so one run's spend would
+        # otherwise read as the next run's exhausted allowance.
+        keys += [k async for k in _redis.scan_iter("guest:address:*")]
+        keys += [k async for k in _redis.scan_iter("guest:global:*")]
         if keys:
             await _redis.delete(*keys)
     except Exception:

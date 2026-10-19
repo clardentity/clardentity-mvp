@@ -52,12 +52,17 @@ _MAX_OPTION_CHARS = 40
 
 # How many context-gate rounds a single turn can go through before the model
 # is stopped and made to just answer, regardless of what it would still like
-# to ask. Two open questions is already close to what a person would tolerate
-# before an "answer, or I'm going elsewhere" - a per-call judgement that
-# thinks each new question is the important one has no reason on its own to
-# ever stop, so the cap has to live in the orchestration (chat.py), not in
-# the prompt.
-MAX_CONTEXT_ROUNDS = 2
+# to ask. A per-call judgement that thinks each new question is the important
+# one has no reason on its own to ever stop, so the cap has to live in the
+# orchestration (answer_pipeline.gate_event), not in the prompt.
+#
+# Three, since 2026-10-19. Until then only one question was ever asked in
+# practice - answering it blocked every later one - and a tester's verdict on
+# the decision companion was that it "gives a final answer after just two
+# questions or so", before the whole context was captured, where a person
+# would have asked a few more. The model still stops as soon as it knows
+# enough, and "Answer without this" ends it at any round.
+MAX_CONTEXT_ROUNDS = 3
 
 _CONJUNCTION = re.compile(r"\s+(?:and|or)\s+|;")
 _INTERROGATIVE = re.compile(
@@ -164,14 +169,25 @@ _INSTRUCTIONS = (
     "going on, and what have you tried' is two questions and reads as an "
     "interrogation. Ask the first one only.\n"
     "   It must not offer options, open with "
-    "sympathy or a diagnosis, or imply they should reconsider. You are asking "
+    "sympathy or a diagnosis (a short acknowledgement of their last answer, "
+    "in a follow-up, is not sympathy), or imply they should reconsider. You are asking "
     "what their situation or view is, not arguing with it, and not refusing "
     "to help. Do not mention being an AI or being unable to advise.\n"
     "   You may see earlier rounds of this same exchange already answered, "
-    "appended under lines like '(You asked: ...)'. Judge this against "
-    "everything you now know, not just the newest line - once enough is on "
-    "the table to answer well, return null even if you could technically ask "
-    "more. Never repeat a question already answered in an earlier round.\n"
+    "appended to the message under lines like '(Clardentity asked: \"...\")' "
+    "with their answer below. A consequential decision in someone's own life "
+    "usually needs more than one thing understood before advice is worth "
+    "giving: why they are considering it, what they have already tried or "
+    "ruled out, the constraints (money, time, the people it affects), and what "
+    "a good outcome would look like to them. After each answer, ask the next "
+    "most important thing you still do not know - the way a good friend or "
+    "advisor keeps the conversation going before giving a view - so that the "
+    "answer can fit this person rather than anyone in their position. A "
+    "follow-up may open with a few plain words that show you heard their last "
+    "answer ('That makes sense.', 'Got it.') before the one question. Judge "
+    "against everything they have said so far, and return null as soon as you "
+    "understand enough to answer well; never ask about something they have "
+    "already told you, and never repeat a question from an earlier round.\n"
     "   Return null when: the question is factual, technical, or a task to "
     "carry out whose answer does not turn on the user's own values or "
     "circumstances; the user already gave their reasons or view, even "
@@ -275,6 +291,25 @@ def _clip(value: object, limit: int) -> str | None:
         return cleaned
     head = cleaned[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return f"{head}…" if head else None
+
+
+#: How an answered round is folded into the message by the client:
+#: (Clardentity asked: "the question") and the answer on the next line.
+_ASKED = re.compile(r'\(Clardentity asked: "(.*?)"\)', re.S)
+
+
+def _already_asked(message: str, candidate: str) -> bool:
+    """Whether `candidate` repeats a question an earlier round of this turn
+    already asked - compared on words alone, and allowing for a follow-up's
+    short acknowledgement in front ("Got it. What ...?")."""
+
+    def words(text: str) -> str:
+        return re.sub(r"\W+", " ", text).strip().lower()
+
+    new = words(candidate)
+    return any(
+        old and (new == old or new.endswith(" " + old)) for old in map(words, _ASKED.findall(message))
+    )
 
 
 def _validate_context_question(text: str | None) -> str | None:
@@ -431,6 +466,11 @@ async def propose_guidance(
     context_question = _validate_context_question(
         _clip(parsed.get("context_question"), _MAX_CONTEXT_QUESTION_CHARS)
     )
+    # Never the same question twice. The instructions say so; this holds it
+    # when the model forgets, now that a turn can run several rounds - being
+    # asked again what you have just answered reads as not having listened.
+    if context_question and _already_asked(question, context_question):
+        context_question = None
 
     clarifying_question, clarifying_options = _validate_clarifying_options(
         parsed.get("clarifying_question"), parsed.get("clarifying_options")

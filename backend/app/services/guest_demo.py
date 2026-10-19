@@ -137,25 +137,36 @@ async def charge(
     the demo costs, so they are charged everything the turn spent, including
     the claim checking a visitor never asked to pay for.
 
-    Charged after the answer rather than reserved before it: a turn that has
-    already been generated has already been paid for, and refusing to count
-    it would be the one way to actually lose money here.
+    A turn that has already been generated has already been paid for, and
+    refusing to count it would be the one way to actually lose money here.
+
+    `reserved` is what `reserve` held against the address and the day before
+    the turn ran; this settles it either way. A turn that cost more pays the
+    rest, and one that cost less - a question back, a consent card, a turn
+    that failed - is refunded the difference. Without the refund every
+    request cost at least the whole hold, so a gate's one-line question
+    counted as several answers and the demo's daily ceiling arrived after a
+    couple of hundred requests (2026-10-19).
     """
-    # What was reserved up front has already been counted.
-    total_tokens = max(0, total_tokens - reserved)
+    delta = total_tokens - reserved
     total = await _get(_session_key(session_id))
-    if session_tokens <= 0 and total_tokens <= 0:
+    if session_tokens <= 0 and delta == 0:
         return total
     try:
         pipe = _redis.pipeline()
         pipe.incrby(_session_key(session_id), max(0, session_tokens))
         pipe.expire(_session_key(session_id), _DAY)
-        pipe.incrby(_address_key(address), max(0, total_tokens))
+        pipe.incrby(_address_key(address), delta)
         pipe.expire(_address_key(address), _DAY)
-        pipe.incrby(_global_key(), max(0, total_tokens))
+        pipe.incrby(_global_key(), delta)
         pipe.expire(_global_key(), _DAY)
         results = await pipe.execute()
         total = int(results[0])
+        # A refund never leaves a counter below zero - a hold that failed to
+        # write (Redis down at the time) is refunded all the same.
+        for key, value in ((_address_key(address), results[2]), (_global_key(), results[4])):
+            if int(value) < 0:
+                await _redis.set(key, 0, keepttl=True)
     except redis.RedisError:
         logger.warning("guest counter unavailable on write", exc_info=True)
     return total

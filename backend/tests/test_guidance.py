@@ -203,6 +203,38 @@ class TestContextQuestionGuards:
         assert result is not None
         assert result["context_question"] == "What has been going on between you two?"
 
+    def test_a_question_already_asked_is_recognised(self):
+        from app.services.guidance import _already_asked
+
+        message = 'Should I quit my job?\n\n(Clardentity asked: "What is making you want to leave?")\nMy manager.'
+        assert _already_asked(message, "What is making you want to leave?")
+        assert _already_asked(message, "Got it. What is making you want to leave?")
+        assert not _already_asked(message, "Got it. Do you have savings to fall back on?")
+        assert not _already_asked("Should I quit my job?", "What is making you want to leave?")
+
+    async def test_a_follow_up_never_repeats_an_earlier_round(self, monkeypatch):
+        from app.services import guidance
+
+        async def fake(**_):
+            return {
+                "suggested_mode": None,
+                "mode_reason": None,
+                "refined_question": None,
+                "refinement_reason": None,
+                "context_question": "What is making you want to leave?",
+            }
+
+        monkeypatch.setattr(guidance, "generate_structured", fake)
+        asked = 'Should I quit my job?\n\n(Clardentity asked: "What is making you want to leave?")\nMy manager.'
+        assert await guidance.propose_guidance(asked, "decision") is None
+
+    def test_the_instructions_ask_for_follow_ups(self):
+        from app.services.guidance import _INSTRUCTIONS
+
+        assert "(Clardentity asked:" in _INSTRUCTIONS  # the marker the client really sends
+        assert "ask the next most important thing you still do not know" in _INSTRUCTIONS
+        assert "never repeat a question from an earlier round" in _INSTRUCTIONS
+
     async def test_nothing_to_say_still_returns_none(self, monkeypatch):
         from app.services import guidance
 

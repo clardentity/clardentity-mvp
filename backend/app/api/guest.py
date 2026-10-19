@@ -282,6 +282,8 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 country, subdivision = await visitor_location(address, timezone)
                 health = consent_state(country, subdivision, demo=True)
                 if not health["available"]:
+                    # Nothing ran, so the hold goes back.
+                    await charge(session_id, address, 0, usage.total_tokens, reserved=_RESERVE_TOKENS)
                     yield {
                         "event": "error",
                         "data": json.dumps(
@@ -290,6 +292,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                     }
                     return
                 if payload.health_consent != CONSENT_VERSION:
+                    await charge(session_id, address, 0, usage.total_tokens, reserved=_RESERVE_TOKENS)
                     yield {"event": "health_consent", "data": json.dumps(health)}
                     return
             started = time.monotonic()
@@ -539,6 +542,14 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                     yield event
             if run.error is not None:
                 logger.warning("guest answer failed", exc_info=run.error)
+                # What the failed turn did spend counts against the address
+                # and the day; the visitor is not charged for an answer they
+                # never got, and the rest of the hold goes back.
+                await charge(
+                    session_id, address, 0,
+                    usage.total_tokens + answer_usage.total_tokens,
+                    reserved=_RESERVE_TOKENS,
+                )
                 yield {
                     "event": "error",
                     "data": json.dumps({"detail": "That didn't come through. Try again?"}),

@@ -462,11 +462,31 @@ class TestADemoAnswerIsTheProductsAnswer:
         assert [e for e, _ in events] == ["context_question", "budget"]
         assert events[0][1]["question"] == "What matters most to you here?"
 
-        # Answered, the question is not asked again - the app's rule.
+        # Answered, it may ask the next thing it needs to know - the app's
+        # rule since 2026-10-19 (a tester found it answering before it had
+        # the whole picture)...
+        self._fake_pipeline(
+            monkeypatch, guidance={"context_question": "Would your partner move with you?"}
+        )
+        once = 'Should I move abroad?\n\n(Clardentity asked: "What matters most to you here?")\nCareer.'
+        res = await self._ask(mode="decision", message=once, context_rounds=1)
+        events = _frames(res.text)
+        assert [e for e, _ in events] == ["context_question", "budget"]
+        assert events[0][1]["question"] == "Would your partner move with you?"
+
+        # ...until the cap, where it answers whatever it would still ask.
+        from app.services.guidance import MAX_CONTEXT_ROUNDS
+
         res = await self._ask(
             mode="decision",
-            message='Should I move abroad?\n\n(Clardentity asked: "What matters?")\nCareer.',
-            context_rounds=1,
+            message=once + '\n\n(Clardentity asked: "Would your partner move with you?")\nYes.',
+            context_rounds=MAX_CONTEXT_ROUNDS,
+        )
+        assert "final" in [e for e, _ in _frames(res.text)]
+
+        # And "Answer without this" ends it at any round.
+        res = await self._ask(
+            mode="decision", message=once, context_rounds=1, context_acknowledged=True
         )
         assert "final" in [e for e, _ in _frames(res.text)]
 
@@ -640,6 +660,45 @@ class TestADemoAnswerIsTheProductsAnswer:
         assert seen["guidance"] == 0
         assert "final" in names and "context_question" not in names
         assert dict(events)["final"]["claims"] == []
+
+    async def test_the_hold_is_settled_both_ways(self):
+        """Every request holds tokens against the address and the day before
+        it runs. A turn that cost less - a question back, a consent card -
+        gets the rest back; one that cost more pays the difference. Without
+        the refund each follow-up question counted as a whole answer and the
+        demo's daily ceiling came after a couple of hundred requests."""
+        import uuid as _uuid
+
+        from app.services import guest_demo
+
+        await self._available()
+        address = f"test-{_uuid.uuid4().hex[:8]}"
+        session = str(_uuid.uuid4())
+        key = guest_demo._address_key(address)
+
+        await guest_demo.reserve(address, 10_000)
+        assert int(await guest_demo._redis.get(key)) == 10_000
+        await guest_demo.charge(session, address, 0, 800, reserved=10_000)
+        assert int(await guest_demo._redis.get(key)) == 800
+
+        await guest_demo.reserve(address, 10_000)
+        await guest_demo.charge(session, address, 300, 25_000, reserved=10_000)
+        assert int(await guest_demo._redis.get(key)) == 800 + 25_000
+
+        # A hold that never landed is refunded without going below zero.
+        other = f"test-{_uuid.uuid4().hex[:8]}"
+        await guest_demo.charge(session, other, 0, 0, reserved=10_000)
+        assert int(await guest_demo._redis.get(guest_demo._address_key(other)) or 0) == 0
+        await guest_demo._redis.delete(key, guest_demo._address_key(other), guest_demo._session_key(session))
+
+    async def test_a_question_back_costs_what_it_cost(self, monkeypatch):
+        await self._available()
+        from app.services import guest_demo
+
+        self._fake_pipeline(monkeypatch, guidance={"context_question": "What matters most to you here?"})
+        await self._ask(mode="decision", message="Should I move abroad?")
+        spent_by_address = int(await guest_demo._redis.get(guest_demo._address_key("127.0.0.1")) or 0)
+        assert spent_by_address < 10_000, spent_by_address
 
     async def test_a_visitor_is_charged_for_the_conversation_not_the_checking(self, monkeypatch):
         """The allowance is 5,000 tokens of conversation. The sources fetched

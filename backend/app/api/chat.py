@@ -1172,7 +1172,9 @@ async def send_message(
         # not then take turns: seen in the wild as options, then a mode
         # suggestion, then a context question, then "did you mean", four
         # round trips for one question. Only the mode suggestion may still
-        # follow, and only once (mode_confirmed).
+        # follow, and only once (mode_confirmed) - and, after a context
+        # answer, a further context question, up to MAX_CONTEXT_ROUNDS
+        # (answer_pipeline.gate_event).
         answered_a_gate = "(Clardentity asked:" in effective_content
 
         # Whether this is a request for a picture, decided *before* the

@@ -13,6 +13,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | A2 | "Log in" (signed out only) → /login; "Start exploring" → /register | browser |
 | A3 | "See how it works" anchor scrolls | browser |
 | A4 | Analytics consent prompt appears; "No thanks" dismisses it | browser |
+| A5 | **Phone banner readable** (PR #6, feedback 15/10 item 2): under 640px the typing demo is 16px and wraps, mode names 13px with icons in one row that scrolls sideways to the lit mode; no page-level horizontal scroll; desktop geometry unchanged; the installed web app opens `/start` | browser (375px and 1280px) |
 
 ## B. Landing demo - must answer exactly like the signed-in chat
 | ID | Proves | Kind |
@@ -45,6 +46,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | B10 | New chat resets the thread, keeps the mode; Close returns to landing; Esc stops a running answer, closes otherwise | browser |
 | B11 | 5,000-token wall: "Save it to a free account" → sign up → "Your demo conversation is saved" → opened thread shows gists, verdict boxes and pictures, per-turn companions, no confidence badges | browser + test (`test_guest_demo.py::test_the_answer_comes_across_as_it_looked`) |
 | B12 | Visitor is charged for the conversation (answer output + their words), not for sources or checking; address/daily ceilings charged in full | test (`test_guest_demo.py`) |
+| B12b | **The demo's up-front hold is settled both ways**: every request holds 10,000 tokens against the address and the day (PR #6 security fixes); the charge at the end refunds what the turn did not spend - a question back, a consent card, a failed turn - so a follow-up question costs what it cost (2026-10-19: without the refund each request cost at least 10,000, ~40 requests per address and ~200 per day for the whole demo) | test (`test_guest_demo.py::test_the_hold_is_settled_both_ways`, `test_a_question_back_costs_what_it_cost`) |
 | B13 | Co-Creative in the demo can draw, and "now make it …" edits its own last picture (owner forced to the visitor's session) | browser |
 
 ## C. Auth and welcome
@@ -72,6 +74,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | D5 | Devil's Draft flip; export conversation | browser |
 | D6 | Empty context never yields all-opinion claims or a "no documents" disclaimer | test (`test_answer_pipeline.py`) + script (DEMO-FINDER, APP-FINDER) |
 | D7 | **Temporary chat** (dashed bubble, header top right, signed in only - not in the demo): opens with the "Temporary chat" intro and crumb, icon pressed; never named; not in recents, search or the workspace's chat list, and never handed back at sign-in; neither reads nor feeds the profile; files attached inside belong to it alone (not in Attachments, not retrieved by other chats); leaving it by any route (the icon, New chat, another chat, another page, a typed address) deletes it with its files and pictures, a reload keeps it, and a closed tab's is swept after a day idle (2026-10-12) | test (`test_temporary_chats.py`) + script (TEMP-CHAT) + browser |
+| D8 | **New chat reuses the empty chat** (PR #6): pressing New chat on an empty, untitled, unpinned, kept chat returns that chat (with the mode asked for) instead of stacking another; after a question it makes a new one; titled, pinned, temporary or non-empty chats are never reused; workspace membership is checked first | test (`test_api_contract.py::test_new_chat_reuses_an_empty_one`) + browser |
 
 ## E. Modes, plans and gating
 | ID | Proves | Kind |
@@ -96,8 +99,9 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 ## F. The four pre-answer gates
 | ID | Proves | Kind |
 |---|---|---|
-| F1 | Order: rewording → options → why → companion; one question about the question at most; why stops at the round cap; pictures go round all four | test (`test_answer_pipeline.py`) |
+| F1 | Order: rewording → options → why → companion; rewording and options never take turns (one of them at most); the why may follow up after a context answer up to `MAX_CONTEXT_ROUNDS` (3) and stops there; "Answer without this" ends it at any round; pictures go round all four | test (`test_answer_pipeline.py`) |
 | F2 | Each gate's card works and re-sends correctly (app and demo) | browser |
+| F3 | **Follow-up questions before a personal decision** (2026-10-19, tester: "gives a final answer after just two questions or so"): "Should I quit my job?" / "I'm thinking of moving abroad" in Decision-making ask up to three one-at-a-time follow-ups (reasons → what was tried / constraints → what a good outcome is), then answer using what was said; each round is a fresh card with an empty box; a question already asked is never repeated (`guidance._already_asked`); a plain comparison ("Canon R50 or Sony a6400?") is still answered straight away | test (`test_guidance.py`, `test_guest_demo.py::test_it_stops_on_the_same_questions_as_the_app`) + script (real models, app and demo) + browser |
 
 ## G. Co-Creative images
 | ID | Proves | Kind |
@@ -157,6 +161,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | L3 | Service worker serves the current build (`CACHE` bumped) | browser |
 | L4 | Admin dashboard hidden from a normal account; 404 route behaves | browser |
 | L14 | **Global admin settings are admin-only**: `GET/PUT /admin/settings` (answer model, scoring weights, feature flags) answer 404 to an ordinary account, like the dashboard (2026-10-17: they were gated on sign-in alone, so any account could switch web search or verification off for everyone) | test (`test_admin_dashboard.py::TestGlobalSettingsAreAdminOnly`) |
+| L15 | **Security audit fixes** (PR #6, 667fa29): emails stored lower-case and matched case-insensitively (prod 2026-10-19: 0 case-duplicates, admin row lower-case); admin addresses cannot self-register or come in through Google; Google links only a verified address; per-account login and reset limits; client address = right-most public X-Forwarded-For entry (prod still locates India); message and attachment size limits; Office zip-bomb checks; dashboard SQL guard | test (`test_security_fixes.py`) + prod check |
 | L7 | Admin **Product analytics** (from PostHog, visitors who allowed analytics - said beside the numbers): visitors/day, demo steps counted as *distinct* visitors per step (not the sum of a breakdown), demo gated controls, companions, gates, paid-plan interest, feedback, devices/problems; not connected or PostHog down is a sentence in the section, never a broken page (2026-10-13) | test (`test_admin_analytics.py`) + browser |
 | L8 | Admin **Ask for a view** answers from our database or PostHog ("wherever fits" lets the question choose; the answer says which); HogQL limited to one SELECT over events/persons/sessions; account ids in an analytics answer get their email beside them; **Pin to dashboard** saves the query, re-checked on save and on every run, and pinned tiles re-run live on each visit; Unpin removes it (2026-10-13) | test (`test_admin_analytics.py`) + browser |
 | L5 | Answer text is rendered as escaped text with no links; source links are `rel="noopener noreferrer nofollow"` | code review on change |

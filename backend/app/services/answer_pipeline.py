@@ -157,6 +157,15 @@ def gate_event(
     may still follow, and only once. A request for a picture goes round all
     four - every one of them is about prose, and the one that fires would
     stop the turn having drawn nothing.
+
+    The one exception is the "why" itself. A personal decision may need a
+    few things understood before an answer fits - the reasons, the
+    constraints, what a good outcome looks like - so after a context answer
+    (context_rounds > 0) the next round may ask the next thing, up to
+    `max_context_rounds`, while rewording and options stay closed. Until
+    2026-10-19 the marker closed this too, so only one question was ever
+    asked, and a tester found the decision companion answering before it
+    had the whole picture.
     """
     if not guidance or making_image:
         return None
@@ -185,7 +194,7 @@ def gate_event(
 
     if (
         not context_acknowledged
-        and not answered_a_gate
+        and (not answered_a_gate or context_rounds > 0)
         and context_rounds < max_context_rounds
         and guidance.get("context_question")
     ):

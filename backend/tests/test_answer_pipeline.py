@@ -10,6 +10,7 @@ and which model writes the answer.
 import json
 
 from app.services.answer_pipeline import gate_event, generation_model_for
+from app.services.guidance import MAX_CONTEXT_ROUNDS
 
 EVERYTHING = {
     "refined_question": "Did you mean a wordmark?",
@@ -31,7 +32,7 @@ def _gate(guidance=EVERYTHING, **flags):
         mode_confirmed=False,
         answered_a_gate=False,
         making_image=False,
-        max_context_rounds=2,
+        max_context_rounds=MAX_CONTEXT_ROUNDS,
     )
     base.update(flags)
     event = gate_event(guidance, **base)
@@ -48,15 +49,30 @@ class TestTheGatesStopInTheirOrder:
             == "mode_suggestion"
         )
 
-    def test_one_question_about_the_question_at_most(self):
-        # Once a gate has been answered, only the companion may still follow.
+    def test_gates_do_not_take_turns(self):
+        # Once a rewording or an option has been answered, only the companion
+        # may still follow - never the other kinds of question in turn.
         assert _gate(answered_a_gate=True) == "mode_suggestion"
         assert _gate(answered_a_gate=True, mode_confirmed=True) is None
 
+    def test_the_why_follows_up_after_a_context_answer(self):
+        """2026-10-19: a tester found the decision companion answering
+        "after just two questions or so", before the whole context was in.
+        The marker of an answered round closed every later question, so only
+        one was ever asked. After a context answer the next one may come."""
+        only_why = {"context_question": "What would a good outcome look like for you?"}
+        for answered in range(1, MAX_CONTEXT_ROUNDS):
+            assert _gate(only_why, answered_a_gate=True, context_rounds=answered) == "context_question"
+        # Rewording and options stay closed while it does.
+        assert _gate(EVERYTHING, answered_a_gate=True, context_rounds=1) == "context_question"
+
     def test_the_why_stops_asking_at_the_round_cap(self):
+        assert MAX_CONTEXT_ROUNDS == 3
         only_why = {"context_question": "Why?"}
-        assert _gate(only_why, context_rounds=1) == "context_question"
-        assert _gate(only_why, context_rounds=2) is None
+        assert _gate(only_why, context_rounds=MAX_CONTEXT_ROUNDS - 1) == "context_question"
+        assert _gate(only_why, answered_a_gate=True, context_rounds=MAX_CONTEXT_ROUNDS) is None
+        # "Answer without this" ends it at any round.
+        assert _gate(only_why, answered_a_gate=True, context_rounds=1, context_acknowledged=True) is None
 
     def test_a_picture_goes_round_every_gate(self):
         assert _gate(making_image=True) is None
