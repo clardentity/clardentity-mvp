@@ -36,13 +36,38 @@ function FolderTile() {
   );
 }
 
+/** True when this page is how the installed app was opened: the document was
+ *  loaded straight at /workspace (not reached by a tap inside the app) while
+ *  running as an installed app. Installs made before the manifest's start_url
+ *  became /start keep /workspace - iOS never updates it, Android only after a
+ *  while - so those launches still arrive here. A reload is left alone. */
+function launchedHereAsInstalledApp(): boolean {
+  if (typeof window === "undefined") return false;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  if (!standalone) return false;
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (!nav || nav.type === "reload") return false;
+  return new URL(nav.name).pathname === "/workspace";
+}
+
+// Once per document: after the first redirect, a later tap on "Workspaces"
+// in the same session must show the list.
+let launchHandled = false;
+
 export function WorkspaceList() {
   const router = useRouter();
-  // Set only by the sign-in and registration redirects. Arriving here from
-  // anywhere else - the sidebar, a breadcrumb - means the list was asked for
-  // deliberately, and skipping past it would make a second workspace
-  // impossible to create once you have one.
-  const autoEnter = useSearchParams().get("enter") === "1";
+  // `?enter=1` was the old sign-in and registration target, before signing in
+  // went to /start. Nothing links to it now, but old installs and bookmarks
+  // can, and signing in should land in a chat, as it does everywhere else.
+  const legacySignIn = useSearchParams().get("enter") === "1";
+
+  useEffect(() => {
+    if (launchHandled) return;
+    launchHandled = true;
+    if (legacySignIn || launchedHereAsInstalledApp()) router.replace("/start");
+  }, [legacySignIn, router]);
 
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,15 +87,7 @@ export function WorkspaceList() {
     let cancelled = false;
     fetchWorkspaces()
       .then((data) => {
-        if (cancelled) return;
-        // Signing in should land you where you can ask something, not on a
-        // list with one item on it. `replace` so Back returns to the page you
-        // signed in from rather than bouncing through here again.
-        if (autoEnter && data.length === 1) {
-          router.replace(`/workspace/${data[0].id}`);
-          return;
-        }
-        setWorkspaces(data);
+        if (!cancelled) setWorkspaces(data);
       })
       .catch((err) => {
         if (!cancelled) setError(authErrorMessage(err));
@@ -78,7 +95,7 @@ export function WorkspaceList() {
     return () => {
       cancelled = true;
     };
-  }, [autoEnter, router]);
+  }, []);
 
   useEffect(() => {
     if (composing) nameRef.current?.focus();
