@@ -14,6 +14,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | A3 | "See how it works" anchor scrolls | browser |
 | A4 | Analytics consent prompt appears; "No thanks" dismisses it | browser |
 | A5 | **Phone banner readable** (PR #6, feedback 15/10 item 2): under 640px the typing demo is 16px and wraps, mode names 13px with icons in one row that scrolls sideways to the lit mode; no page-level horizontal scroll; desktop geometry unchanged; the installed web app opens `/start` | browser (375px and 1280px) |
+| A6 | **The installed app opens at `/launch`**: signed out → the home page at clardentity.ai (not /login); signed in → a new chat (`/chat/<id>`, the empty chat reused). The manifest keeps `id: "/workspace"` so copies installed before PR #6 (identity /workspace) take the new start_url instead of opening the workspace list forever | browser (`/launch` both ways) + `curl /manifest.webmanifest` + a phone install |
 
 ## B. Landing demo - must answer exactly like the signed-in chat
 | ID | Proves | Kind |
@@ -35,7 +36,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | B3 | In the browser: gist card leads with the rabbit under it; then "Likely Fact"-style badge (Finder), Devil's Draft toggle, "Show full answer", citation markers, Sources list | browser |
 | B3b | In the demo, tapping a citation marker opens its source card **on top of the demo** (dark theme), and Esc closes only the card - the demo and its conversation stay (2026-10-12: the card used to open behind the demo, and Esc closed the whole demo) | browser |
 | B4 | Decision-making in the browser, demo and signed in: **gist first, then the "One decision that's correct, and the ones that aren't" box, then "Details of the decision making journey"** (since 2026-10-12). While streaming, the box's placeholder sits under the gist, and a box that lands first waits for the gist rather than being pushed down by it | browser |
-| B4b | Thought coach keeps its box above the gist (box, gist, journey) | browser |
+| B4b | Thought coach reads **gist, then "How to think about this", then "Details of thinking journey"** - the same order as Decision-making (2026-10-20, the user's request; it led with the box until then). While streaming, the box's placeholder sits under the gist, and a box that lands first waits for the gist | browser |
 | B4c | The decision box says what its crossed-out lines are, under its heading: "The crossed-out ones are choices people often reach for here. Each is shown with the reasoning trap behind it, so you can see why not to." - only when there are crossed-out ones (2026-10-20, tester: "initially was confused why I am seeing answer which is crossed") | browser |
 | B5 | Context-question card: answer it → answered turn; "Answer without this" → answered turn | browser |
 | B6 | Switch toast (4s ring, "Stay in X") then banner "Switched to X - … Back to Y"; labels use the app's spelling ("Thought coach") | browser |
@@ -76,6 +77,7 @@ Add a row for every feature that ships and every bug found. Retire, never delete
 | D6 | Empty context never yields all-opinion claims or a "no documents" disclaimer | test (`test_answer_pipeline.py`) + script (DEMO-FINDER, APP-FINDER) |
 | D7 | **Temporary chat** (dashed bubble, header top right, signed in only - not in the demo): opens with the "Temporary chat" intro and crumb, icon pressed; never named; not in recents, search or the workspace's chat list, and never handed back at sign-in; neither reads nor feeds the profile; files attached inside belong to it alone (not in Attachments, not retrieved by other chats); leaving it by any route (the icon, New chat, another chat, another page, a typed address) deletes it with its files and pictures, a reload keeps it, and a closed tab's is swept after a day idle (2026-10-12) | test (`test_temporary_chats.py`) + script (TEMP-CHAT) + browser |
 | D8 | **New chat reuses the empty chat** (PR #6): pressing New chat on an empty, untitled, unpinned, kept chat returns that chat (with the mode asked for) instead of stacking another; after a question it makes a new one; titled, pinned, temporary or non-empty chats are never reused; workspace membership is checked first | test (`test_api_contract.py::test_new_chat_reuses_an_empty_one`) + browser |
+| D9 | **Opening an answer's fold shows its first sentence**, in every mode ("Show full answer", "Details of thinking journey", "Details of the decision making journey"): opening it at the bottom of the chat no longer carries the view to the last source link - the list stops following the bottom, and brings the journey's first line up near the top when it would otherwise sit low (2026-10-20: "it jumps to the bottom line of the last source url"). Desktop: Thought coach journey starts 111px below the top, Finder 101px; phone: directly under "Hide full answer" | browser (desktop and phone) |
 
 ## E. Modes, plans and gating
 | ID | Proves | Kind |

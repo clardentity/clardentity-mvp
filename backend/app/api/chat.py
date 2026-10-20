@@ -1324,11 +1324,11 @@ async def send_message(
     # gist and journey were already on screen, which read as the wrong
     # order. Started here, before generation, and sent the moment it lands
     # (see the `review` event in the stream), so it is on screen by the time
-    # it is reached: Thought coach shows box, gist, journey; Decision-making
-    # shows gist, box, journey (since 2026-10-12), and the client holds the
-    # box under the gist if it arrives first. Thought coach pays for the
-    # classification it needs here rather than later; it has been running
-    # since before the gates and is normally done.
+    # it is reached: both companions show gist, box, journey (Decision-making
+    # since 2026-10-12, Thought coach since 2026-10-20), and the client holds
+    # the box under the gist if it arrives first. Thought coach pays for the
+    # classification it needs here rather than later; it starts after the
+    # gates, so the first word of a Thought coach answer waits for it.
     review_task: "asyncio.Task[dict | None] | None" = None
     thinking_task: "asyncio.Task[dict | None] | None" = None
     # No decision or reasoning review on a reply to someone in crisis: the

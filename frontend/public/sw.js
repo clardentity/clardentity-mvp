@@ -43,7 +43,7 @@
 // v9: smart switching in the demo and the new welcome copy. The demo's
 // client now sends smart_switching and reads a "switched" event; an old
 // bundle would send neither and show neither.
-const CACHE = "clardentity-shell-v25"; // v25: the decision box says what its crossed-out choices are
+const CACHE = "clardentity-shell-v26"; // v26: Thought coach gist first; opening a fold shows its start; app opens at /launch
 
 // Only things that are content-addressed or genuinely static. HTML is not
 // here on purpose - a stale shell is how a deployed fix fails to reach
