@@ -254,6 +254,19 @@ def check_guest(api: str) -> None:
     final = final_of(events)
     record("DEMO-QUICK", bool(final) and final["claims"] == [], f"{secs:.0f}s")
 
+    # "Hi" is greeted back: no question about it, no gist, nothing checked
+    # (2026-10-20: Co-Creative answered "Hi" with four options to pick from).
+    events, secs = ask(url, body("creative", "Hi", smart_switching=True))
+    final = final_of(events)
+    names = [e for e, _ in events]
+    asked = [n for n in names if n in ("context_question", "refined_question", "clarifying_options", "mode_suggestion")]
+    record(
+        "DEMO-GREETING",
+        bool(final) and not asked and final["claims"] == [] and not final["message"].get("crux_text")
+        and bool(final["message"]["content"].strip()),
+        f"asked={asked or 'nothing'} reply={(final or {}).get('message', {}).get('content', '')[:60]!r} {secs:.0f}s",
+    )
+
     # A gate must arrive as the app's event, and the demo must stop on it.
     _, _, raw = post_json(url, body("decision", "Should I quit my job?"))
     names = [e for e, _ in sse(raw)]
@@ -331,6 +344,22 @@ def check_signed_in(api: str, images: bool) -> None:
         )
         ok, detail = answer_structure_ok(events)
         record("APP-FINDER", ok, f"{detail} {secs:.0f}s")
+
+        # A thank-you in Decision-making is answered in kind: no question, no
+        # decision box, no gist, nothing checked (D10).
+        events, secs = ask(
+            f"{api}/api/v1/chat/{convo}/messages", {"content": "thanks!", "mode": "decision"}, token
+        )
+        final = final_of(events)
+        names = [e for e, _ in events]
+        asked = [n for n in names if n in ("context_question", "refined_question", "clarifying_options", "mode_suggestion")]
+        record(
+            "APP-GREETING",
+            bool(final) and not asked and "review" not in names and final["claims"] == []
+            and not final["message"].get("crux_text"),
+            f"asked={asked or 'nothing'} review={'review' in names} "
+            f"reply={(final or {}).get('message', {}).get('content', '')[:60]!r} {secs:.0f}s",
+        )
 
         # Healthcare: no answer before consent, consent recorded, withdrawable.
         status, _, body = curl([f"{api}/api/v1/healthcare/consent", *auth], 60)

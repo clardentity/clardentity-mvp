@@ -33,7 +33,7 @@ import { SafetyCard } from "@/components/chat/SafetyCard";
 import { FeedbackWidget } from "@/components/chat/FeedbackWidget";
 import { ExportFileMenu } from "@/components/chat/ExportFileMenu";
 import { cleanMessageText } from "@/lib/text";
-import { renderInline, splitBlocks } from "@/lib/markdown";
+import { renderInline, spaceLabels, splitBlocks } from "@/lib/markdown";
 import { cx, Spinner } from "@/components/ui/primitives";
 import { track } from "@/lib/analytics";
 
@@ -398,7 +398,7 @@ export function MessageList({
           onUseMode={onUseMode}
           onAskRefined={onAskRefined}
           onSubmitEdit={onSubmitEdit}
-          openFully={m.safety?.level === "crisis"}
+          openFully={opensFully(m.mode_used, m.safety?.level)}
           onDetailOpening={releaseFollow}
           onDetailOpened={revealDetail}
         />
@@ -435,7 +435,7 @@ export function MessageList({
           makingImage={streaming.makingImage ?? false}
           thinkingReview={streaming.thinkingReview ?? null}
           isStreaming
-          openFully={streaming.safety?.level === "crisis"}
+          openFully={opensFully(streaming.mode_used, streaming.safety?.level)}
         />
         </ErrorBoundary>
       )}
@@ -550,12 +550,24 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
   return out;
 }
 
+/* Which answers show in full rather than folded under their gist.
+ *
+ * A reply to someone who may be in danger asks whether they are safe below
+ * its first line, and that must not wait behind a "Show full answer" they
+ * may never press. And Co-Creative's answer is the thing that was asked
+ * for - the slides, the story, the post - with a line on top saying what it
+ * is; folding it away made the reader open it every time (tester,
+ * 2026-10-20: "Show full answer is another step"). */
+function opensFully(mode: string | null | undefined, safetyLevel: string | null | undefined): boolean {
+  return safetyLevel === "crisis" || mode === "creative";
+}
+
 /* The body of an answer: paragraphs, lists and comparison tables (see
  * lib/markdown for the set and the splitter), each run of text going
  * through the citation-and-opinion renderer. A comparison the model wrote
  * as pipe rows becomes a real table, markers inside the cells included. */
 function renderBody(text: string, claims: Claim[]): ReactNode {
-  const clean = cleanMessageText(text);
+  const clean = spaceLabels(cleanMessageText(text));
   const blocks = splitBlocks(clean);
   if (blocks.length === 1 && blocks[0].kind === "text") {
     return renderTextWithCitations(clean, claims);
@@ -763,9 +775,7 @@ function MessageBubble({
   onUseMode?: (mode: string) => void;
   onAskRefined?: (question: string) => void;
   onSubmitEdit?: (messageId: string, content: string) => void;
-  /** Show the whole answer, not just the gist: a reply to someone who may
-   *  be in danger asks whether they are safe below its first line, and that
-   *  must not wait behind a "Show full answer" they may never press. */
+  /** Show the whole answer, not just the gist (see opensFully). */
   openFully?: boolean;
   /** Called as the fold is about to open, so the list stops following the
    *  bottom before the answer grows by its whole journey. */
@@ -813,7 +823,8 @@ function MessageBubble({
   const hasCrux = !isUser && Boolean(crux);
   // Collapsed by default, even the first time this message is seen: the
   // whole point of the crux is to make reading the full answer optional,
-  // not to show it in full anyway and add a summary on top.
+  // not to show it in full anyway and add a summary on top. (Two kinds of
+  // answer open in full instead - see opensFully.)
   const [detailOpen, setDetailOpen] = useState(openFully);
   // The journey's first line, and whether the fold was opened by a tap just
   // now (not restored open, not a crisis reply shown in full).
@@ -985,7 +996,10 @@ function MessageBubble({
               setDetailOpen((v) => !v);
             }}
             aria-expanded={detailOpen}
-            className="group -mx-1 mb-2 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md px-1 py-1 text-left text-sm text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
+            // A pill in the brand colour, the one thing on the card to press:
+            // as grey text a tester (2026-10-20) found "Show full answer" was
+            // "another step and not visible".
+            className="group mb-3 inline-flex items-center gap-1.5 rounded-full border border-brand-border bg-brand-soft px-3 py-1.5 text-left text-sm font-medium text-brand transition-colors hover:bg-brand hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
