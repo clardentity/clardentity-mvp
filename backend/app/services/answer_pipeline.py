@@ -280,6 +280,9 @@ class AnswerRun:
     make_generation: Callable[[str], AsyncIterator[dict]]
     image_task: asyncio.Task | None = None
     image_only: bool = False
+    #: A greeting or small talk (services/small_talk): no research context,
+    #: and no gist - the reply is the whole message, shown as it is.
+    conversational: bool = False
     review_task: asyncio.Task | None = None
     thinking_task: asyncio.Task | None = None
     decision_task: asyncio.Task | None = None
@@ -400,7 +403,11 @@ class AnswerRun:
                     self.late_search = self.web_task
                 except (asyncio.CancelledError, Exception):  # noqa: B014 - degrade, never fail
                     self.web_sources = []
-        context_block = build_context_block(self.chunks, self.web_sources)
+        context_block = (
+            "(None - this message is a greeting or small talk, not a question to research.)"
+            if self.conversational
+            else build_context_block(self.chunks, self.web_sources)
+        )
         input_text = build_conversation_input(
             context_block, self.memory_summary, self.history, self.content
         )
@@ -476,7 +483,14 @@ class AnswerRun:
         # extraction, the counterfactual - works from crux-free text.
         self.mark("generated")
         crux_text, full_text = extract_crux(full_text)
-        if crux_text is None:
+        if self.conversational:
+            # "Hi there!" in a gist card reads as broken: the reply is one or
+            # two sentences, shown whole. A crux the model wrote anyway goes
+            # back in front of the rest.
+            if crux_text:
+                full_text = f"{crux_text} {full_text}".strip()
+            crux_text = None
+        elif crux_text is None:
             # The model sometimes skips the <crux> wrapper (the fast model in
             # particular). Every brief asks for the bottom line first, so the
             # first sentence is it - and without a gist there is no gist card

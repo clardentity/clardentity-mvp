@@ -89,6 +89,7 @@ from app.services.guidance import MAX_CONTEXT_ROUNDS, propose_guidance
 from app.services.image_generation import ImageRequest, reference_images
 from app.services.image_generation import generate as generate_image
 from app.services.image_generation import wanted_image
+from app.services.small_talk import is_small_talk
 from app.services.output_cleanup import clean_output
 from app.services.prompt_builder import MODE_INSTRUCTIONS, build_system_instructions
 from app.services.search_planner import SearchPlan, needs_live_data, plan_searches
@@ -305,12 +306,15 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             # alongside them, and the searches it names start the moment it
             # lands - the same overlap the app relies on.
             rapid = mode == "rapid"
-            if rapid:
+            # A greeting or small talk is answered like a person would: no
+            # question back, no research, nothing to check (services/small_talk).
+            small_talk = not rapid and is_small_talk(content)
+            if rapid or small_talk:
                 # The quick answer, as in the app: no planner in front of it,
                 # and a search only for a question that is about right now.
                 quick = SearchPlan(
                     retrieval_query=content,
-                    queries=[content] if needs_live_data(content) else [],
+                    queries=[content] if rapid and needs_live_data(content) else [],
                 )
 
                 async def quick_plan() -> SearchPlan:
@@ -324,7 +328,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             # those.
             guidance_task = (
                 None
-                if payload.regenerate or rapid
+                if payload.regenerate or rapid or small_talk
                 else asyncio.create_task(propose_guidance(content, mode, pairs))
             )
             # Every message, every mode, quick answers and regenerates
@@ -336,7 +340,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 if payload.last_image_id
                 else None
             )
-            if mode == "creative":
+            if mode == "creative" and not small_talk:
                 image_request = await wanted_image(
                     content, pairs, has_previous_image=previous_image is not None
                 )
@@ -345,6 +349,9 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             risk = await risk_task
             if risk.flagged:
                 guidance = None
+                # Someone who may be at risk gets the careful reply, whatever
+                # the words looked like.
+                small_talk = False
             mark("gates")
             answered_a_gate = "(Clardentity asked:" in content
             settled = payload.regenerate
@@ -427,14 +434,14 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             # question, so it starts now and usually lands before the gist.
             async def classify() -> DecisionClassification:
                 # Rapid runs no verification, so there is nothing to scope.
-                if not flags.get("bias_screening_enabled", True) or mode == "rapid":
+                if not flags.get("bias_screening_enabled", True) or mode == "rapid" or small_talk:
                     return NO_DECISION
                 return await classify_decision(content)
 
             decision_task = asyncio.create_task(classify())
             decision = NO_DECISION
             review_task = thinking_task = None
-            if mode in ("decision", "thinking") and not risk.crisis:
+            if mode in ("decision", "thinking") and not risk.crisis and not small_talk:
                 try:
                     decision = await decision_task
                 except Exception:  # noqa: BLE001 - screening scope degrades
@@ -486,7 +493,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
             instructions = build_system_instructions(
                 mode,
                 None,
-                build_bias_guidance(decision) if mode == "decision" else None,
+                build_bias_guidance(decision) if mode == "decision" and not small_talk else None,
                 None,
                 making_image=bool(image_request),
                 safety_block=safety.prompt_block(risk, resources),
@@ -494,8 +501,11 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                     mode, profile_for(country, subdivision), resources
                 ),
                 crisis=risk.crisis,
+                small_talk=small_talk,
             )
             gen_model = generation_model_for(mode, admin_settings)
+            if small_talk:
+                gen_model = settings.anthropic_rapid_model
             if risk.crisis and mode == "rapid":
                 gen_model = settings.anthropic_fast_model
             gen_temperature = admin_settings.get("openai_temperature")
@@ -510,7 +520,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
 
             # Someone who may be in danger is answered now, not after a web
             # search: nothing a search would add belongs in that reply.
-            if risk.crisis and web_task is not None:
+            if (risk.crisis or small_talk) and web_task is not None:
                 web_task.cancel()
                 web_task = None
             run = AnswerRun(
@@ -524,6 +534,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 make_generation=make_generation,
                 image_task=image_task,
                 image_only=bool(image_request and image_request.only) and not risk.flagged,
+                conversational=small_talk,
                 review_task=review_task,
                 thinking_task=thinking_task,
                 decision_task=decision_task,
@@ -578,7 +589,7 @@ async def guest_chat(payload: GuestRequest, request: Request) -> EventSourceResp
                 ),
             }
 
-            if mode == "rapid" or risk.crisis:
+            if mode == "rapid" or risk.crisis or small_talk:
                 # That was the whole job: the answer ships as drafted, with no
                 # verdict attached, and says so by carrying none - exactly the
                 # app's quick answer.

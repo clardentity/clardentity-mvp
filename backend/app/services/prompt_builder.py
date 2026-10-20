@@ -127,7 +127,25 @@ MODE_INSTRUCTIONS: dict[str, str] = {
         "substitute. If they want a picture and none is being made for this "
         "message, say you can make it and ask for the one detail you would "
         "need, or simply invite them to confirm - a picture they have to go "
-        "elsewhere for is the one answer this mode must never give."
+        "elsewhere for is the one answer this mode must never give.\n\n"
+        # Tester feedback, 2026-10-20: asked for "a presentation", they got
+        # a thesis-like gist ("A tight 6-slide deck can pitch you as...") and
+        # had to hunt for "Slide 1, Slide 2" in a block of lines that ran
+        # together - and expected the file, not its text ("if only content
+        # it should say presentation content").
+        "Here the gist is a hand-over, not a thesis: say, conversationally, "
+        "what you have made for them - 'Here's the content for a six-slide "
+        "presentation that pitches you to Singapore small businesses.' When "
+        "what you write is the text for a presentation, document or "
+        "spreadsheet rather than the file itself, call it that - slide "
+        "content, the text for your report - so nobody expects a file that "
+        "is not there.\n\n"
+        "Structure what you make so it can be found at a glance: each slide, "
+        "section or part gets its own paragraph, opening with its label in "
+        "bold ('**Slide 1 - Title**', '**Section 2 - Pricing**'), with a "
+        "blank line between one and the next. These labels are the one place "
+        "where bold may open a line, whatever the formatting notes below say "
+        "about bold."
     ),
     # Mentoring and Reflect & Relieve, merged 2026-10-16. The standard this
     # is written to is docs/modes/guidance.md; the tests that hold it are
@@ -395,6 +413,25 @@ _FORMATTING_RULES = _CLOSING_RULE + _FORMATTING_BODY
 # rules about panels the reader will never see: the crux, then a few plain
 # sentences. Roughly a fifth of the length of the full rulebook, which is
 # also time to first token.
+#: A greeting or small talk - "hi", "thanks", "who are you" (services/
+#: small_talk.py). Replaces the rulebook: there is nothing to research, no
+#: gist to lead with and nothing to check, and a warm reply that asks what
+#: they would like is right here, which the closing rule otherwise forbids.
+SMALL_TALK_RULES = (
+    "This message is a greeting or small talk - hello, thanks, goodbye, how "
+    "are you, who are you - not a question to research. Reply the way a warm, "
+    "natural person would, in one or two short sentences: return a greeting "
+    "or thanks in kind, and when they are opening the conversation, say in a "
+    "few plain words what you can help with here and invite them to begin - "
+    "ending with a question is right here. Thanks or a goodbye gets a reply "
+    "in kind, not an introduction. When they ask who you are or what you can "
+    "do, answer as yourself in two or three sentences. Say what you help with "
+    "in everyday words ('think a decision through', 'find out what is true'); "
+    "never call it a mode or name one ('thinking mode', 'knowing mode'), and "
+    "do not count your modes. No gist line, no <crux>, no <claim> tags, no "
+    "citation markers, no lists, no headings. Use hyphens, never em dashes."
+)
+
 _RAPID_FORMATTING_RULES = (
     "Answer what was asked. Do not end with questions or offers to the user. If "
     "something unstated would change your answer, say what you assumed in one "
@@ -450,6 +487,7 @@ def build_system_instructions(
     safety_block: str | None = None,
     jurisdiction_block: str | None = None,
     crisis: bool = False,
+    small_talk: bool = False,
 ) -> list[dict]:
     """Returns Anthropic content blocks, not a string - the split is the
     point. Everything in `stable_parts` is byte-identical for every user who
@@ -551,7 +589,7 @@ def build_system_instructions(
     if mode == "learning" and learning_role in _LEARNING_ROLE_INSTRUCTIONS:
         variable_parts.append(_LEARNING_ROLE_INSTRUCTIONS[learning_role])
 
-    if mode == "thinking":
+    if mode == "thinking" and not small_talk:
         if reasoning_lens and REASONING_LENS_INSTRUCTIONS.get(reasoning_lens):
             variable_parts.append(
                 f"Reasoning lens ({reasoning_lens}, chosen explicitly by the user): "
@@ -571,7 +609,7 @@ def build_system_instructions(
     # Decision mode only: the framework's selection tree - comparing options
     # is a different job from reasoning about a problem, and gets different
     # guidance. Stable across every user in this mode.
-    if mode == "decision":
+    if mode == "decision" and not small_talk:
         stable_parts.append(decision_tree_block())
         stable_parts.append(monitoring_block())
     # The domain-scoped bias watch-list, keyed to this turn's classified
@@ -585,6 +623,8 @@ def build_system_instructions(
         from app.services.safety import CRISIS_FORMATTING_RULES
 
         stable_parts.append(CRISIS_FORMATTING_RULES)
+    elif small_talk:
+        stable_parts.append(SMALL_TALK_RULES)
     elif mode == "rapid":
         stable_parts.append(_RAPID_FORMATTING_RULES)
     elif mode == "guidance":

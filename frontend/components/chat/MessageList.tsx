@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "@/components/system/ErrorBoundaries";
 import { usePhoneLayout } from "@/lib/usePhoneLayout";
 import type {
@@ -33,7 +33,7 @@ import { SafetyCard } from "@/components/chat/SafetyCard";
 import { FeedbackWidget } from "@/components/chat/FeedbackWidget";
 import { ExportFileMenu } from "@/components/chat/ExportFileMenu";
 import { cleanMessageText } from "@/lib/text";
-import { renderInline, splitBlocks } from "@/lib/markdown";
+import { renderInline, spaceLabels, splitBlocks } from "@/lib/markdown";
 import { cx, Spinner } from "@/components/ui/primitives";
 import { track } from "@/lib/analytics";
 
@@ -208,12 +208,36 @@ export function MessageList({
 
   /* What a streaming answer opens with, and so when its bubble may appear.
    *
-   * The gist, normally. Thought coach leads with its box instead, so the box
-   * alone is enough to open the bubble there. Decision-making's box sits
-   * *under* the gist (gist, then the decisions, then the journey), so a box
-   * that lands first - it often does, a few seconds ahead - waits for the
-   * gist rather than appearing and then being pushed down by it. */
-  const streamingLead = Boolean(streaming?.crux || streaming?.thinkingReview);
+   * The gist, in every mode. Decision-making's and Thought coach's boxes sit
+   * *under* it (gist, then the box, then the journey), so a box that lands
+   * first - it often does, a few seconds ahead - waits for the gist rather
+   * than appearing and then being pushed down by it. Thought coach led with
+   * its box until 2026-10-20. */
+  const streamingLead = Boolean(streaming?.crux);
+
+  /* Opening an answer's fold is reading that answer, not following the
+   * conversation: stop carrying the view to the bottom. The answer grows by
+   * its whole journey when the fold opens, and the follow below (the
+   * ResizeObserver on the last message) took the reader straight past it to
+   * the last source link - reported 2026-10-20 as "it jumps to the bottom
+   * line of the last source url". Called before the fold opens. */
+  const releaseFollow = useCallback(() => {
+    stickToBottom.current = false;
+  }, []);
+
+  /* ...and then put its first lines where they can be read. Left alone when
+   * they are already comfortably in view (the fold opens under the line just
+   * tapped); otherwise the journey's start is brought up near the top. */
+  const revealDetail = useCallback((start: HTMLElement) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const top = start.getBoundingClientRect().top - box.top;
+    if (top >= 0 && top <= box.height * 0.6) return;
+    autoScrolling.current = true;
+    el.scrollTo({ top: Math.max(0, el.scrollTop + top - 64), behavior: "smooth" });
+    setTimeout(() => (autoScrolling.current = false), 800);
+  }, []);
 
   // A new message - yours or its answer - is the moment you want to be at the
   // bottom, so this one is smooth and deliberate.
@@ -374,7 +398,9 @@ export function MessageList({
           onUseMode={onUseMode}
           onAskRefined={onAskRefined}
           onSubmitEdit={onSubmitEdit}
-          openFully={m.safety?.level === "crisis"}
+          openFully={opensFully(m.mode_used, m.safety?.level)}
+          onDetailOpening={releaseFollow}
+          onDetailOpened={revealDetail}
         />
         </ErrorBoundary>
       ))}
@@ -409,7 +435,7 @@ export function MessageList({
           makingImage={streaming.makingImage ?? false}
           thinkingReview={streaming.thinkingReview ?? null}
           isStreaming
-          openFully={streaming.safety?.level === "crisis"}
+          openFully={opensFully(streaming.mode_used, streaming.safety?.level)}
         />
         </ErrorBoundary>
       )}
@@ -524,12 +550,24 @@ function renderTextWithCitations(text: string, claims: Claim[]): ReactNode[] {
   return out;
 }
 
+/* Which answers show in full rather than folded under their gist.
+ *
+ * A reply to someone who may be in danger asks whether they are safe below
+ * its first line, and that must not wait behind a "Show full answer" they
+ * may never press. And Co-Creative's answer is the thing that was asked
+ * for - the slides, the story, the post - with a line on top saying what it
+ * is; folding it away made the reader open it every time (tester,
+ * 2026-10-20: "Show full answer is another step"). */
+function opensFully(mode: string | null | undefined, safetyLevel: string | null | undefined): boolean {
+  return safetyLevel === "crisis" || mode === "creative";
+}
+
 /* The body of an answer: paragraphs, lists and comparison tables (see
  * lib/markdown for the set and the splitter), each run of text going
  * through the citation-and-opinion renderer. A comparison the model wrote
  * as pipe rows becomes a real table, markers inside the cells included. */
 function renderBody(text: string, claims: Claim[]): ReactNode {
-  const clean = cleanMessageText(text);
+  const clean = spaceLabels(cleanMessageText(text));
   const blocks = splitBlocks(clean);
   if (blocks.length === 1 && blocks[0].kind === "text") {
     return renderTextWithCitations(clean, claims);
@@ -693,6 +731,8 @@ function MessageBubble({
   onAskRefined,
   onSubmitEdit,
   openFully = false,
+  onDetailOpening,
+  onDetailOpened,
 }: {
   id: string;
   role: string;
@@ -735,10 +775,13 @@ function MessageBubble({
   onUseMode?: (mode: string) => void;
   onAskRefined?: (question: string) => void;
   onSubmitEdit?: (messageId: string, content: string) => void;
-  /** Show the whole answer, not just the gist: a reply to someone who may
-   *  be in danger asks whether they are safe below its first line, and that
-   *  must not wait behind a "Show full answer" they may never press. */
+  /** Show the whole answer, not just the gist (see opensFully). */
   openFully?: boolean;
+  /** Called as the fold is about to open, so the list stops following the
+   *  bottom before the answer grows by its whole journey. */
+  onDetailOpening?: () => void;
+  /** Called once it is open, with the journey's first line. */
+  onDetailOpened?: (start: HTMLElement) => void;
 }) {
   const isUser = role === "user";
 
@@ -780,8 +823,18 @@ function MessageBubble({
   const hasCrux = !isUser && Boolean(crux);
   // Collapsed by default, even the first time this message is seen: the
   // whole point of the crux is to make reading the full answer optional,
-  // not to show it in full anyway and add a summary on top.
+  // not to show it in full anyway and add a summary on top. (Two kinds of
+  // answer open in full instead - see opensFully.)
   const [detailOpen, setDetailOpen] = useState(openFully);
+  // The journey's first line, and whether the fold was opened by a tap just
+  // now (not restored open, not a crisis reply shown in full).
+  const detailStart = useRef<HTMLDivElement>(null);
+  const revealOnOpen = useRef(false);
+  useEffect(() => {
+    if (!detailOpen || !revealOnOpen.current) return;
+    revealOnOpen.current = false;
+    if (detailStart.current) onDetailOpened?.(detailStart.current);
+  }, [detailOpen, onDetailOpened]);
   // Named for what's actually behind the fold in Thinking/Decision mode -
   // the box above it already carries the verdict, so what's hidden is the
   // reasoning trail that produced it, not "the answer" (the box already is
@@ -902,32 +955,28 @@ function MessageBubble({
             me a logo", not an illustration of a paragraph. */}
         {!isUser && generatedImage && <GeneratedImageCard image={generatedImage} />}
         {!isUser && !generatedImage && makingImage && <GeneratedImagePlaceholder />}
-        {/* Thought coach's box is the analysis itself and leads, above the
-            gist: the reasoning contrast, then the one-line answer, then the
-            journey folded beneath. */}
-        {!isUser && panel === "thinking" && thinkingReview && (
-          <ThinkingReview review={thinkingReview} />
-        )}
-        {/* Its slot, held while it is still being written, so that order is
-            visible from the first frame rather than the box dropping in
-            above things already read. */}
-        {!isUser && isStreaming && panel === "thinking" && !thinkingReview && (
-          <div className="mb-3 rounded-[12px] border border-dashed border-hairline-strong p-4">
-            <ThinkingIndicator compact label="Working out how to think about this" />
-          </div>
-        )}
         {hasCrux && <CruxCard text={crux as string} />}
-        {/* Decision-making reads gist, then "One decision that's correct,
-            and the ones that aren't", then the journey (2026-10-12; it used
-            to lead with the box, as Thought coach still does). The box's
-            slot is held under the gist while it is being written, for the
-            same reason as above. */}
+        {/* Decision-making and Thought coach both read gist, then their box,
+            then the journey folded beneath: "One decision that's correct,
+            and the ones that aren't" since 2026-10-12, "How to think about
+            this" since 2026-10-20 (it led, above the gist, until then). Each
+            box's slot is held under the gist while it is still being
+            written, so the order is visible from the first frame rather than
+            the box dropping in between things already read. */}
         {!isUser && panel === "decision" && decisionReview && (
           <DecisionReview review={decisionReview} />
         )}
         {!isUser && isStreaming && panel === "decision" && !decisionReview && (
           <div className="mb-3 rounded-[12px] border border-dashed border-hairline-strong p-4">
             <ThinkingIndicator compact label="Weighing the decisions" />
+          </div>
+        )}
+        {!isUser && panel === "thinking" && thinkingReview && (
+          <ThinkingReview review={thinkingReview} />
+        )}
+        {!isUser && isStreaming && panel === "thinking" && !thinkingReview && (
+          <div className="mb-3 rounded-[12px] border border-dashed border-hairline-strong p-4">
+            <ThinkingIndicator compact label="Working out how to think about this" />
           </div>
         )}
         {isStreaming && (hasCrux || decisionReview || thinkingReview) && (
@@ -939,9 +988,18 @@ function MessageBubble({
         {hasCrux && !isStreaming && (
           <button
             type="button"
-            onClick={() => setDetailOpen((v) => !v)}
+            onClick={() => {
+              if (!detailOpen) {
+                onDetailOpening?.();
+                revealOnOpen.current = true;
+              }
+              setDetailOpen((v) => !v);
+            }}
             aria-expanded={detailOpen}
-            className="group -mx-1 mb-2 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-md px-1 py-1 text-left text-sm text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink-secondary"
+            // A pill in the brand colour, the one thing on the card to press:
+            // as grey text a tester (2026-10-20) found "Show full answer" was
+            // "another step and not visible".
+            className="group mb-3 inline-flex items-center gap-1.5 rounded-full border border-brand-border bg-brand-soft px-3 py-1.5 text-left text-sm font-medium text-brand transition-colors hover:bg-brand hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -960,6 +1018,7 @@ function MessageBubble({
         )}
         {!isStreaming && (!hasCrux || detailOpen) && (
         <>
+        {hasCrux && <div ref={detailStart} aria-hidden="true" />}
         {editing ? (
           <form
             onSubmit={(event) => {

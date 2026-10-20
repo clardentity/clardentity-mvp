@@ -7,14 +7,18 @@ import type { MetadataRoute } from "next";
  * is the whole point: a companion you keep open beside your work shouldn't
  * look like a tab you'll close by accident.
  *
- * start_url is /start rather than /: signed-in users are who install apps,
- * and landing them on the marketing page every launch is a redirect they'd
- * have to sit through. /start is where signing in on the website lands too -
- * it opens a chat (the last workspace's empty chat, or a new one) - so the
- * installed app and the website start in the same place. It used to be
- * /workspace, which put app users on the workspace list instead. Signed-out
- * users get bounced to /login by RequireAuth, which is where they were going
- * anyway.
+ * start_url is /launch (2026-10-20): signed in, a new chat - the same road
+ * sign-in takes; signed out, the home page at clardentity.ai rather than the
+ * login form. It was /workspace until PR #6 (live 2026-10-18), which opened the
+ * workspace list, then /start, which sent a signed-out launch to /login.
+ *
+ * `id` pins the app's identity to what installs already carry. With no id,
+ * Chrome takes the start_url at install time as the identity - /workspace
+ * for every copy installed before then - and a manifest whose identity
+ * no longer matches is a different app, so those phones never learned the
+ * new start_url and kept opening the workspace list. Keeping the old
+ * identity lets Chrome update them in place (it checks the manifest when the
+ * app opens). The id is a name, not a page: it is never navigated to.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -22,7 +26,8 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "Clardentity",
     description:
       "Your lifelong thinking companion. Every claim scored, every source shown.",
-    start_url: "/start",
+    id: "/workspace",
+    start_url: "/launch",
     scope: "/",
     display: "standalone",
     // The dark canvas, which the icon's burgundy sits on cleanly. It was

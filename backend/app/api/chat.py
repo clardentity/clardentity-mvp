@@ -86,6 +86,7 @@ from app.services.profile_service import (
 )
 from app.services.query_optimizer import optimize_query
 from app.services.search_planner import SearchPlan, needs_live_data, plan_searches
+from app.services.small_talk import is_small_talk
 from app.services.preview_access import daily_limit, is_preview_mode, spend, used_today
 from app.api.healthcare import needs_consent as needs_health_consent
 from app.services import safety
@@ -929,6 +930,10 @@ async def send_message(
     # unchecked anyway.
     web_enabled = bool(flags.get("web_search_enabled", True))
 
+    async def _no_plan(message: str) -> SearchPlan:
+        """Small talk: nothing to search for."""
+        return SearchPlan(retrieval_query=message, queries=[])
+
     async def _plan(history: list[Message], message: str, mode: str) -> SearchPlan:
         """Which searches to run, and what to ask the document store. The
         planner is a fast model call; where the web is not going to be
@@ -1013,6 +1018,10 @@ async def send_message(
     # skips the gates entirely and decides it further down.
     image_request: ImageRequest | None = None
     image_checked = False
+    # A greeting or small talk ("hi", "thanks", "who are you") is answered the
+    # way a person would - no question back, no research, nothing to check
+    # (services/small_talk). Decided once the message is known, on both paths.
+    small_talk = False
     # What pictures this turn could be made from, for the intent check: how
     # many are attached, and the last one the conversation drew. Filled in
     # once the history is known, on both paths below.
@@ -1057,7 +1066,10 @@ async def send_message(
         risk_task = asyncio.create_task(
             safety.assess(effective_content, [(m.role, m.content or "") for m in history])
         )
-        plan_task = asyncio.create_task(_plan(history, effective_content, mode))
+        small_talk = mode != "rapid" and not payload.attachments and is_small_talk(effective_content)
+        plan_task = asyncio.create_task(
+            _no_plan(effective_content) if small_talk else _plan(history, effective_content, mode)
+        )
         prefetch_task = asyncio.create_task(_prefetch(plan_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
     else:
@@ -1132,8 +1144,9 @@ async def send_message(
         risk_task = asyncio.create_task(
             safety.assess(effective_content, [(m.role, m.content or "") for m in history])
         )
+        small_talk = mode != "rapid" and not payload.attachments and is_small_talk(effective_content)
         guidance_task = (
-            None if mode == "rapid"
+            None if mode == "rapid" or small_talk
             else asyncio.create_task(
                 propose_guidance(
                     effective_content,
@@ -1145,7 +1158,9 @@ async def send_message(
         # The search plan depends on nothing the gates decide, so it runs
         # alongside them rather than after, and the searches it names start
         # the moment it lands.
-        plan_task = asyncio.create_task(_plan(history, effective_content, mode))
+        plan_task = asyncio.create_task(
+            _no_plan(effective_content) if small_talk else _plan(history, effective_content, mode)
+        )
         prefetch_task = asyncio.create_task(_prefetch(plan_task, mode))
         memory_summary = await get_memory_summary(db, conversation_id)
 
@@ -1188,7 +1203,7 @@ async def send_message(
         # small-model call. The only difference from the later position is
         # the "(Attached: ...)" note appended further down, which is not
         # part of what the user asked for.
-        if mode == "creative":
+        if mode == "creative" and not small_talk:
             image_request = await wanted_image(
                 effective_content,
                 [(m.role, m.content or "") for m in history],
@@ -1304,7 +1319,7 @@ async def send_message(
     # which cognitive mode is in play (§7.2).
     async def _classify() -> DecisionClassification:
         # Rapid mode runs no verification, so there is nothing to scope.
-        if not flags.get("bias_screening_enabled", True) or mode == "rapid":
+        if not flags.get("bias_screening_enabled", True) or mode == "rapid" or small_talk:
             return NO_DECISION
         return await classify_decision(effective_content)
 
@@ -1324,17 +1339,17 @@ async def send_message(
     # gist and journey were already on screen, which read as the wrong
     # order. Started here, before generation, and sent the moment it lands
     # (see the `review` event in the stream), so it is on screen by the time
-    # it is reached: Thought coach shows box, gist, journey; Decision-making
-    # shows gist, box, journey (since 2026-10-12), and the client holds the
-    # box under the gist if it arrives first. Thought coach pays for the
-    # classification it needs here rather than later; it has been running
-    # since before the gates and is normally done.
+    # it is reached: both companions show gist, box, journey (Decision-making
+    # since 2026-10-12, Thought coach since 2026-10-20), and the client holds
+    # the box under the gist if it arrives first. Thought coach pays for the
+    # classification it needs here rather than later; it starts after the
+    # gates, so the first word of a Thought coach answer waits for it.
     review_task: "asyncio.Task[dict | None] | None" = None
     thinking_task: "asyncio.Task[dict | None] | None" = None
     # No decision or reasoning review on a reply to someone in crisis: the
     # boxes of biases and framings belong to a question, not to a person who
     # may be in danger.
-    if mode in ("decision", "thinking") and not (await risk_task).crisis:
+    if mode in ("decision", "thinking") and not small_talk and not (await risk_task).crisis:
         try:
             early_decision = await decision_task
         except Exception:  # noqa: BLE001 - screening scope degrades, nothing fails
@@ -1360,7 +1375,7 @@ async def send_message(
 
     # The proactive watch-list is Decision mode's job; other modes still get
     # domain-scoped screening, they just aren't told to editorialise about it.
-    bias_guidance = build_bias_guidance(decision) if mode == "decision" else None
+    bias_guidance = build_bias_guidance(decision) if mode == "decision" and not small_talk else None
     profile = await get_profile(db, current_user.id)
     # A temporary chat starts from nothing the profile knows. The learning
     # role below is still read: it is a setting the user chose, not something
@@ -1393,7 +1408,7 @@ async def send_message(
     # message has already had it, before the gates, so that a request for a
     # picture is not stopped and asked about its wording; only the
     # regenerate path arrives here without an answer.
-    if not image_checked and mode == "creative":
+    if not image_checked and mode == "creative" and not small_talk:
         image_request = await wanted_image(
             effective_content,
             [(m.role, m.content or "") for m in history],
@@ -1407,6 +1422,10 @@ async def send_message(
     risk = await risk_task
     if risk.crisis:
         image_request = None
+    if risk.flagged:
+        # Someone who may be at risk gets the careful reply, whatever the
+        # words looked like.
+        small_talk = False
     # An edit works from pictures - the ones attached to this turn, or the
     # last one this conversation drew - read off the request and out of
     # storage here, off the event loop.
@@ -1446,6 +1465,7 @@ async def send_message(
             resources,
         ),
         crisis=risk.crisis,
+        small_talk=small_talk,
         named_model=(chosen_model.label, chosen_model.vendor) if chosen_model else None,
         making_image=bool(image_request),
         companion_name=name_for(current_user.companion_names, mode),
@@ -1469,6 +1489,11 @@ async def send_message(
             input_images.append(data)
     # Which model writes the answer, by mode - see generation_model_for.
     gen_model = generation_model_for(mode, admin_settings)
+    if small_talk:
+        # A two-sentence hello needs no flagship; the rapid model answers in
+        # about a second. (A model picked in Co-Creative still writes it, so
+        # "who are you" is answered by the model the picker names.)
+        gen_model = settings.anthropic_rapid_model
     if risk.crisis and mode == "rapid":
         # The quick path's model is the smallest; a person in crisis gets a
         # better one whatever button they pressed.
@@ -1499,7 +1524,7 @@ async def send_message(
     # stays here is what only an account has: the rows it is written to.
     # Someone who may be in danger is answered now, not after a web
     # search: nothing a search would add belongs in that reply.
-    if risk.crisis and web_task is not None:
+    if (risk.crisis or small_talk) and web_task is not None:
         web_task.cancel()
         web_task = None
     run = AnswerRun(
@@ -1513,6 +1538,7 @@ async def send_message(
         make_generation=make_generation,
         image_task=image_task,
         image_only=image_only,
+        conversational=small_talk,
         review_task=review_task,
         thinking_task=thinking_task,
         decision_task=decision_task,
@@ -1614,7 +1640,7 @@ async def send_message(
             else None
         )
 
-        if mode == "rapid" or risk.crisis:
+        if mode == "rapid" or risk.crisis or small_talk:
             # That was the whole job. No reflection, no claims, no evidence,
             # no score, no counterfactual - the answer ships as drafted, with
             # no verdict attached, and says so by carrying none. The client

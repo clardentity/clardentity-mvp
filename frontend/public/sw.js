@@ -44,7 +44,9 @@
 // client now sends smart_switching and reads a "switched" event; an old
 // bundle would send neither and show neither.
 // v25: the decision box says what its crossed-out choices are
-const CACHE = "clardentity-shell-v26"; // v26: an installed app opening on /workspace goes to a chat
+// v26: an installed app opening on /workspace goes to a chat
+// v27: greetings answered; Co-Creative opens in full; visible fold toggle; larger source popover
+const CACHE = "clardentity-shell-v28"; // v28: v26 and v27 merged - both have to reach open tabs
 
 // Only things that are content-addressed or genuinely static. HTML is not
 // here on purpose - a stale shell is how a deployed fix fails to reach

@@ -68,6 +68,16 @@ function isTableLine(line: string): boolean {
   return line.includes("|") && splitCells(line).length >= 2 && !SEPARATOR_ROW.test(line);
 }
 
+/** A line that opens with a bold label ("**Slide 2 - Pricing**", or a
+ *  heading, which lib/text turns into one) starts a new section, so it gets
+ *  a blank line above it even when the model wrote only a line break: a
+ *  tester (2026-10-20) had to hunt for where Slide 2 began in a run of
+ *  slides with no space between them. Other single line breaks stay as
+ *  written - the lines of a poem are not paragraphs. */
+export function spaceLabels(text: string): string {
+  return text.replace(/([^\n])\n(?=\*\*[^*\n]+\*\*)/g, "$1\n\n");
+}
+
 /** Paragraph text, lists and tables, in document order. A run of two or
  *  more pipe rows with a matching cell count is a table; a run of hyphen
  *  or numbered lines is a list (one item per line - the prompt asks for one

@@ -282,7 +282,9 @@ export function CitationPopover({
                 ? { position: "fixed", top: pos.top, left: pos.left, visibility: "visible" }
                 : { position: "fixed", top: -9999, left: -9999, visibility: "hidden" }
             }
-            className="z-30 block w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-hairline bg-surface-raised p-2.5 text-left text-xs normal-case shadow-lg"
+            // 14px on a 320px card: at 12px on 256px a tester (2026-10-20)
+            // found the source "way too small to read".
+            className="z-30 block w-80 max-w-[calc(100vw-1rem)] rounded-lg border border-hairline bg-surface-raised p-3 text-left text-sm leading-snug normal-case shadow-lg"
           >
             {isWeb ? (
               <a
@@ -314,7 +316,7 @@ export function CitationPopover({
             )}
 
             {evidence.excerpt && (
-              <span className="mt-1.5 line-clamp-4 block border-l-2 border-hairline pl-2 leading-relaxed text-ink-secondary">
+              <span className="mt-2 line-clamp-6 block border-l-2 border-hairline pl-2 leading-relaxed text-ink-secondary">
                 {evidence.excerpt}
               </span>
             )}
