@@ -41,13 +41,24 @@ def _gate(guidance=EVERYTHING, **flags):
 
 class TestTheGatesStopInTheirOrder:
     def test_wording_then_options_then_why_then_companion(self):
+        without = lambda *keys: {k: v for k, v in EVERYTHING.items() if k not in keys}  # noqa: E731
         assert _gate() == "refined_question"
-        assert _gate(refined_confirmed=True) == "clarifying_options"
-        assert _gate(refined_confirmed=True, clarifying_confirmed=True) == "context_question"
+        assert _gate(without("refined_question")) == "clarifying_options"
+        assert _gate(without("refined_question", "clarifying_options")) == "context_question"
         assert (
-            _gate(refined_confirmed=True, clarifying_confirmed=True, context_acknowledged=True)
+            _gate(without("refined_question", "clarifying_options", "context_question"))
             == "mode_suggestion"
         )
+
+    def test_declining_one_question_declines_them_all(self):
+        """2026-10-20: "Answer without this" met a row of options instead of
+        an answer - declining re-sends the message without the answered
+        marker, so it counted for nothing and the next call asked something
+        else. Keep mine, Skip and Answer without this now close every other
+        kind of question; only the companion suggestion may still follow."""
+        for declined in ("refined_confirmed", "clarifying_confirmed", "context_acknowledged"):
+            assert _gate(**{declined: True}) == "mode_suggestion", declined
+            assert _gate(**{declined: True, "mode_confirmed": True}) is None, declined
 
     def test_gates_do_not_take_turns(self):
         # Once a rewording or an option has been answered, only the companion

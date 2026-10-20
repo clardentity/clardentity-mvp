@@ -170,7 +170,15 @@ def gate_event(
     if not guidance or making_image:
         return None
 
-    if not refined_confirmed and not answered_a_gate and guidance.get("refined_question"):
+    # A question about the question that has been answered *or declined*.
+    # Declining - "Keep mine", "Skip", "Answer without this" - re-sends the
+    # message without the marker, so it used to count for nothing, and the
+    # next call was free to ask a different kind of question: "Answer
+    # without this" met a row of options instead of an answer (seen
+    # 2026-10-20). Declining one is declining them all.
+    settled = answered_a_gate or refined_confirmed or clarifying_confirmed or context_acknowledged
+
+    if not settled and guidance.get("refined_question"):
         return {
             "event": "refined_question",
             "data": json.dumps(
@@ -181,7 +189,7 @@ def gate_event(
             ),
         }
 
-    if not clarifying_confirmed and not answered_a_gate and guidance.get("clarifying_options"):
+    if not settled and guidance.get("clarifying_options"):
         return {
             "event": "clarifying_options",
             "data": json.dumps(
@@ -194,7 +202,7 @@ def gate_event(
 
     if (
         not context_acknowledged
-        and (not answered_a_gate or context_rounds > 0)
+        and (not settled or context_rounds > 0)
         and context_rounds < max_context_rounds
         and guidance.get("context_question")
     ):
