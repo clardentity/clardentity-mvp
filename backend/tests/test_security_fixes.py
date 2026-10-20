@@ -56,6 +56,31 @@ def test_rotating_the_spoofed_part_does_not_change_the_address():
     assert a == b == "49.37.1.2"
 
 
+def test_behind_cloudflare_the_visitor_is_cf_connecting_ip():
+    # 2026-10-19: production is behind Cloudflare, so the right-most public
+    # entry was Cloudflare's edge (one in Singapore located an Indian visitor
+    # in Singapore), and every visitor through one edge shared per-address
+    # limits. Cloudflare's own header names the visitor.
+    req = _Req({
+        "cf-connecting-ip": "49.37.1.2",
+        "x-forwarded-for": "8.8.8.8, 49.37.1.2, 172.71.124.10, 10.0.0.7",
+    })
+    assert client_ip(req) == "49.37.1.2"
+
+
+def test_two_visitors_through_one_edge_are_two_addresses():
+    edge = "172.71.124.10"
+    a = client_ip(_Req({"cf-connecting-ip": "49.37.1.2", "x-forwarded-for": f"49.37.1.2, {edge}"}))
+    b = client_ip(_Req({"cf-connecting-ip": "103.21.5.9", "x-forwarded-for": f"103.21.5.9, {edge}"}))
+    assert a != b
+
+
+def test_a_cf_header_that_is_not_a_public_address_is_ignored():
+    for bad in ("", "not-an-ip", "10.0.0.5", "127.0.0.1"):
+        req = _Req({"cf-connecting-ip": bad, "x-forwarded-for": "8.8.8.8, 49.37.1.2, 10.0.0.7"})
+        assert client_ip(req) == "49.37.1.2", bad
+
+
 # --- C1: who is admin --------------------------------------------------------
 
 

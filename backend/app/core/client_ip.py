@@ -25,15 +25,29 @@ def client_timezone(request: Request) -> str | None:
 
 
 def client_ip(request: Request) -> str:
-    """The right-most public address in X-Forwarded-For.
+    """The visitor's address.
 
-    Render's proxy appends the address that connected to it, and internal
-    hops after that are private addresses. Anything to the left was sent by
-    the client and can say anything - taking the first entry let a script
-    put a fresh "address" on every request and walk past every per-address
-    limit (sign-in attempts, password-reset mail, the guest demo's spend).
-    Reading from the right, skipping private hops, lands on the address the
-    proxy saw."""
+    Render's web services sit behind Cloudflare (`server: cloudflare`,
+    `cf-ray` on every response), and Cloudflare puts the address that
+    connected to it in CF-Connecting-IP - one address, set by Cloudflare,
+    which overwrites any value a client sends. That is the visitor.
+
+    Without it, the right-most public address in X-Forwarded-For. Anything
+    to the left was sent by the client and can say anything - taking the
+    first entry let a script put a fresh "address" on every request and walk
+    past every per-address limit (sign-in attempts, password-reset mail, the
+    guest demo's spend). But behind Cloudflare the right-most public entry is
+    Cloudflare's own edge: on 2026-10-19 the demo located a visitor in India
+    as Singapore whenever their request was routed through Cloudflare's
+    Singapore edge, and every visitor through one edge shared one set of
+    per-address limits. Hence CF-Connecting-IP first."""
+    cf = (request.headers.get("cf-connecting-ip") or "").strip()
+    if cf:
+        try:
+            if ipaddress.ip_address(cf).is_global:
+                return cf
+        except ValueError:
+            pass
     forwarded = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
     for candidate in reversed(forwarded):
         try:
