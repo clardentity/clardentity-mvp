@@ -46,7 +46,7 @@
 // v25: the decision box says what its crossed-out choices are
 // v26: an installed app opening on /workspace goes to a chat
 // v27: greetings answered; Co-Creative opens in full; visible fold toggle; larger source popover
-const CACHE = "clardentity-shell-v28"; // v28: v26 and v27 merged - both have to reach open tabs
+const CACHE = "clardentity-shell-v29"; // v29: a fold holds its toggle and never re-follows on its own; larger review-box text
 
 // Only things that are content-addressed or genuinely static. HTML is not
 // here on purpose - a stale shell is how a deployed fix fails to reach

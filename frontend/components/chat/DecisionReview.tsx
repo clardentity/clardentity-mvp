@@ -56,6 +56,10 @@ function Chip({ tone, children }: { tone: "sound" | "flagged"; children: React.R
   );
 }
 
+/* The bias definitions and the crossed-out explanation are text-sm, the size
+ * of the sentences above them, held apart by colour alone: at text-xs they
+ * were 10px on the screen under the root zoom, and a tester (2026-10-22)
+ * asked for them larger. */
 function Heading({ children, note }: { children: React.ReactNode; note?: string }) {
   return (
     <h4 className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium leading-[normal] text-ink">
@@ -110,7 +114,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
                   </div>
                   <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{option.why}</p>
                   {option.bias_definition && (
-                    <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+                    <p className="mt-1 text-sm leading-relaxed text-ink-muted">
                       {option.bias_definition}
                     </p>
                   )}
@@ -147,7 +151,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
               which is crossed" until realising it showed "the clarity between
               right and wrong choices" - which is the point, so say it. */}
           {review.suggestions.some((s) => !s.sound) && (
-            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+            <p className="mt-1 text-sm leading-relaxed text-ink-muted">
               The crossed-out ones are choices people often reach for here. Each is shown with the
               reasoning trap behind it, so you can see why not to.
             </p>
@@ -183,7 +187,7 @@ export function DecisionReview({ review }: { review: DecisionReviewData }) {
                   </div>
                   <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{s.why}</p>
                   {!s.sound && s.bias_definition && (
-                    <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+                    <p className="mt-1 text-sm leading-relaxed text-ink-muted">
                       {s.bias_definition}
                     </p>
                   )}

@@ -27,7 +27,9 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
       {/* Two columns at every width. The contrast *is* the panel - stacking
           it puts "goes wrong" below the fold and turns a comparison into two
           lists. Narrow screens pay for it in type size rather than in
-          losing the side-by-side. */}
+          losing the side-by-side; from sm up the entries are text-sm, the
+          size of the Decision-making box's sentences (text-xs was 10px on
+          the screen under the root zoom - "a little larger", 2026-10-22). */}
       <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-band-high">
@@ -36,8 +38,8 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
           <ul className="mt-1.5 space-y-2">
             {review.sound.map((entry, i) => (
               <li key={i}>
-                <p className="text-xs font-medium leading-relaxed text-ink sm:text-xs">{entry.approach}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary sm:text-xs">
+                <p className="text-xs font-medium leading-relaxed text-ink sm:text-sm">{entry.approach}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary sm:text-sm">
                   {entry.why}
                 </p>
               </li>
@@ -52,11 +54,11 @@ export function ThinkingReview({ review }: { review: ThinkingReviewData }) {
           <ul className="mt-1.5 space-y-2">
             {review.biased.map((entry, i) => (
               <li key={i}>
-                <p className="text-xs font-medium leading-relaxed text-ink sm:text-xs">{entry.approach}</p>
+                <p className="text-xs font-medium leading-relaxed text-ink sm:text-sm">{entry.approach}</p>
                 {entry.bias_name && (
-                  <p className="mt-0.5 text-xs font-medium text-caution">{entry.bias_name}</p>
+                  <p className="mt-0.5 text-xs font-medium text-caution sm:text-sm">{entry.bias_name}</p>
                 )}
-                <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary sm:text-xs">
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary sm:text-sm">
                   {entry.why}
                 </p>
               </li>

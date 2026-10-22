@@ -127,6 +127,16 @@ export function MessageList({
   // below the fold with nothing scrolling after it.
   const autoScrolling = useRef(false);
 
+  // Set when a fold is opened or closed: from then on only the reader's own
+  // scrolling (wheel, touch, keys, the scrollbar) may turn following back
+  // on. A scroll the browser makes by itself as the journey goes in - scroll
+  // anchoring, a clamp at the end - reads exactly like "back at the bottom",
+  // and the next resize then carried the view to the last source link of the
+  // journey (2026-10-22: "it still jumps to the bottom line of the last
+  // source url"). Cleared by the handlers on the scroller below, and by
+  // sending the next question.
+  const followHeld = useRef(false);
+
   /* Phone only: a "jump to latest" button once you are more than a screen
    * up, and your place in each chat kept for the session - leave a chat
    * halfway through and come back, and it opens where you were rather than
@@ -166,7 +176,7 @@ export function MessageList({
     }
     // 80px of slack, so "near enough the bottom" survives the last line of a
     // message and a rounding error.
-    stickToBottom.current = atBottom;
+    stickToBottom.current = atBottom && !followHeld.current;
   }
 
   const lastMessageId = messages.at(-1)?.id ?? null;
@@ -200,6 +210,7 @@ export function MessageList({
     const el = scrollRef.current;
     if (!el) return;
     stickToBottom.current = true;
+    followHeld.current = false;
     autoScrolling.current = true;
     setShowJump(false);
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
@@ -220,28 +231,66 @@ export function MessageList({
    * its whole journey when the fold opens, and the follow below (the
    * ResizeObserver on the last message) took the reader straight past it to
    * the last source link - reported 2026-10-20 as "it jumps to the bottom
-   * line of the last source url". Called before the fold opens. */
-  const releaseFollow = useCallback(() => {
+   * line of the last source url". Called as the fold is tapped, open or
+   * shut, with the toggle, so it can be held where it was tapped. */
+  const foldPin = useRef<{ toggle: HTMLElement; top: number } | null>(null);
+  const releaseFollow = useCallback((toggle: HTMLElement) => {
     stickToBottom.current = false;
+    followHeld.current = true;
+    foldPin.current = { toggle, top: toggle.getBoundingClientRect().top };
   }, []);
 
-  /* ...and then put its first lines where they can be read. Left alone when
-   * they are already comfortably in view (the fold opens under the line just
-   * tapped); otherwise the journey's start is brought up near the top. */
-  const revealDetail = useCallback((start: HTMLElement) => {
+  /* ...then, before the frame is painted: the toggle goes back exactly where
+   * it was tapped, whatever the browser's own scroll anchoring did while the
+   * journey went in (or came out); and when a fold has opened, its first
+   * lines are put where they can be read - left alone when already
+   * comfortably in view, otherwise brought up near the top.
+   *
+   * Measured rects are screen pixels under the root zoom (lib/uiScale) and
+   * scrollTop is the scroller's own pixels, so every distance is converted;
+   * unconverted, the scroll fell 15% of the way short - a journey far down
+   * the thread stayed out of sight. */
+  const settleFold = useCallback((start: HTMLElement | null) => {
     const el = scrollRef.current;
+    const pin = foldPin.current;
+    foldPin.current = null;
     if (!el) return;
     const box = el.getBoundingClientRect();
+    const toScroll = box.height > 0 && el.clientHeight > 0 ? el.clientHeight / box.height : 1;
+    if (pin?.toggle.isConnected) {
+      const moved = pin.toggle.getBoundingClientRect().top - pin.top;
+      if (Math.abs(moved) >= 1) el.scrollTop += moved * toScroll;
+    }
+    if (!start) return;
     const top = start.getBoundingClientRect().top - box.top;
     if (top >= 0 && top <= box.height * 0.6) return;
+    const target = Math.min(
+      Math.max(0, el.scrollTop + (top - 64) * toScroll),
+      el.scrollHeight - el.clientHeight,
+    );
     autoScrolling.current = true;
-    el.scrollTo({ top: Math.max(0, el.scrollTop + top - 64), behavior: "smooth" });
-    setTimeout(() => (autoScrolling.current = false), 800);
+    el.scrollTo({ top: target, behavior: "smooth" });
+    setTimeout(() => {
+      // A smooth scroll can be dropped (seen under phone emulation, where
+      // it never moved): land it, unless the reader took over meanwhile -
+      // a wheel or a finger clears autoScrolling.
+      if (autoScrolling.current && Math.abs(el.scrollTop - target) > 2) el.scrollTop = target;
+      autoScrolling.current = false;
+    }, 700);
   }, []);
 
   // A new message - yours or its answer - is the moment you want to be at the
-  // bottom, so this one is smooth and deliberate.
+  // bottom, so this one is smooth and deliberate. Your own question brings
+  // the view back down whatever you were reading - an open journey above
+  // included - or it and its answer arrived out of sight.
+  const lastIsMine = messages.at(-1)?.role === "user";
+  const seenLast = useRef(lastMessageId);
   useEffect(() => {
+    if (lastMessageId !== seenLast.current && lastIsMine) {
+      stickToBottom.current = true;
+      followHeld.current = false;
+    }
+    seenLast.current = lastMessageId;
     if (!stickToBottom.current) return;
     const el = scrollRef.current;
     if (!el) return;
@@ -255,7 +304,7 @@ export function MessageList({
     // this long whatever happened - a finger may have stopped it.
     const release = setTimeout(() => (autoScrolling.current = false), 800);
     return () => clearTimeout(release);
-  }, [lastMessageId, busy]);
+  }, [lastMessageId, busy, lastIsMine]);
 
   // An answer keeps growing after it lands - the analysis, badges and footer
   // arrive with `final`, seconds later. While the reader is following, follow
@@ -341,9 +390,22 @@ export function MessageList({
       ref={scrollRef}
       data-testid="message-list"
       onScroll={handleScroll}
-      // A finger or a wheel is the reader, never our own smooth scroll.
-      onTouchStart={() => (autoScrolling.current = false)}
-      onWheel={() => (autoScrolling.current = false)}
+      // A finger, a wheel, a key or the scrollbar is the reader, never our
+      // own smooth scroll - and only the reader may resume following after
+      // a fold (followHeld).
+      onTouchStart={() => {
+        autoScrolling.current = false;
+        followHeld.current = false;
+      }}
+      onWheel={() => {
+        autoScrolling.current = false;
+        followHeld.current = false;
+      }}
+      onKeyDown={() => (followHeld.current = false)}
+      onPointerDown={(event) => {
+        // The scrollbar itself, not a click on something inside the list.
+        if (event.target === event.currentTarget) followHeld.current = false;
+      }}
       // max-sm:pb-20: room for the companion, which floats over the end of
       // the thread on a phone (ChatView), so the last line can scroll clear.
       className="scroll-slim min-h-0 flex-1 animate-[fade-in_0.35s_ease] space-y-5 overflow-y-auto px-1 py-5 max-sm:pb-20"
@@ -399,8 +461,8 @@ export function MessageList({
           onAskRefined={onAskRefined}
           onSubmitEdit={onSubmitEdit}
           openFully={opensFully(m.mode_used, m.safety?.level)}
-          onDetailOpening={releaseFollow}
-          onDetailOpened={revealDetail}
+          onFoldTap={releaseFollow}
+          onFoldSettled={settleFold}
         />
         </ErrorBoundary>
       ))}
@@ -731,8 +793,8 @@ function MessageBubble({
   onAskRefined,
   onSubmitEdit,
   openFully = false,
-  onDetailOpening,
-  onDetailOpened,
+  onFoldTap,
+  onFoldSettled,
 }: {
   id: string;
   role: string;
@@ -777,11 +839,12 @@ function MessageBubble({
   onSubmitEdit?: (messageId: string, content: string) => void;
   /** Show the whole answer, not just the gist (see opensFully). */
   openFully?: boolean;
-  /** Called as the fold is about to open, so the list stops following the
-   *  bottom before the answer grows by its whole journey. */
-  onDetailOpening?: () => void;
-  /** Called once it is open, with the journey's first line. */
-  onDetailOpened?: (start: HTMLElement) => void;
+  /** Called as the fold is tapped open or shut, with the toggle, so the
+   *  list stops following the bottom and can hold the toggle in place. */
+  onFoldTap?: (toggle: HTMLElement) => void;
+  /** Called once the fold has opened (with the journey's first line) or
+   *  shut (null), before the frame is painted. */
+  onFoldSettled?: (start: HTMLElement | null) => void;
 }) {
   const isUser = role === "user";
 
@@ -826,15 +889,18 @@ function MessageBubble({
   // not to show it in full anyway and add a summary on top. (Two kinds of
   // answer open in full instead - see opensFully.)
   const [detailOpen, setDetailOpen] = useState(openFully);
-  // The journey's first line, and whether the fold was opened by a tap just
-  // now (not restored open, not a crisis reply shown in full).
+  // The toggle, the journey's first line, and whether the fold moved because
+  // of a tap just now (not restored open, not a crisis reply shown in full).
+  // A layout effect: the list puts things right before the frame is
+  // painted, so the reader never sees the view the browser jumped to.
+  const foldToggle = useRef<HTMLButtonElement>(null);
   const detailStart = useRef<HTMLDivElement>(null);
-  const revealOnOpen = useRef(false);
-  useEffect(() => {
-    if (!detailOpen || !revealOnOpen.current) return;
-    revealOnOpen.current = false;
-    if (detailStart.current) onDetailOpened?.(detailStart.current);
-  }, [detailOpen, onDetailOpened]);
+  const foldTapped = useRef(false);
+  useLayoutEffect(() => {
+    if (!foldTapped.current) return;
+    foldTapped.current = false;
+    onFoldSettled?.(detailOpen ? detailStart.current : null);
+  }, [detailOpen, onFoldSettled]);
   // Named for what's actually behind the fold in Thinking/Decision mode -
   // the box above it already carries the verdict, so what's hidden is the
   // reasoning trail that produced it, not "the answer" (the box already is
@@ -988,11 +1054,10 @@ function MessageBubble({
         {hasCrux && !isStreaming && (
           <button
             type="button"
+            ref={foldToggle}
             onClick={() => {
-              if (!detailOpen) {
-                onDetailOpening?.();
-                revealOnOpen.current = true;
-              }
+              if (foldToggle.current) onFoldTap?.(foldToggle.current);
+              foldTapped.current = true;
               setDetailOpen((v) => !v);
             }}
             aria-expanded={detailOpen}
