@@ -1064,7 +1064,12 @@ function Breadcrumbs({
     chat: "Conversation",
     profile: "Your profile",
     settings: "Settings",
-    start: "Opening a chat",
+    // Both open a chat and land on it, and that chat's crumb reads "New chat"
+    // until it has a title - so these say the same, not "Opening a chat"
+    // flipping to "New chat" a second later. /launch (the installed app's
+    // start_url) was missing here and showed as a bare lowercase "launch".
+    start: "New chat",
+    launch: "New chat",
     admin: "Admin",
   };
 
