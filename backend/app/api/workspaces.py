@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import User, Workspace, WorkspaceMember
 from app.schemas.workspace import WorkspaceCreate, WorkspaceOut, WorkspaceUpdate
+from app.services import stored_files
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -112,5 +113,9 @@ async def delete_workspace(
 
     workspace = await db.get(Workspace, workspace_id)
     if workspace is not None:
+        # Its documents, chats and messages go by cascade; their files in
+        # storage don't, so they are gathered first and removed after.
+        keys = await stored_files.keys_in_workspaces(db, [workspace.id])
         await db.delete(workspace)
         await db.commit()
+        await stored_files.remove(keys)

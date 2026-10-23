@@ -28,3 +28,25 @@ def download_file(key: str) -> bytes:
 
 def delete_file(key: str) -> None:
     get_s3_client().delete_object(Bucket=settings.s3_bucket, Key=key)
+
+
+def delete_prefix(prefix: str) -> int:
+    """Delete every object under a key prefix; returns how many went.
+
+    For files no row points at - generated images are keyed by their owner
+    and kept in no table. A page of keys per delete call (S3 takes up to
+    1000), so an account with a lot of pictures is a few requests rather
+    than one per picture.
+    """
+    client = get_s3_client()
+    deleted = 0
+    for page in client.get_paginator("list_objects_v2").paginate(
+        Bucket=settings.s3_bucket, Prefix=prefix
+    ):
+        keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        if keys:
+            client.delete_objects(
+                Bucket=settings.s3_bucket, Delete={"Objects": keys, "Quiet": True}
+            )
+            deleted += len(keys)
+    return deleted

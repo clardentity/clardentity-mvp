@@ -502,12 +502,9 @@ async def delete_conversation(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     conversation = await get_conversation_for_user(db, conversation_id, current_user.id)
-    if conversation.temporary:
-        # Leaving a temporary chat ends here, and takes its files with it.
-        await discard(db, conversation)
-        return
-    await db.delete(conversation)
-    await db.commit()
+    # Leaving a temporary chat ends here, and takes its files with it; any
+    # other chat takes the pictures drawn in it, which nothing else points at.
+    await discard(db, conversation)
 
 
 async def _all_messages(db: AsyncSession, conversation_id: uuid.UUID) -> list[Message]:

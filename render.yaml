@@ -108,3 +108,8 @@ envVarGroups:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
+      # The iOS and Android apps' own OAuth client IDs, comma-separated. A
+      # token from the app names its own client as the audience, so without
+      # these the server refuses every phone sign-in as an invalid token.
+      - key: GOOGLE_CLIENT_IDS_EXTRA
+        sync: false
