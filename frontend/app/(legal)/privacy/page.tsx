@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 /* Kept in step with backend settings.terms_version: the account row records
    which version was accepted, and that is only meaningful if the number here
    is the one people saw. */
-const VERSION = "2026-10-17";
-const UPDATED = "17 October 2026";
+const VERSION = "2026-10-23";
+const UPDATED = "23 October 2026";
 const CONTACT = "hello@clardentity.ai";
 
 export default function PrivacyPage() {
@@ -129,7 +129,10 @@ export default function PrivacyPage() {
           head={["Processor", "What it receives", "Where"]}
           rows={[
             ["Anthropic", "Your question, the recent conversation, any attached text, to generate an answer", "United States"],
-            ["OpenAI", "The same, when used as a fallback; audio for transcription; text for embeddings", "United States"],
+            ["OpenAI", "The same, when used as a fallback; audio for transcription; text for embeddings; your description, and any picture you attach, when you ask Co-Creative for an image", "United States"],
+            ["Google", "Your question and the recent conversation, only when you pick a Gemini model in Co-Creative. If you sign in with Google, Google tells us your name and email address", "United States"],
+            ["xAI", "Your question and the recent conversation, only when you pick a Grok model in Co-Creative", "United States"],
+            ["ipapi.co", "Your IP address, to work out your country for the local rules and support numbers in section 6", "United States"],
             ["Tavily", "Search queries derived from your question - not the question verbatim", "United States"],
             ["Supabase", "The database and file storage: accounts, conversations, documents, claims", "South Korea (Seoul)"],
             ["Render", "The application servers that process every request", "Singapore"],

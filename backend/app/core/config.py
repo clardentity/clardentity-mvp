@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # The version of the terms and privacy notice currently in force. Bump it
     # when either document changes materially; stored against each account at
     # sign-up so a later revision knows who has agreed to what.
-    terms_version: str = "2026-10-17"
+    terms_version: str = "2026-10-23"
     # Who may open /admin. Comma-separated emails; empty means nobody, which
     # is the right default for a deployment that never sets it.
     admin_emails: str = "admin@clardentity.ai"
