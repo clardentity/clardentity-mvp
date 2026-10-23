@@ -235,6 +235,20 @@ export function ChatView({ conversationId }: { conversationId: string }) {
       document.removeEventListener("focusout", onOut);
     };
   }, []);
+  // The chip opened but no mode picked. Losing the box's focus was the only
+  // thing that folded it again, and held sideways the rail is folded without
+  // the box ever having focus - so a chip tapped open and then left stayed
+  // open, the whole rail where the thread should be. A tap anywhere outside
+  // the rail (the chat box included) is a "never mind": fold back.
+  const railRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!railOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!railRef.current?.contains(e.target as Node)) setRailOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [railOpen]);
   useEffect(() => {
     if (!phoneLayout) return;
     try {
@@ -1475,7 +1489,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
             {/* flex-1 so the unselected state - which renders all four modes
                 as cards - gets the full row instead of shrink-wrapping next
                 to the avatar. */}
-            <div className="min-w-0 flex-1">
+            <div ref={railRef} className="min-w-0 flex-1">
               <ModeSelector
                 value={mode}
                 folded={(composerFocused || shortScreen) && !railOpen}
@@ -1571,7 +1585,12 @@ export function ChatView({ conversationId }: { conversationId: string }) {
                     : undefined
             }
             value={draft}
-            onChange={setDraft}
+            onChange={(next) => {
+              setDraft(next);
+              // The chip kept the keyboard up, so going on typing is the
+              // other way of leaving the rail without picking.
+              setRailOpen(false);
+            }}
             onSend={handleSend}
             onTypingChange={setIsTyping}
             textareaRef={composerRef}

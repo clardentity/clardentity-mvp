@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ErrorBoundary } from "@/components/system/ErrorBoundaries";
 import { usePhoneLayout } from "@/lib/usePhoneLayout";
 import type {
@@ -925,10 +925,37 @@ function MessageBubble({
   // Nothing is destroyed now until you actually submit.
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  // Your own message's actions wait for a hover, and a finger can't hover.
+  // On touch a long press on the bubble shows them instead; a tap anywhere
+  // else, or Escape, puts them away again.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [actionsShown, setActionsShown] = useState(false);
+  const longPress = useLongPress(() => setActionsShown(true), isUser && !editing && !isStreaming);
+  useEffect(() => {
+    if (!actionsShown) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setActionsShown(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActionsShown(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [actionsShown]);
 
   return (
-    <div data-testid="message" data-role={role} className={`group/msg flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      ref={rootRef}
+      data-testid="message"
+      data-role={role}
+      className={`group/msg flex ${isUser ? "justify-end" : "justify-start"}`}
+    >
       <div
+        {...longPress}
         className={
           isUser
             // Grey, not burgundy, and the same 20px the composer types at:
@@ -1206,6 +1233,7 @@ function MessageBubble({
                 ? () => {
                     setDraft(content);
                     setEditing(true);
+                    setActionsShown(false);
                   }
                 : undefined
             }
@@ -1213,6 +1241,7 @@ function MessageBubble({
             onDelete={onDelete}
             busy={busy}
             side={isUser ? "mine" : "theirs"}
+            revealed={actionsShown}
           />
         )}
         {!isStreaming && createdAt && (
@@ -1314,6 +1343,7 @@ function MessageActions({
   onDelete,
   busy,
   side,
+  revealed,
 }: {
   content: string;
   onEdit?: () => void;
@@ -1324,6 +1354,8 @@ function MessageActions({
    *  the bubble is grey now - only where the row sits and whether it waits
    *  for a hover. */
   side: "mine" | "theirs";
+  /** Shown without a hover: a long press on a touch screen asked for it. */
+  revealed?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   // Two clicks, not a browser confirm() - same pattern the sidebar's own
@@ -1360,7 +1392,8 @@ function MessageActions({
         // messages - short, and you know what you wrote - but on a response
         // it put Copy behind a hover, below the evidence panel, where nobody
         // found it. Under your own bubble a permanent row is just noise.
-        side === "mine" ? "justify-end opacity-0" : "opacity-45",
+        side === "mine" && "justify-end",
+        revealed ? "opacity-100" : side === "mine" ? "opacity-0" : "opacity-45",
       )}
     >
       <button
@@ -1411,7 +1444,7 @@ function MessageActions({
             autoFocus
             disabled={busy}
             className={cx(
-              "rounded-md px-1.5 py-1 text-xs font-semibold uppercase tracking-wide transition-colors disabled:opacity-40",
+              "tap-target rounded-md px-1.5 py-1 text-xs font-semibold uppercase tracking-wide transition-colors disabled:opacity-40",
               "text-band-low",
             )}
           >
@@ -1432,6 +1465,57 @@ function MessageActions({
       )}
     </div>
   );
+}
+
+/** A long press by a finger (mice and pens are left alone): ~500ms held
+ *  still. Moving more than a few pixels or scrolling (the browser cancels
+ *  the pointer) calls it off. While the finger is down the bubble opts out
+ *  of the native callout and selection, so the press isn't fought over by
+ *  the browser's own long-press menu; both come back on release. */
+function useLongPress(onLongPress: () => void, enabled: boolean) {
+  const timer = useRef<number | null>(null);
+  const origin = useRef<{ x: number; y: number; el: HTMLElement } | null>(null);
+
+  const end = useCallback(() => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    const el = origin.current?.el;
+    if (el) {
+      el.style.removeProperty("-webkit-touch-callout");
+      el.style.removeProperty("-webkit-user-select");
+      el.style.removeProperty("user-select");
+    }
+    origin.current = null;
+  }, []);
+
+  useEffect(() => end, [end]);
+
+  return {
+    onPointerDown: (e: ReactPointerEvent<HTMLElement>) => {
+      if (!enabled || e.pointerType !== "touch" || !e.isPrimary) return;
+      end();
+      const el = e.currentTarget;
+      el.style.setProperty("-webkit-touch-callout", "none");
+      el.style.setProperty("-webkit-user-select", "none");
+      el.style.setProperty("user-select", "none");
+      origin.current = { x: e.clientX, y: e.clientY, el };
+      timer.current = window.setTimeout(() => {
+        timer.current = null;
+        onLongPress();
+      }, 500);
+    },
+    onPointerMove: (e: ReactPointerEvent<HTMLElement>) => {
+      const o = origin.current;
+      if (o && Math.hypot(e.clientX - o.x, e.clientY - o.y) > 10) end();
+    },
+    onPointerUp: end,
+    onPointerCancel: end,
+    // Android raises its own menu for a held finger; while ours is in
+    // charge of the press, it doesn't.
+    onContextMenu: (e: ReactMouseEvent<HTMLElement>) => {
+      if (origin.current) e.preventDefault();
+    },
+  };
 }
 
 function ActionIcon({ children }: { children: ReactNode }) {

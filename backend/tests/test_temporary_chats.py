@@ -17,7 +17,7 @@ from app.db.session import AsyncSessionLocal
 from app.main import app
 from app.models import Conversation, Document, DocumentChunk, Message
 from app.models.document import EMBEDDING_DIM
-from app.services import temporary_chats
+from app.services import stored_files, temporary_chats
 from app.services.profile_service import gather_evidence
 from app.services.retrieval import retrieve_chunks
 
@@ -216,7 +216,7 @@ class TestTemporaryChats:
 
     async def test_leaving_it_deletes_it_with_its_files_and_pictures(self, monkeypatch):
         deleted: list[str] = []
-        monkeypatch.setattr(temporary_chats, "delete_file", deleted.append)
+        monkeypatch.setattr(stored_files, "delete_file", deleted.append)
 
         async with client() as c:
             headers, ws, user_id = await _account(c)
@@ -251,7 +251,7 @@ class TestTemporaryChats:
                 await c.delete(f"{API}/auth/me", headers=headers)
 
     async def test_an_abandoned_one_is_swept_after_a_day(self, monkeypatch):
-        monkeypatch.setattr(temporary_chats, "delete_file", lambda _key: None)
+        monkeypatch.setattr(stored_files, "delete_file", lambda _key: None)
 
         async with client() as c:
             headers, ws, user_id = await _account(c)

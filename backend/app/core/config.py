@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # The version of the terms and privacy notice currently in force. Bump it
     # when either document changes materially; stored against each account at
     # sign-up so a later revision knows who has agreed to what.
-    terms_version: str = "2026-10-17"
+    terms_version: str = "2026-10-23"
     # Who may open /admin. Comma-separated emails; empty means nobody, which
     # is the right default for a deployment that never sets it.
     admin_emails: str = "admin@clardentity.ai"
@@ -204,6 +204,11 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 30
     google_client_id: str | None = None
     google_client_secret: str | None = None
+    # The phone apps sign in with their own OAuth clients (one per platform),
+    # and Google stamps a token with the client that asked for it, so a token
+    # from the iOS or Android app names that client as its audience, not the
+    # website's. Comma-separated; empty means only the website's ID is taken.
+    google_client_ids_extra: str = ""
 
     # Email (Resend). Unset disables sending entirely - registration must work
     # without an email provider configured.
@@ -219,6 +224,17 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def google_client_ids(self) -> list[str]:
+        """Every audience a Google ID token may carry here: the website's
+        client first, then the apps'. Empty when Google sign-in is off - the
+        extras alone do not turn it on, since the website's ID is the switch
+        the rest of the deployment (and the frontend build) keys off."""
+        if not self.google_client_id:
+            return []
+        extra = [cid.strip() for cid in self.google_client_ids_extra.split(",") if cid.strip()]
+        return list(dict.fromkeys([self.google_client_id, *extra]))
 
 
 settings = Settings()  # type: ignore[call-arg]

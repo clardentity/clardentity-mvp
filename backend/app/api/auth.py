@@ -25,7 +25,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.services.geolocation import is_resolvable
-from app.services.storage import delete_file
+from app.services import stored_files
 from app.models import Document, User, Workspace, WorkspaceMember
 from app.schemas.auth import (
     AuthResponse,
@@ -344,15 +344,19 @@ async def refresh(
 async def oauth_google(
     payload: GoogleOAuthRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> TokenResponse:
-    if not settings.google_client_id:
+    audiences = settings.google_client_ids
+    if not audiences:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Google OAuth is not configured on this server",
         )
 
     try:
+        # Any of our own clients, never anyone else's: the website's ID and
+        # the phone apps' (GOOGLE_CLIENT_IDS_EXTRA). A token minted for some
+        # other app that happens to use Google sign-in still fails here.
         info = google_id_token.verify_oauth2_token(
-            payload.id_token, google_requests.Request(), settings.google_client_id
+            payload.id_token, google_requests.Request(), audiences
         )
     except ValueError as exc:
         raise HTTPException(
@@ -365,13 +369,17 @@ async def oauth_google(
     user = await db.scalar(
         select(User).where(User.oauth_provider == "google", User.oauth_subject == oauth_subject)
     )
-    if user is None and email:
+    if user is None:
         # Linking by address trusts Google's word that the address belongs to
         # this person - only when Google itself has verified it. An
         # unverified claim (or a Workspace tenant asserting any address on a
         # domain it controls) would otherwise sign straight into whoever
-        # owns that address here.
-        if info.get("email_verified") not in (True, "true"):
+        # owns that address here. The same goes for a new account: it would
+        # hold an address nobody has shown is theirs, and the next password
+        # sign-up or reset for that address would land in it. A token with
+        # no address at all can't make an account either - the column is
+        # required, and the insert would fail as a 500.
+        if not email or info.get("email_verified") not in (True, "true"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Your Google account's email address isn't verified",
@@ -398,6 +406,14 @@ async def oauth_google(
             oauth_subject=oauth_subject,
             display_name=info.get("name"),
         )
+        # Recorded as an email sign-up records it, when the client says the
+        # terms were agreed to. Not refused when it doesn't: a phone build or
+        # cached page from before this field existed would otherwise be unable
+        # to sign anyone up, and the row then says plainly that nothing was
+        # recorded, which a later re-consent prompt can act on.
+        if payload.accepted_terms:
+            user.terms_accepted_at = datetime.now(UTC)
+            user.terms_version = settings.terms_version
         db.add(user)
         await db.flush()
         await provision_new_user(db, user)
@@ -437,27 +453,30 @@ async def delete_me(
     everything under a workspace (conversations, messages, documents, chunks,
     memories) then goes with it via the schema's own cascades, and the
     profile, memberships and pro-interest rows cascade from the user itself.
-    Stored files are unlinked before their rows, same as a single document
-    delete, so the bucket doesn't accumulate orphans.
+
+    Stored files go too, after the commit and best-effort (see
+    app/services/stored_files.py): every document's file and every picture in
+    the workspaces that go, the files this user uploaded elsewhere, and every
+    picture this user ever had drawn - including ones in chats deleted long
+    ago, which nothing in the database points at any more.
     """
     owned = (
         await db.execute(select(Workspace).where(Workspace.owner_id == current_user.id))
     ).scalars().all()
     owned_ids = [w.id for w in owned]
 
-    # Files: everything in the workspaces about to go, plus anything this user
+    # Rows: everything in the workspaces about to go, plus anything this user
     # uploaded into someone else's workspace (which would otherwise block the
     # user row's delete on the uploaded_by key).
     doc_filter = Document.uploaded_by == current_user.id
     if owned_ids:
         doc_filter = doc_filter | Document.workspace_id.in_(owned_ids)
     docs = (await db.execute(select(Document).where(doc_filter))).scalars().all()
+    keys = [d.storage_path for d in docs if d.storage_path]
+    keys += await stored_files.keys_in_workspaces(db, owned_ids)
+    images_prefix = stored_files.generated_images_prefix(current_user.id)
+
     for document in docs:
-        if document.storage_path:
-            try:
-                delete_file(document.storage_path)
-            except Exception:  # noqa: BLE001 - a missing object must not block account deletion
-                logger.warning("could not delete stored file", extra={"path": document.storage_path})
         await db.delete(document)
     await db.flush()
 
@@ -472,3 +491,5 @@ async def delete_me(
     await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id))
     await db.delete(current_user)
     await db.commit()
+
+    await stored_files.remove(keys, prefixes=[images_prefix])

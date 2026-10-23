@@ -126,6 +126,12 @@ async function request<T>(
     if (newAccessToken) {
       return request<T>(path, options, true);
     }
+    // The refresh gave up without the server ever rejecting it (a 401/403
+    // would have cleared the tokens): it was asleep for longer than the
+    // refresh would wait. Throwing the original 401 here read to every
+    // caller as "signed out" and ended a session that was still good, so
+    // report it as the server not being ready, which callers wait out.
+    if (getRefreshToken()) throw new ApiError(503, null, "Server not ready");
   }
 
   if (!res.ok) {

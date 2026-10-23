@@ -30,6 +30,11 @@ class RefreshRequest(BaseModel):
 
 class GoogleOAuthRequest(BaseModel):
     id_token: str
+    # The client's word that the terms were shown and agreed to before this
+    # sign-in: the ticked box on the sign-up page, or the notice beside the
+    # button on the log-in page. Read only when the sign-in creates the
+    # account, where it is stored the same way as an email sign-up's.
+    accepted_terms: bool = False
 
 
 class PasswordResetRequest(BaseModel):
