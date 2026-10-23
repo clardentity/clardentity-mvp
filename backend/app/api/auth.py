@@ -344,15 +344,19 @@ async def refresh(
 async def oauth_google(
     payload: GoogleOAuthRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> TokenResponse:
-    if not settings.google_client_id:
+    audiences = settings.google_client_ids
+    if not audiences:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Google OAuth is not configured on this server",
         )
 
     try:
+        # Any of our own clients, never anyone else's: the website's ID and
+        # the phone apps' (GOOGLE_CLIENT_IDS_EXTRA). A token minted for some
+        # other app that happens to use Google sign-in still fails here.
         info = google_id_token.verify_oauth2_token(
-            payload.id_token, google_requests.Request(), settings.google_client_id
+            payload.id_token, google_requests.Request(), audiences
         )
     except ValueError as exc:
         raise HTTPException(
@@ -365,13 +369,17 @@ async def oauth_google(
     user = await db.scalar(
         select(User).where(User.oauth_provider == "google", User.oauth_subject == oauth_subject)
     )
-    if user is None and email:
+    if user is None:
         # Linking by address trusts Google's word that the address belongs to
         # this person - only when Google itself has verified it. An
         # unverified claim (or a Workspace tenant asserting any address on a
         # domain it controls) would otherwise sign straight into whoever
-        # owns that address here.
-        if info.get("email_verified") not in (True, "true"):
+        # owns that address here. The same goes for a new account: it would
+        # hold an address nobody has shown is theirs, and the next password
+        # sign-up or reset for that address would land in it. A token with
+        # no address at all can't make an account either - the column is
+        # required, and the insert would fail as a 500.
+        if not email or info.get("email_verified") not in (True, "true"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Your Google account's email address isn't verified",
