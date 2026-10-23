@@ -381,8 +381,11 @@ export async function streamChatMessage(
     return;
   }
 
+  let refreshUnanswered = false;
   if (res.status === 401 && getRefreshToken()) {
     const newToken = await refreshAccessToken();
+    // tokens kept after a failed refresh = the server never answered it
+    refreshUnanswered = !newToken && getRefreshToken() !== null;
     if (newToken) {
       try {
         res = await openStream(conversationId, body, signal);
@@ -407,7 +410,13 @@ export async function streamChatMessage(
     // Still 401 after the refresh above was tried: the session really is
     // over (a token past its 30 days, or revoked by a password reset). Say
     // that, in words - the server's "Not authenticated" read as a bug.
-    if (res.status === 401) detail = "Your session has expired. Please sign in again.";
+    // Unless the refresh never got an answer: then the session is fine and
+    // the server is just still waking.
+    if (res.status === 401) {
+      detail = refreshUnanswered
+        ? "Couldn't reach the server. It may be waking up after being idle - try again in a moment."
+        : "Your session has expired. Please sign in again.";
+    }
     handlers.onError(detail, res.status);
     return;
   }

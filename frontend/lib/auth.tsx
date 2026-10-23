@@ -84,31 +84,54 @@ function isServerNotReady(error: unknown): boolean {
 
 let inFlightRefresh: Promise<string | null> | null = null;
 
+/** How long a refresh keeps knocking on a server that isn't up yet - the same
+ *  minute the first `/auth/me` gets (hydrate, below), since a cold start
+ *  takes about that long whichever request happens to wake it. */
+const REFRESH_WAIT_MS = 60_000;
+const REFRESH_RETRY_GAP_MS = 3000;
+
+/** Trade the refresh token for a new access token. Resolves to null when it
+ *  could not - and the two reasons for that are kept apart: a 401/403 means
+ *  the session is over and the tokens are cleared; a server that is asleep
+ *  or still booting is waited on, and if it never answers the tokens are
+ *  kept, so `getRefreshToken()` afterwards says which of the two it was. */
 export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return null;
 
   if (!inFlightRefresh) {
     inFlightRefresh = (async () => {
+      const deadline = Date.now() + REFRESH_WAIT_MS;
       try {
-        const res = await trackServerWait(
-          fetch(`${API_BASE_URL}/auth/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          }),
-          (r) => r.status < 500,
-        );
-        if (!res.ok) {
-          // A 502 from a container still booting is not a rejected token.
-          if (res.status === 401 || res.status === 403) clearTokens();
-          return null;
+        for (;;) {
+          try {
+            const res = await trackServerWait(
+              fetch(`${API_BASE_URL}/auth/refresh`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh_token: refreshToken }),
+              }),
+              (r) => r.status < 500,
+            );
+            if (res.ok) {
+              const data = (await res.json()) as TokenResponse;
+              setTokens(data.access_token, data.refresh_token);
+              return data.access_token;
+            }
+            if (res.status === 401 || res.status === 403) {
+              clearTokens();
+              return null;
+            }
+            // A 502 from a container still booting is not a rejected token,
+            // and nor is it worth giving up on; any other status is an
+            // answer that another try won't change.
+            if (res.status !== 502 && res.status !== 503 && res.status !== 504) return null;
+          } catch {
+            // No answer at all: the usual shape of a server still asleep.
+          }
+          if (Date.now() + REFRESH_RETRY_GAP_MS > deadline) return null;
+          await new Promise((r) => setTimeout(r, REFRESH_RETRY_GAP_MS));
         }
-        const data = (await res.json()) as TokenResponse;
-        setTokens(data.access_token, data.refresh_token);
-        return data.access_token;
-      } catch {
-        return null;
       } finally {
         inFlightRefresh = null;
       }
