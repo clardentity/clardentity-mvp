@@ -56,7 +56,9 @@ export function GoogleSignInButton({
   // Read at the moment the credential arrives, so ticking the box doesn't
   // re-initialise Google's client.
   const acceptedRef = useRef(acceptedTerms);
-  acceptedRef.current = acceptedTerms;
+  useEffect(() => {
+    acceptedRef.current = acceptedTerms;
+  }, [acceptedTerms]);
   const disabled = Boolean(disabledHint);
 
   const handleCredential = useCallback(
