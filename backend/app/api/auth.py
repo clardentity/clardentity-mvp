@@ -25,7 +25,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.services.geolocation import is_resolvable
-from app.services.storage import delete_file
+from app.services import stored_files
 from app.models import Document, User, Workspace, WorkspaceMember
 from app.schemas.auth import (
     AuthResponse,
@@ -445,27 +445,30 @@ async def delete_me(
     everything under a workspace (conversations, messages, documents, chunks,
     memories) then goes with it via the schema's own cascades, and the
     profile, memberships and pro-interest rows cascade from the user itself.
-    Stored files are unlinked before their rows, same as a single document
-    delete, so the bucket doesn't accumulate orphans.
+
+    Stored files go too, after the commit and best-effort (see
+    app/services/stored_files.py): every document's file and every picture in
+    the workspaces that go, the files this user uploaded elsewhere, and every
+    picture this user ever had drawn - including ones in chats deleted long
+    ago, which nothing in the database points at any more.
     """
     owned = (
         await db.execute(select(Workspace).where(Workspace.owner_id == current_user.id))
     ).scalars().all()
     owned_ids = [w.id for w in owned]
 
-    # Files: everything in the workspaces about to go, plus anything this user
+    # Rows: everything in the workspaces about to go, plus anything this user
     # uploaded into someone else's workspace (which would otherwise block the
     # user row's delete on the uploaded_by key).
     doc_filter = Document.uploaded_by == current_user.id
     if owned_ids:
         doc_filter = doc_filter | Document.workspace_id.in_(owned_ids)
     docs = (await db.execute(select(Document).where(doc_filter))).scalars().all()
+    keys = [d.storage_path for d in docs if d.storage_path]
+    keys += await stored_files.keys_in_workspaces(db, owned_ids)
+    images_prefix = stored_files.generated_images_prefix(current_user.id)
+
     for document in docs:
-        if document.storage_path:
-            try:
-                delete_file(document.storage_path)
-            except Exception:  # noqa: BLE001 - a missing object must not block account deletion
-                logger.warning("could not delete stored file", extra={"path": document.storage_path})
         await db.delete(document)
     await db.flush()
 
@@ -480,3 +483,5 @@ async def delete_me(
     await db.execute(delete(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id))
     await db.delete(current_user)
     await db.commit()
+
+    await stored_files.remove(keys, prefixes=[images_prefix])

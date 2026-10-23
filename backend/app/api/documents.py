@@ -23,7 +23,8 @@ from app.schemas.document import (
     DocumentUploadOut,
 )
 from app.services.document_ingestion import SUPPORTED_TYPES, file_type_of, unsupported_reason
-from app.services.storage import delete_file, upload_file
+from app.services import stored_files
+from app.services.storage import upload_file
 from app.workers.ingest_document import ingest_document_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -236,7 +237,9 @@ async def delete_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     await require_workspace_member(db, document.workspace_id, current_user.id)
 
-    if document.storage_path:
-        delete_file(document.storage_path)
+    # Row first, file after, like every other delete: storage being down used
+    # to fail this with a 500 and leave the document in place.
+    key = document.storage_path
     await db.delete(document)
     await db.commit()
+    await stored_files.remove([key] if key else [])
