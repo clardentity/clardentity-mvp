@@ -109,7 +109,10 @@ export default function LoginPage() {
             {submitting ? "Logging in…" : "Log in"}
           </Button>
 
-          <GoogleSignInButton label="signin_with" />
+          {/* A Google sign-in here can create an account too, so the notice
+              under the button says what that agrees to; the server records
+              it only for an account this creates. */}
+          <GoogleSignInButton label="signin_with" acceptedTerms termsNotice />
 
           <p className="text-center text-sm text-ink-muted">
             Don&apos;t have an account?{" "}

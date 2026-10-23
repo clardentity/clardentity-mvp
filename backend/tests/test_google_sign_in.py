@@ -165,3 +165,68 @@ async def test_an_unverified_or_missing_address_never_makes_an_account(monkeypat
         claims.update(sub=f"sub-{uuid.uuid4().hex}", email_verified=True)
         res = await c.post(f"{API}/auth/oauth/google", json={"id_token": "x"})
         assert res.status_code == 401
+
+
+# --- Terms, for an account Google sign-in creates ---------------------------
+
+
+async def test_a_google_sign_up_records_the_terms_it_was_shown(monkeypatch):
+    from app.api import auth as auth_api
+    from app.core import config
+    from app.db.session import AsyncSessionLocal
+    from app.models import User
+
+    monkeypatch.setattr(config.settings, "google_client_id", WEB)
+    claims: dict = {}
+    monkeypatch.setattr(auth_api.google_id_token, "verify_oauth2_token", lambda *_a, **_k: dict(claims))
+
+    async def sign_in(c, accepted: bool | None) -> tuple[uuid.UUID, str]:
+        body: dict = {"id_token": "x"}
+        if accepted is not None:
+            body["accepted_terms"] = accepted
+        res = await c.post(f"{API}/auth/oauth/google", json=body)
+        if res.status_code >= 500:
+            pytest.skip("no database available")
+        assert res.status_code == 200, res.text
+        token = res.json()["access_token"]
+        me = await c.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})
+        return uuid.UUID(me.json()["id"]), token
+
+    async def terms_of(user_id: uuid.UUID):
+        async with AsyncSessionLocal() as db:
+            user = await db.get(User, user_id)
+            return user.terms_accepted_at, user.terms_version
+
+    def new_identity() -> None:
+        claims.update(
+            sub=f"sub-{uuid.uuid4().hex}",
+            email=f"g-{uuid.uuid4().hex[:8]}@example.com",
+            email_verified=True,
+        )
+
+    tokens: list[str] = []
+    async with client() as c:
+        try:
+            # Agreed on the way in: stored as an email sign-up stores it.
+            new_identity()
+            agreed, token = await sign_in(c, True)
+            tokens.append(token)
+            at, version = await terms_of(agreed)
+            assert at is not None
+            assert version == config.settings.terms_version
+
+            # Signing in again later never rewrites the record.
+            again, _ = await sign_in(c, False)
+            assert again == agreed
+            assert await terms_of(agreed) == (at, version)
+
+            # A client that doesn't say (one built before the field): the
+            # account is made, and the row records nothing rather than
+            # pretending something was agreed.
+            new_identity()
+            silent, token = await sign_in(c, None)
+            tokens.append(token)
+            assert await terms_of(silent) == (None, None)
+        finally:
+            for token in tokens:
+                await c.delete(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"})

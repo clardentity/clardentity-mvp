@@ -136,7 +136,18 @@ export default function RegisterPage() {
             {submitting ? "Creating account…" : "Sign up"}
           </Button>
 
-          <GoogleSignInButton label="signup_with" />
+          {/* Held back until the box above is ticked: a Google sign-up
+              creates the account in one tap, so the agreement has to come
+              first, the same as for the form. */}
+          <GoogleSignInButton
+            label="signup_with"
+            acceptedTerms={acceptedTerms}
+            disabledHint={
+              acceptedTerms
+                ? undefined
+                : "Tick the box above to sign up with Google."
+            }
+          />
 
           <p className="text-center text-sm text-ink-muted">
             Already have an account?{" "}

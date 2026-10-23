@@ -406,6 +406,14 @@ async def oauth_google(
             oauth_subject=oauth_subject,
             display_name=info.get("name"),
         )
+        # Recorded as an email sign-up records it, when the client says the
+        # terms were agreed to. Not refused when it doesn't: a phone build or
+        # cached page from before this field existed would otherwise be unable
+        # to sign anyone up, and the row then says plainly that nothing was
+        # recorded, which a later re-consent prompt can act on.
+        if payload.accepted_terms:
+            user.terms_accepted_at = datetime.now(UTC)
+            user.terms_version = settings.terms_version
         db.add(user)
         await db.flush()
         await provision_new_user(db, user)

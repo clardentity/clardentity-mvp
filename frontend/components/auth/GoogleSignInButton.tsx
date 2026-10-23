@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -28,13 +29,35 @@ declare global {
 
 /** Renders nothing at all when NEXT_PUBLIC_GOOGLE_CLIENT_ID is unset, so the
  *  auth pages stay clean until Google credentials are actually configured
- *  rather than showing a button that can only fail. */
-export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_with" }) {
+ *  rather than showing a button that can only fail.
+ *
+ *  `acceptedTerms` is sent with the token: a Google sign-in can create the
+ *  account, and the server records the agreement only when told. While
+ *  `disabledHint` is set the button isn't drawn at all - Google's button is
+ *  an iframe, which can't be disabled - and the hint stands in its place. */
+export function GoogleSignInButton({
+  label,
+  acceptedTerms = false,
+  disabledHint,
+  termsNotice = false,
+}: {
+  label: "signin_with" | "signup_with";
+  acceptedTerms?: boolean;
+  disabledHint?: string;
+  /** For a page with no terms box (log in): says under the button that a
+   *  new account made through it agrees to the terms. */
+  termsNotice?: boolean;
+}) {
   const router = useRouter();
   const { refresh } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scriptReady, setScriptReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read at the moment the credential arrives, so ticking the box doesn't
+  // re-initialise Google's client.
+  const acceptedRef = useRef(acceptedTerms);
+  acceptedRef.current = acceptedTerms;
+  const disabled = Boolean(disabledHint);
 
   const handleCredential = useCallback(
     async (response: CredentialResponse) => {
@@ -44,7 +67,10 @@ export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_w
         const res = await fetch(`${API_BASE_URL}/auth/oauth/google`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id_token: response.credential }),
+          body: JSON.stringify({
+            id_token: response.credential,
+            accepted_terms: acceptedRef.current,
+          }),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -63,7 +89,7 @@ export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_w
   );
 
   useEffect(() => {
-    if (!CLIENT_ID || !scriptReady || !containerRef.current) return;
+    if (!CLIENT_ID || !scriptReady || disabled || !containerRef.current) return;
     const google = window.google;
     if (!google) return;
 
@@ -78,7 +104,8 @@ export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_w
       text: label,
       shape: "pill",
     });
-  }, [scriptReady, handleCredential, label]);
+    // `disabled`: the container is new each time the button comes back.
+  }, [scriptReady, handleCredential, label, disabled]);
 
   if (!CLIENT_ID) return null;
 
@@ -96,7 +123,26 @@ export function GoogleSignInButton({ label }: { label: "signin_with" | "signup_w
         <span className="h-px flex-1 bg-hairline" />
       </div>
 
-      <div ref={containerRef} className="flex justify-center" />
+      {disabled ? (
+        <p className="text-center text-sm text-ink-muted">{disabledHint}</p>
+      ) : (
+        <div ref={containerRef} className="flex justify-center" />
+      )}
+
+      {termsNotice && !disabled && (
+        <p className="text-center text-xs leading-relaxed text-ink-muted">
+          New to Clardentity? Continuing with Google creates an account, and
+          means you agree to the{" "}
+          <Link href="/terms" target="_blank" className="text-brand hover:underline">
+            Terms of Service
+          </Link>{" "}
+          and the{" "}
+          <Link href="/privacy" target="_blank" className="text-brand hover:underline">
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      )}
 
       {error && (
         <p className="text-center text-sm text-band-low" role="alert">
