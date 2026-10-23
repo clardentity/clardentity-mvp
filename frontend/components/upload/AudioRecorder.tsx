@@ -20,6 +20,33 @@ type TranscribeResponse = {
  *  it back. */
 const EXPECTED_LANGUAGES = new Set(["english", "en"]);
 
+/** Recording formats in order of preference. Chrome and Firefox record
+ *  webm/opus; iPhone Safari can only record mp4 (AAC), and a file it made
+ *  labelled webm is a file the server can't read. */
+const RECORDING_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
+
+function pickRecordingType(): string | undefined {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return undefined;
+  }
+  return RECORDING_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
+/** The file name the upload carries, with the extension that matches what
+ *  was actually recorded - the server goes by it. */
+function recordingFileName(mimeType: string): string {
+  const t = mimeType.toLowerCase();
+  if (t.includes("mp4") || t.includes("aac") || t.includes("m4a")) return "recording.m4a";
+  if (t.includes("ogg")) return "recording.ogg";
+  return "recording.webm";
+}
+
 function titleCase(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
@@ -53,7 +80,8 @@ export function AudioRecorder({
     setNotice(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const preferred = pickRecordingType();
+      const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
@@ -62,7 +90,10 @@ export function AudioRecorder({
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // What the recorder says it made, then what its chunks say, then
+        // what was asked for - Safari can leave recorder.mimeType empty.
+        const type = recorder.mimeType || chunksRef.current[0]?.type || preferred || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
         await transcribe(blob);
       };
 
@@ -83,7 +114,7 @@ export function AudioRecorder({
   async function transcribe(blob: Blob) {
     try {
       const form = new FormData();
-      form.append("file", blob, "recording.webm");
+      form.append("file", blob, recordingFileName(blob.type));
 
       const accessToken = getAccessToken();
       const res = await fetch(`${API_BASE_URL}/audio/transcribe`, {
